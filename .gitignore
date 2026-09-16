@@ -6,6 +6,12 @@
 /build-noecal/
 build*/
 
+# The reference docs (RULES / CANON / ARCHITECTURE / ARC / HANDOFF) are NOT in
+# this repository, by Scott's standing instruction: our docs never go into a
+# GitHub project. They travel as docs.zip between sessions and live only on his
+# disk. s013 put them under docs/ inside the repo; s014 took them back out.
+/docs/
+
 /backups/
 compile_commands.json
 *.o

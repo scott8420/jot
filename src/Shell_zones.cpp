@@ -327,6 +327,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     menu->append_section(view);
 
     auto app = Gio::Menu::create();
+    app->append("Preferences\u2026", "win.preferences");
     app->append("Keyboard shortcuts", "win.shortcuts");
     app->append("About jot", "win.about");
     app->append("Quit", "win.quit");

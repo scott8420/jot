@@ -20,6 +20,7 @@
 #include "core/Project.hpp"
 #include "core/Shortcuts.hpp"
 #include "core/Notify.hpp"
+#include "core/Hotkey.hpp"
 #include "core/Pending.hpp"
 #include "core/Projection.hpp"
 #include "core/Tasks.hpp"
@@ -942,6 +943,109 @@ int main() {
               core::on_close(Lifecycle{false, false, true, true}) == OnClose::Exit);
         check("quit: answered and forced goes straight out",
               core::on_quit(Lifecycle{false, false, true, true}) == OnQuit::Exit);
+    }
+
+    // -- Hotkey: the global capture shortcut ------------------------------------
+    // Two jobs, and the second is the one with teeth. Judging a CHORD matters
+    // because a global grab on a bare letter eats that letter everywhere on the
+    // desktop, including in the dialog you would use to undo it. But the list
+    // algebra matters more: `custom-keybindings` is gnome-settings-daemon's,
+    // and it holds every shortcut the user made by hand. jot adding or removing
+    // its own entry must leave all of those untouched, in order -- a bug there
+    // costs somebody else's work, not jot's feature.
+    {
+        // Canonical form: the same chord, spelled four ways.
+        check("hotkey: <Primary> is <Control>",
+              core::accels_equal("<Primary>j", "<Control>j"));
+        check("hotkey: case and key case do not make two shortcuts",
+              core::accels_equal("<ctrl><SHIFT>N", "<Control><Shift>n"));
+        check("hotkey: <Meta> and <Mod4> are Super",
+              core::accels_equal("<Meta>space", "<Super>space"));
+        check("hotkey: modifier ORDER does not make two shortcuts",
+              core::accels_equal("<Shift><Control>n", "<Control><Shift>n"));
+        check("hotkey: a named key keeps its case (F5 is not f5)",
+              core::canonical_accel("<Control>F5") == "<Control>F5");
+        check("hotkey: different chords are different",
+              !core::accels_equal("<Control>j", "<Control><Alt>j"));
+        // Nonsense never equals anything -- including other nonsense, which is
+        // what stops a conflict scan reporting every unparseable dconf string
+        // as a clash with every other one.
+        check("hotkey: an empty accel matches nothing",
+              !core::accels_equal("", "") && !core::accels_equal("<Control>", "<Control>"));
+        check("hotkey: a bare modifier has no canonical form",
+              core::canonical_accel("<Control>").empty());
+
+        // The judgement. Empty objection == fit to be a global shortcut.
+        check("hotkey: Ctrl+Alt+J is acceptable",
+              core::hotkey_objection("<Control><Alt>j").empty());
+        check("hotkey: Super+N is acceptable",
+              core::hotkey_objection("<Super>n").empty());
+        check("hotkey: a bare letter is REFUSED",
+              !core::hotkey_objection("n").empty());
+        check("hotkey: Shift alone does not qualify -- <Shift>n is the letter N",
+              !core::hotkey_objection("<Shift>n").empty());
+        check("hotkey: a function key stands alone (nothing else types F9)",
+              core::hotkey_objection("F9").empty());
+        check("hotkey: Escape is refused however it is dressed up",
+              !core::hotkey_objection("<Control><Alt>Escape").empty());
+        check("hotkey: Ctrl+Return is refused -- the desktop needs Return",
+              !core::hotkey_objection("<Control>Return").empty());
+
+        // The slot. The trailing slash is load-bearing: a relocatable GSettings
+        // path without one is silently ignored by gnome-settings-daemon.
+        const std::string mine = core::jot_slot_path();
+        check("hotkey: the slot path ends in a slash",
+              !mine.empty() && mine.back() == '/');
+        check("hotkey: the slot path is under GNOME's custom-keybindings",
+              mine.rfind(core::custom_keybindings_prefix(), 0) == 0);
+
+        // ── the list algebra -- the part that touches someone else's data ──
+        const std::vector<std::string> theirs = {
+            "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/",
+            "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom1/",
+        };
+        auto added = core::with_slot(theirs, mine);
+        check("hotkey: adding ours keeps every stranger's entry, in order",
+              added.size() == 3 && added[0] == theirs[0] && added[1] == theirs[1]);
+        check("hotkey: ours is appended", added.back() == mine);
+        check("hotkey: adding twice is idempotent",
+              core::with_slot(added, mine).size() == 3);
+
+        // A hand-edited or half-written list can hold ours twice; the fix is
+        // silent and touches nothing else.
+        std::vector<std::string> doubled = {theirs[0], mine, theirs[1], mine};
+        auto fixed = core::with_slot(doubled, mine);
+        check("hotkey: a duplicate of OURS is collapsed to one",
+              fixed.size() == 3 && fixed[0] == theirs[0] && fixed[1] == mine &&
+                  fixed[2] == theirs[1]);
+
+        auto removed = core::without_slot(added, mine);
+        check("hotkey: removing ours leaves the strangers exactly as they were",
+              removed == theirs);
+        check("hotkey: removing when we were never there changes nothing",
+              core::without_slot(theirs, mine) == theirs);
+        check("hotkey: has_slot sees ours and not theirs",
+              core::has_slot(added, mine) && !core::has_slot(theirs, mine));
+
+        // The command. `--capture` with NO text is the form that presents.
+        check("hotkey: the command is --capture with nothing after it",
+              core::capture_command("/home/s/jot/build/jot") ==
+                  "/home/s/jot/build/jot --capture");
+        // gnome-settings-daemon shell-parses the string, so a path with a space
+        // in it must survive -- otherwise the key spawns the wrong thing and
+        // fails at a keypress, with no terminal to say so.
+        check("hotkey: a path with a space is quoted",
+              core::capture_command("/home/s/my builds/jot") ==
+                  "'/home/s/my builds/jot' --capture");
+        check("hotkey: an apostrophe in the path survives quoting",
+              core::capture_command("/home/o'neil/jot") ==
+                  "'/home/o'\\''neil/jot' --capture");
+        check("hotkey: our command is recognised wherever jot was built",
+              core::looks_like_capture_command("/opt/jot/jot --capture") &&
+                  core::looks_like_capture_command("'/home/s/my builds/jot' --capture"));
+        check("hotkey: a stranger's command is not mistaken for ours",
+              !core::looks_like_capture_command("/usr/bin/scanner --capture") &&
+                  !core::looks_like_capture_command("/opt/jot/jot --help"));
     }
 
     std::cout << "-----------------------------------------------\n";

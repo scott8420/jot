@@ -76,24 +76,44 @@ from a script or a keybinding should not throw a window in front of
 whatever you are doing. Without text there is nothing to file, so the
 only sensible reading is "let me type", and that does raise it.
 
-### A global key for it, on GNOME
+### A global key for it
 
-GNOME on Wayland has no global-hotkey API for applications, and the
-GlobalShortcuts portal is recent and patchy. A Settings keybinding
-running a command is what actually works today:
+**Preferences → Capture → Global capture shortcut → Set…**, then press
+the combination you want. jot writes it into GNOME's own custom
+shortcuts, so it appears in **Settings → Keyboard → View and Customize
+Shortcuts** alongside everything else you have set, and you can remove
+it from either place.
 
-**Settings → Keyboard → View and Customize Shortcuts → Custom
-Shortcuts → +**
+The key runs `jot --capture` with no text: the capture line opens with
+the cursor in it. **It works when jot is not running** — GNOME starts
+it, and on a cold start the thought goes through the same path as any
+other capture.
 
-| Field | Value |
-|---|---|
-| Name | `jot capture` |
-| Command | `jot --capture` |
-| Shortcut | whatever is free — `Super+J` is a reasonable choice |
+The row shows the exact command, which names *this* binary. Rebuild jot
+somewhere else and the shortcut still points at the old path — set it
+again from the new build and the row will say so.
 
-Use the full path to the binary if jot is not on the `PATH` the session
-uses. The same command from a terminal, a launcher or a script behaves
-identically.
+A few rules the chord has to pass, and why:
+
+- **Ctrl, Alt or Super has to be in it** (a function key on its own is
+  fine). A global grab on a bare letter takes that letter everywhere on
+  the desktop, including in the dialog you would use to undo it.
+- **Esc, Return, Tab, Space, Backspace and Delete are refused**
+  whatever is held down with them. The desktop needs them.
+
+If another shortcut already claims the chord, jot says which one and
+lets you decide — it can see GNOME's own bindings and your custom ones,
+but not an extension's or another application's private grab, so
+refusing on that evidence would be refusing on a half-answer.
+
+**Not GNOME?** The row says the feature is unavailable and nothing else
+changes: `jot --capture` still works from a terminal, a launcher, a
+script, or a keybinding you set yourself.
+
+*Why not the GlobalShortcuts portal:* it cannot fire when jot is not
+running, and the application does not choose the chord — it proposes
+one and the desktop asks the user, which is exactly the thing this
+preferences row exists to do.
 
 ## Dated todos on the desktop
 

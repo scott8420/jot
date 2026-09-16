@@ -120,6 +120,8 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
          "Write a second jots folder with everything in it, and switch to it"},
         {"General", "win.save-all",      {"<Ctrl>s"}, "",
          "Save everything now (structure already saves itself)"},
+        {"General", "win.preferences",   {"<Ctrl>comma"}, "",
+         "Preferences \u2014 including the global capture shortcut"},
         {"General", "win.shortcuts",     {"<Ctrl>question", "<Ctrl>slash"}, "",
          "Keyboard shortcuts (this window)"},
         {"General", "win.about",         {"F1"}, "", "About jot"},

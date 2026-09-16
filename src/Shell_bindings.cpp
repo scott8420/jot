@@ -27,6 +27,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     add_action("test-notify",   sigc::mem_fun(*this, &Shell::on_test_notify));
     add_action("about",         sigc::mem_fun(*this, &Shell::on_about));
     add_action("shortcuts",     sigc::mem_fun(*this, &Shell::on_shortcuts));
+    add_action("preferences",   sigc::mem_fun(*this, &Shell::on_preferences));
     // NOT close(), and the difference only appeared in s012: under residency a
     // close HIDES the window, so a Quit that closed would leave the process
     // running and the menu item doing nothing visible. Quit means quit, which

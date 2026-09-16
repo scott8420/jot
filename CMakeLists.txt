@@ -91,6 +91,14 @@ add_library(jot_core STATIC
     # can't drift. GTK-free, so it lives in core and the selftest guards it
     # headless -- a pure test proves no two chords collide.
     src/core/Shortcuts.cpp
+    # s014. WHAT a global capture shortcut is: which chords are fit to be grabbed
+    # desktop-wide, and the list algebra for adding jot's slot to -- and taking
+    # it out of -- gnome-settings-daemon's custom-keybindings WITHOUT disturbing
+    # anyone else's entries. In core because that list belongs to another
+    # program and to the user, so the operations on it have to be under test:
+    # the expensive failure is not a hotkey that does not fire, it is somebody
+    # else's shortcuts dropped on the way past.
+    src/core/Hotkey.cpp
 )
 target_include_directories(jot_core PUBLIC include)
 # Vendored nlohmann/json (header-only, MIT), PRIVATE -- an implementation detail
@@ -175,6 +183,10 @@ add_executable(jot
     src/Desktop.cpp
     src/JotsFolderDialog.cpp
     src/ShortcutsDialog.cpp
+    # s014: the preferences window, and the GSettings half of the capture hotkey
+    # (core/Hotkey.cpp decides what to write; this performs it).
+    src/PreferencesWindow.cpp
+    src/Keybinding.cpp
     src/Registry.cpp
     src/Log.cpp
 )

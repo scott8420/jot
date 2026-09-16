@@ -62,6 +62,7 @@ namespace jot {
 
 class AboutWindow;
 class ShortcutsDialog;
+class PreferencesWindow;
 class TreePane;
 class EditorPane;
 class DrawerPane;
@@ -145,6 +146,7 @@ private:
     void on_dump_registry();                     // category: handler: print the live widget tree
     void on_test_notify();                       // category: handler: four notifications, one field apart (log mode)
     void on_about();                             // category: handler: open the About window (dialog-lifetime exemplar)
+    void on_preferences();                       // category: handler: open the preferences window
     void on_shortcuts();                         // category: handler: keyboard reference (renders from core::shortcut_registry)
     void on_toggle_tree();                       // category: handler: show/hide the tree
     void on_toggle_drawer();                     // category: handler: show/hide the metadata drawer
@@ -381,6 +383,10 @@ private:
     // The About window: a hide-on-close singleton, built lazily on first open.
     std::unique_ptr<AboutWindow>     m_about;
     std::unique_ptr<ShortcutsDialog> m_shortcuts;   // shortcut registry's GTK consumer (same lifetime stone)
+    // The preferences window (s014). Same hide-on-close singleton stone, and the
+    // first home the three desktop toggles have had that is not the Today
+    // footer. Built lazily: most sessions never open it.
+    std::unique_ptr<PreferencesWindow> m_preferences;
 
     // The naming dialog. One instance, rebuilt per occasion because its mode
     // is fixed at construction and there are only three of them.
