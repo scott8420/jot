@@ -817,37 +817,55 @@ int main() {
               !has(announced_ids(r), later));
         check("notify: an undated todo has no deadline to arrive",
               !has(announced_ids(r), undated) &&
-              r.keep == std::vector<std::string>{core::announce_key(first, now - 60)});
+              r.live == std::vector<std::string>{core::announce_key(first, now - 60)});
+
+        // ── s015: KEEP IS NOT LIVE, and that is the milestone ──────────────
+        // Nothing has been delivered yet, so nothing is in the announced set --
+        // even though jot is about to speak about `first`. Before s015 this
+        // vector held the key already, which is how a notification the daemon
+        // dropped was recorded as said.
+        check("notify: a key that was only SENT is not in the announced set",
+              r.keep.empty() && r.live.size() == 1);
 
         // Said once, and then not again -- the whole difference between state
-        // and an event.
-        auto again = core::due_announcements(m, idx, now, r.keep);
-        check("notify: an announced todo is not announced twice",
-              again.to_show.empty() && again.keep == r.keep);
+        // and an event. The announced set passed in is what DELIVERY produced.
+        auto again = core::due_announcements(m, idx, now, r.live);
+        check("notify: a DELIVERED todo is not announced twice",
+              again.to_show.empty() && again.keep == r.live);
+
+        // And the other half of the same rule: a deadline whose receipt never
+        // came back is offered again. No retry machinery anywhere -- the tick
+        // is the retry, because the key simply is not in the delivered set.
+        auto retry = core::due_announcements(m, idx, now, {});
+        check("notify: an UNDELIVERED todo is offered again next tick",
+              retry.to_show.size() == 1 && retry.to_show[0].id == first &&
+              retry.keep.empty());
 
         // Rescheduling is the most common edit a todo gets, and keying by id
         // alone would have made it silent.
         m.set_due(first, now - 30);
         idx.update(m, first);
-        auto moved = core::due_announcements(m, idx, now, r.keep);
+        auto moved = core::due_announcements(m, idx, now, r.live);
         check("notify: moving the due date announces again",
               moved.to_show.size() == 1 && moved.to_show[0].id == first);
         check("notify: and the old key is pruned rather than kept forever",
-              moved.keep.size() == 1 && moved.keep[0] != r.keep[0]);
+              moved.keep.empty() && moved.live.size() == 1 &&
+              moved.live[0] != r.live[0]);
 
         // Ticking it off empties the set, so re-opening it announces again --
         // which is correct: it became a thing to do again.
         m.set_done(first, true);
         idx.update(m, first);
-        auto done = core::due_announcements(m, idx, now, moved.keep);
+        auto done = core::due_announcements(m, idx, now, moved.live);
         check("notify: a finished todo leaves the announced set",
               !has(done.keep, core::announce_key(first, now - 30)) &&
+              !has(done.live, core::announce_key(first, now - 30)) &&
               !has(announced_ids(done), first));
         // `second` is no longer blocked once `first` is done, and it was already
         // due -- so the sequential project hands the notification on by itself,
         // which is the behaviour that makes this worth having at all.
         check("notify: finishing a step makes the NEXT one due and announced",
-              done.keep == std::vector<std::string>{core::announce_key(second, now - 60)} &&
+              done.live == std::vector<std::string>{core::announce_key(second, now - 60)} &&
               has(announced_ids(done), second));
 
         // Overdue is a DAY, not a second. A task due at 17:00 is not overdue at
@@ -869,6 +887,79 @@ int main() {
         check("notify: the body carries the why, not the availability word",
               fresh.to_show[0].detail.find("Taxes") != std::string::npos &&
               fresh.to_show[0].detail.find("Available") == std::string::npos);
+    }
+
+    // ── s015: the outbox -- a send is not a delivery ────────────────────────
+    // The ledger for the gap between asking the notification service and being
+    // answered. It is pure and it is tested here because the thing it prevents
+    // is INVISIBLE from the surface: a notification that was never shown, marked
+    // as announced, and therefore never mentioned again. Nothing on screen would
+    // say so -- the same argument as availability in core::Tasks.
+    {
+        std::cout << "\n-- notification receipts (outbox) --\n";
+
+        core::Outbox box;
+        const std::string a = "node-a@1789300000";
+        const std::string b = "node-b@1789300000";
+
+        check("outbox: an empty ledger has nothing in flight",
+              box.size() == 0 && !box.in_flight(a) && box.tries(a) == 0);
+
+        check("outbox: a first ask goes", box.begin(a) && box.in_flight(a));
+        // The tick fires every sixty seconds. A daemon that has not answered
+        // yet must not be asked again, or one deadline becomes four rows.
+        check("outbox: a second ask while the first is in flight is refused",
+              !box.begin(a) && box.size() == 1);
+
+        // Delivered. The key leaves the ledger entirely -- from here the
+        // ANNOUNCED SET is what keeps it quiet, and two records of the same
+        // fact would be one too many.
+        box.succeed(a);
+        check("outbox: a delivered key leaves the ledger",
+              box.size() == 0 && !box.in_flight(a));
+
+        // Refused. Not in flight any more, so the next tick may ask again --
+        // which is the entire retry mechanism: there isn't one.
+        check("outbox: a refusal ends the flight and may be retried",
+              box.begin(a) && box.fail(a) == core::Outbox::After::Retry &&
+              !box.in_flight(a) && box.tries(a) == 1);
+
+        // ... but not forever. A service that says no five times in five
+        // minutes is not busy.
+        for (int i = 1; i < core::kDeliveryTries - 1; ++i) {
+            box.begin(a);
+            check("outbox: still retrying while tries remain",
+                  box.fail(a) == core::Outbox::After::Retry);
+        }
+        box.begin(a);
+        check("outbox: the last try gives up rather than asking forever",
+              box.fail(a) == core::Outbox::After::GiveUp);
+        check("outbox: and giving up clears the key, because the caller now "
+              "marks it announced",
+              box.size() == 0 && box.tries(a) == 0);
+
+        // Ticking a todo off mid-flight must not leave a count behind for a
+        // rescheduled version of it to inherit. Pruned against the same LIVE
+        // set the announced set is pruned against -- one definition of "still
+        // a deadline", two consumers.
+        box.begin(a);
+        box.begin(b);
+        box.fail(b);
+        check("outbox: pruning drops what is no longer a deadline",
+              box.size() == 2 && (box.prune({b}), box.size() == 1) &&
+              !box.in_flight(a) && box.tries(b) == 1);
+        check("outbox: and a key that survives the prune keeps its tries",
+              box.tries(b) == 1);
+
+        // A receipt for something never asked about -- the menu diagnostic, or
+        // a stale reply after a prune. It must not manufacture an entry.
+        core::Outbox fresh_box;
+        check("outbox: failing an unknown key invents nothing",
+              fresh_box.fail("who?") == core::Outbox::After::Retry &&
+              fresh_box.size() == 0);
+        fresh_box.succeed("who?");
+        check("outbox: succeeding an unknown key is harmless too",
+              fresh_box.size() == 0);
     }
 
     // ── first_prose_line -- one definition, two consumers (s009) ────────────

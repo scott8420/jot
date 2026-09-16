@@ -4,7 +4,9 @@
 #include "core/Links.hpp"
 #include "core/Tasks.hpp"
 #include "Desktop.hpp"
+#include "Notifier.hpp"
 #include "core/Lifecycle.hpp"
+#include "core/Notify.hpp"
 #include "core/Prefs.hpp"
 #include "core/Project.hpp"
 #include "widgets/Widgets.hpp"
@@ -188,6 +190,9 @@ private:
     void on_desktop_result(const DesktopResult& r);  // category: helper: one landing place for every desktop result
     void start_notify_timer();                   // category: helper: the minute clock behind due notifications
     void check_due_notifications();              // category: helper: announce what has just come due
+    void on_notify_receipt(const Receipt& r);    // category: helper: what the daemon said back
+    void send_unreceipted(const Notice& n);      // category: helper: the road with no receipt on it
+    void commit_announced(const std::string& key); // category: helper: a deadline is said ONCE it has landed
     void show_notify_status();                   // category: helper: the footer's fourth line
     void show_background_status();               // category: helper: the footer's sixth line
     void apply_background_hold();                // category: helper: ONE writer for the application hold
@@ -320,9 +325,21 @@ private:
     // at LAUNCH, not at the deadline -- and a timestamp would have said so at
     // a glance instead of costing a debugging session. The desktop line one
     // row up had carried its clock time since s009.
-    std::time_t m_notify_last_at = 0;      // when this process last sent
-    std::size_t m_notify_last_n  = 0;      // how many went in that batch
-    std::string m_notify_last_title;       // and what the first of them said
+    std::time_t m_notify_last_at = 0;      // when the last ANSWER came back
+    std::string m_notify_last_title;       // and what it was about
+
+    // ── s015: a send is not a delivery ─────────────────────────────────────
+    // The status line used to time the SEND, which is the moment jot stopped
+    // knowing anything. These three are the answer instead: what happened to
+    // the last one, whether anybody confirmed it, and how many the daemon has
+    // taken from this process. A count of confirmations is the first number on
+    // that line that could not have been produced by a notification nobody saw.
+    Notifier     m_notifier{"io.github.scott8420.Jot"};
+    core::Outbox m_outbox;                 // asked, not yet answered
+    std::size_t  m_notify_delivered = 0;   // receipts, this run
+    bool         m_notify_verified  = false;  // ... was the last one one of them?
+    std::string  m_notify_last_error;      // the daemon's own words, if it refused
+    std::size_t  m_notify_live_n    = 0;   // deadlines currently standing
 
     // ── residency (s012) ───────────────────────────────────────────────────
     // m_holding mirrors the application hold so release() is never called

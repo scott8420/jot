@@ -53,10 +53,16 @@ AnnounceResult due_announcements(const NodeSource& src, const TaskIndex& tasks,
         if (availability(src, id, now) != Avail::Available) continue;
 
         const std::string key = announce_key(id, due);
-        out.keep.push_back(key);
+        out.live.push_back(key);
 
-        if (std::find(announced.begin(), announced.end(), key) != announced.end())
-            continue;                           // already said once; say nothing
+        if (std::find(announced.begin(), announced.end(), key) != announced.end()) {
+            // Said once AND acknowledged -- it stays in the announced set for as
+            // long as it is live, and nothing more is sent. A key that was only
+            // SENT is not in here, which is the whole of s015: it falls through
+            // and is offered again next tick.
+            out.keep.push_back(key);
+            continue;
+        }
 
         Announcement a;
         a.id      = id;
@@ -74,5 +80,67 @@ AnnounceResult due_announcements(const NodeSource& src, const TaskIndex& tasks,
 
     return out;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Outbox. A vector rather than a map: this holds the deadlines that are due
+// RIGHT NOW and not yet acknowledged, which is nearly always zero and has never
+// plausibly been more than a handful. A linear scan over that is free, and the
+// order it preserves makes the selftest's assertions readable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+Outbox::Entry* Outbox::find(const std::string& key) {
+    for (auto& e : m_entries) if (e.key == key) return &e;
+    return nullptr;
+}
+
+const Outbox::Entry* Outbox::find(const std::string& key) const {
+    for (const auto& e : m_entries) if (e.key == key) return &e;
+    return nullptr;
+}
+
+bool Outbox::begin(const std::string& key) {
+    if (Entry* e = find(key)) {
+        if (e->flight) return false;            // asked, not answered -- wait
+        e->flight = true;
+        return true;
+    }
+    m_entries.push_back(Entry{key, 0, true});
+    return true;
+}
+
+void Outbox::succeed(const std::string& key) {
+    std::erase_if(m_entries, [&](const Entry& e) { return e.key == key; });
+}
+
+Outbox::After Outbox::fail(const std::string& key) {
+    Entry* e = find(key);
+    if (!e) return After::Retry;                // never asked; nothing spent
+    e->flight = false;
+    ++e->tries;
+    if (e->tries < kDeliveryTries) return After::Retry;
+    // Spent. The entry goes, because the caller is about to put the key in the
+    // announced set -- two records of the same "stop asking" would be one
+    // record too many, and the announced set is the one that survives a restart.
+    std::erase_if(m_entries, [&](const Entry& x) { return x.key == key; });
+    return After::GiveUp;
+}
+
+void Outbox::prune(const std::vector<std::string>& live) {
+    std::erase_if(m_entries, [&](const Entry& e) {
+        return std::find(live.begin(), live.end(), e.key) == live.end();
+    });
+}
+
+bool Outbox::in_flight(const std::string& key) const {
+    const Entry* e = find(key);
+    return e && e->flight;
+}
+
+int Outbox::tries(const std::string& key) const {
+    const Entry* e = find(key);
+    return e ? e->tries : 0;
+}
+
+std::size_t Outbox::size() const { return m_entries.size(); }
 
 }  // namespace jot::core

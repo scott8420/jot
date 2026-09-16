@@ -187,6 +187,11 @@ add_executable(jot
     # (core/Hotkey.cpp decides what to write; this performs it).
     src/PreferencesWindow.cpp
     src/Keybinding.cpp
+    # s015: the receipted notification road. org.gtk.Notifications.AddNotification
+    # is a method call with a reply, where g_application_send_notification is a
+    # void verb that cannot fail -- so a deadline can now be marked announced on
+    # a DELIVERY rather than on a send.
+    src/Notifier.cpp
     src/Registry.cpp
     src/Log.cpp
 )

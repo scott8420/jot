@@ -115,6 +115,11 @@ void Shell::build_ui() {
     // will, so this is the daemon's own question rather than a guess at it.
     m_notify_ok = static_cast<bool>(
         Gio::DesktopAppInfo::create("io.github.scott8420.Jot.desktop"));
+
+    // Every answer the notification service gives lands here. Same shape as the
+    // desktop projection's deferred report one field up: the request is made in
+    // one place and answered in another, and the state only moves on the answer.
+    m_notifier.set_reply([this](const Receipt& r) { on_notify_receipt(r); });
     m_today->set_notify_on(m_prefs.notify_due);
     show_notify_status();
     start_notify_timer();

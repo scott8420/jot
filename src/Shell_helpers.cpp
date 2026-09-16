@@ -875,76 +875,168 @@ void Shell::check_due_notifications() {  // helper: announce what has just come 
     const auto r = core::due_announcements(*m_store, m_tasks, std::time(nullptr),
                                            m_prefs.announced);
 
-    // The set is rewritten even when nothing is shown, because PRUNING is half
-    // of what it does: a todo that was ticked off or rescheduled has to leave,
-    // or the list grows for the life of the jots folder and a re-opened task
-    // never announces again.
+    // The announced set is rewritten even when nothing is shown, because
+    // PRUNING is half of what it does: a todo that was ticked off or
+    // rescheduled has to leave, or the list grows for the life of the jots
+    // folder and a re-opened task never announces again.
+    //
+    // What is NOT done here any more is adding to it. s011 wrote
+    // `m_prefs.announced = r.keep` with r.keep holding every due key, sent or
+    // not -- so a deadline became "announced" at the moment jot decided to
+    // speak, and a send the daemon dropped was recorded as said, once, for good.
+    // Now a key joins that set in on_notify_receipt() and nowhere else.
     const bool moved = (r.keep != m_prefs.announced);
     m_prefs.announced = r.keep;
-    if (moved || !r.to_show.empty()) core::save_prefs(m_prefs_file, m_prefs);
+    if (moved) core::save_prefs(m_prefs_file, m_prefs);
+
+    // The ledger holds the gap between asking and being answered, so it is
+    // pruned against the same live set: a todo ticked off mid-flight must not
+    // leave a try-count behind for a rescheduled version to inherit.
+    m_outbox.prune(r.live);
+    m_notify_live_n = r.live.size();
 
     for (const auto& a : r.to_show) {
-        auto n = Gio::Notification::create(a.summary);
-        if (!a.detail.empty()) n->set_body(a.detail);
-        n->set_icon(Gio::ThemedIcon::create("jot-logo-symbolic"));
+        // Already asked and not yet answered. The tick is every sixty seconds
+        // and a slow daemon must not be asked twice for one row.
+        if (!m_outbox.begin(a.key)) continue;
 
+        Notice n;
+        n.key     = a.key;
+        // Keyed by the NODE id, so a second notification about the same task
+        // replaces the first rather than stacking. Nobody wants four rows in
+        // the tray for one deadline. (Our key carries the due date; the tray's
+        // must not, or a rescheduled task leaves the old row sitting there.)
+        n.tray_id = a.id;
+        n.title   = a.summary;
+        n.body    = a.detail;
+        n.icon    = "jot-logo-symbolic";
         // ── the click, and why the action is on the APPLICATION ─────────────
         // A notification outlives the window that sent it: GNOME keeps it in
         // the message tray, and clicking it may well happen after jot has been
         // closed. The daemon activates the APPLICATION by id and dispatches
         // into its action group, so a "win." action would have nothing to land
         // in. App owns `goto-node` and forwards to the Shell it builds.
-        n->set_default_action_variant(
-            "app.goto-node", Glib::Variant<Glib::ustring>::create(a.id));
-
+        n.action  = "app.goto-node";
+        n.target  = a.id;
         // Urgency, not decoration: an overdue deadline should survive "Do Not
         // Disturb" and a deadline arriving on schedule should not.
-        n->set_priority(a.overdue ? Gio::Notification::Priority::URGENT
-                                  : Gio::Notification::Priority::NORMAL);
+        n.urgent  = a.overdue;
 
-        // Keyed by the node id, so a second notification about the SAME task
-        // replaces the first rather than stacking. Nobody wants four rows in
-        // the tray for one deadline.
-        // ── NOT get_application(), and this is the s012 bug ────────────────
-        // A HIDDEN WINDOW HAS NO APPLICATION. Gtk::Window::get_application()
-        // returned null for every send made while jot was resident, the `if
-        // (app)` guard below swallowed the call, and send_notification was
-        // never reached -- so nothing ever went onto the bus. The name was
-        // still owned, the daemon was healthy, the content was fine: the send
-        // did not fail, it did not happen.
-        //
-        // Gio::Application::get_default() is the process-wide singleton and
-        // does not care what any window is doing. A notification is the
-        // APPLICATION's to send -- the same lesson as `app.goto-node` being an
-        // application action, one layer down: the thing that outlives the
-        // window must not be reached THROUGH the window.
-        auto app = Gio::Application::get_default();
-        if (!app) {
-            if (auto lg = log::get(log::Area::Shell))
-                lg->error("NOT SENT '{}' -- no default application", a.summary);
-            continue;
-        }
-        app->send_notification(a.id, n);
-
-        // INSIDE the guard, and it was outside. "notified:" printed for every
-        // send that never happened, which is how a trace channel came to report
-        // success for a verb that cannot fail -- g_application_send_notification
-        // returns void. A log line that cannot distinguish "did it" from
-        // "skipped it" is worse than no log line: it costs an evening.
         if (auto lg = log::get(log::Area::Shell))
-            lg->info("notified: {} ({}) id={}", a.summary,
-                     a.overdue ? "overdue" : "due", a.id);
+            lg->info("notify: asking for '{}' ({}) id={} try={}", a.summary,
+                     a.overdue ? "overdue" : "due", a.id, m_outbox.tries(a.key) + 1);
+
+        m_notifier.send(n);
     }
 
-    // What the status line could not say in s011: WHEN, and HOW MANY WENT OUT
-    // rather than how many keys are being tracked. Recorded here, at the send,
-    // because it is the only place that knows the difference.
-    if (!r.to_show.empty()) {
-        m_notify_last_at    = std::time(nullptr);
-        m_notify_last_n     = r.to_show.size();
-        m_notify_last_title = r.to_show.front().summary;
-        show_notify_status();
+    show_notify_status();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// on_notify_receipt -- THE MILESTONE. What the daemon said back.
+//
+// A deadline is not announced until this runs and says it landed. That one rule
+// turns the sixty-second tick into the retry loop, with no retry machinery
+// anywhere: a key that never lands is never in the announced set, so
+// due_announcements offers it again next minute, and again, until it goes or
+// the tries run out.
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::on_notify_receipt(const Receipt& rec) {  // helper: what the daemon said back
+    auto lg = log::get(log::Area::Shell);
+
+    // ── whose receipt is this? ────────────────────────────────────────────
+    // The outbox holds exactly the sends whose ANSWER CHANGES STATE. The
+    // diagnostic in the menu sends four notifications that were never put in
+    // it, on purpose: they must not be able to mark a real deadline said.
+    const bool ours = m_outbox.in_flight(rec.notice.key);
+
+    m_notify_last_at    = std::time(nullptr);
+    m_notify_last_title = rec.notice.title;
+
+    switch (rec.outcome) {
+    case Receipt::Outcome::Delivered:
+        m_notify_verified = true;
+        m_notify_last_error.clear();
+        ++m_notify_delivered;
+        if (lg) lg->info("notify: DELIVERED '{}' key={}", rec.notice.title, rec.notice.key);
+        if (ours) {
+            m_outbox.succeed(rec.notice.key);
+            commit_announced(rec.notice.key);
+        }
+        break;
+
+    case Receipt::Outcome::NoService:
+        // Nobody owns org.gtk.Notifications here -- another desktop, or GNOME
+        // without it. Not a refusal and not ours to argue with: take the road
+        // with no receipt on it, and say on the status line that the confirmation
+        // is missing rather than pretending there was one.
+        if (lg)
+            lg->warn("notify: no org.gtk.Notifications -- sending unreceipted ({})",
+                     rec.message);
+        send_unreceipted(rec.notice);
+        m_notify_verified   = false;
+        m_notify_last_error = rec.message;
+        if (ours) {
+            // Marked said despite no confirmation. The alternative is asking
+            // every sixty seconds forever on a desktop that will never answer,
+            // which is not honesty, it is a loop.
+            m_outbox.succeed(rec.notice.key);
+            commit_announced(rec.notice.key);
+        }
+        break;
+
+    case Receipt::Outcome::Refused:
+        m_notify_verified   = false;
+        m_notify_last_error = rec.message;
+        if (lg) lg->error("notify: REFUSED '{}' -- {}", rec.notice.title, rec.message);
+        if (ours && m_outbox.fail(rec.notice.key) == core::Outbox::After::GiveUp) {
+            if (lg)
+                lg->error("notify: giving up on '{}' after {} tries",
+                          rec.notice.title, core::kDeliveryTries);
+            commit_announced(rec.notice.key);   // stop asking; it is not going to go
+        }
+        break;
     }
+
+    show_notify_status();
+}
+
+// A key enters the announced set HERE and nowhere else -- one writer, and the
+// thing it writes is "somebody has this," not "we tried."
+void Shell::commit_announced(const std::string& key) {  // helper: a deadline is said ONCE it has landed
+    if (std::find(m_prefs.announced.begin(), m_prefs.announced.end(), key) !=
+        m_prefs.announced.end())
+        return;
+    m_prefs.announced.push_back(key);
+    core::save_prefs(m_prefs_file, m_prefs);
+}
+
+// ── the unreceipted road ────────────────────────────────────────────────────
+// g_application_send_notification: void, no reply, no way to know. Kept for the
+// desktops that have no org.gtk.Notifications, because a notification with no
+// proof still beats no notification -- and NOT used anywhere else, which is the
+// point of the milestone.
+//
+// Gio::Application::get_default(), never get_application(): a HIDDEN WINDOW HAS
+// NO APPLICATION (s012), and that null is what swallowed every send jot made
+// while resident. The thing that outlives the window must not be reached
+// through the window.
+void Shell::send_unreceipted(const Notice& notice) {  // helper: the road with no receipt on it
+    auto app = Gio::Application::get_default();
+    if (!app) {
+        if (auto lg = log::get(log::Area::Shell))
+            lg->error("notify: NOT SENT '{}' -- no default application", notice.title);
+        return;
+    }
+    auto n = Gio::Notification::create(notice.title);
+    if (!notice.body.empty()) n->set_body(notice.body);
+    if (!notice.icon.empty()) n->set_icon(Gio::ThemedIcon::create(notice.icon));
+    if (!notice.action.empty())
+        n->set_default_action_variant(
+            notice.action, Glib::Variant<Glib::ustring>::create(notice.target));
+    n->set_priority(notice.urgent ? Gio::Notification::Priority::URGENT
+                                  : Gio::Notification::Priority::NORMAL);
+    app->send_notification(notice.tray_id, n);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -997,20 +1089,32 @@ void Shell::on_test_notify() {  // handler: four notifications, one field apart
         {"jot-test-both",   "4 of 4: icon+action",  true,  true },
     };
 
+    // ── s015: the same four, but down the RECEIPTED road ──────────────────
+    // The instrument got sharper for free. "Count how many arrive" was the only
+    // available reading because the send could not report anything; now each of
+    // the four comes back with the daemon's own answer, so a variant that is
+    // REFUSED says so in the log with the reason, and a variant that is
+    // delivered and still invisible is a different bug entirely -- which is the
+    // distinction the whole evening of s012 was missing.
+    //
+    // These keys are NOT put in the outbox, deliberately: a diagnostic must not
+    // be able to mark a real deadline announced. on_notify_receipt checks.
     for (const auto& v : variants) {
-        auto n = Gio::Notification::create(v.title);
-        n->set_body("If you can see this one, that combination survives.");
-        if (v.icon) n->set_icon(Gio::ThemedIcon::create("jot-logo-symbolic"));
-        if (v.action)
-            n->set_default_action_variant(
-                "app.goto-node", Glib::Variant<Glib::ustring>::create(target));
-        app->send_notification(v.id, n);
-        if (lg) lg->info("test-notify: sent '{}' icon={} action={}", v.id, v.icon, v.action);
+        Notice n;
+        n.key     = std::string("diagnostic:") + v.id;
+        n.tray_id = v.id;
+        n.title   = v.title;
+        n.body    = "If you can see this one, that combination survives.";
+        if (v.icon)   n.icon = "jot-logo-symbolic";
+        if (v.action) { n.action = "app.goto-node"; n.target = target; }
+        m_notifier.send(n);
+        if (lg) lg->info("test-notify: asked '{}' icon={} action={}", v.id, v.icon, v.action);
     }
 
     m_today->set_notify_status(
-        "Four test notifications sent. Count how many arrive \u2014 the ones that do "
-        "say which field survives.");
+        "Four test notifications asked for. The log carries what the daemon said "
+        "to each; count how many ARRIVE \u2014 a delivered one you cannot see is a "
+        "different bug from a refused one.");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1034,27 +1138,33 @@ void Shell::show_notify_status() {  // helper: the footer's fourth line
             "look up. Run  ./build.sh --install-desktop  once, then restart jot.");
         return;
     }
-    // ── sends, with a clock on them ───────────────────────────────────────
-    // s011 printed the size of the announced set, which is a count of KEYS.
-    // That number cannot tell "GNOME showed it" from "GNOME ate it", it does
-    // not move when a send happens to an already-known key, and it carries no
-    // time -- so a notification that fired at LAUNCH for a deadline four
-    // minutes old read exactly like one that fired at the deadline. The desktop
-    // line directly above has had a clock time on it since s009; this one now
-    // matches, because the answer to "why did that arrive when it did" is the
-    // timestamp and nothing else.
-    const std::size_t open = m_prefs.announced.size();
+    // ── receipts, with a clock on them (s015) ─────────────────────────────
+    // s011 printed the size of the announced set, which is a count of KEYS, and
+    // the line that replaced it timed the SEND -- the moment jot stopped
+    // knowing anything. Neither could tell "GNOME showed it" from "GNOME ate
+    // it."
+    //
+    // This one says DELIVERED, and it is allowed to say it because the daemon
+    // answered. The word is the whole difference: every line above it in this
+    // file used to be able to report a success for a verb that cannot fail.
+    const std::size_t open = m_notify_live_n;
     const std::string watching =
         open == 0 ? std::string("Nothing is due.")
                   : std::to_string(open) +
                     (open == 1 ? " open deadline." : " open deadlines.");
 
+    // Asked and not yet answered. Usually a blink; visible only when the daemon
+    // is slow or gone, which is exactly when it is worth seeing.
+    const std::size_t waiting = m_outbox.size();
+
     if (m_notify_last_at == 0) {
-        // Nothing has been sent BY THIS PROCESS. Said that way rather than
+        // Nothing has been ANSWERED in this process. Said that way rather than
         // "nothing announced", because the announced set survives a restart and
-        // the keys in it were spoken by a previous run.
-        m_today->set_notify_status("On. " + watching +
-                                   (open == 0 ? "" : " Nothing sent this run."));
+        // the keys in it were confirmed to a previous run.
+        std::string s = "On. " + watching;
+        if (waiting)   s += "  Waiting on the notification service\u2026";
+        else if (open) s += " Nothing delivered this run.";
+        m_today->set_notify_status(s);
         return;
     }
 
@@ -1063,13 +1173,24 @@ void Shell::show_notify_status() {  // helper: the footer's fourth line
     localtime_r(&m_notify_last_at, &lt);
     std::strftime(when, sizeof when, "%H:%M", &lt);
 
-    std::string sent;
-    if (m_notify_last_n == 1)
-        sent = "Sent \u201c" + m_notify_last_title + "\u201d at " + when + ".";
+    const std::string quoted = "\u201c" + m_notify_last_title + "\u201d";
+    std::string head;
+    if (m_notify_verified) {
+        head = "Delivered " + quoted + " at " + std::string(when) + ".";
+        if (m_notify_delivered > 1)
+            head += "  " + std::to_string(m_notify_delivered) + " confirmed this run.";
+    }
+    else if (m_notify_last_error.empty())
+        head = "Sent " + quoted + " at " + std::string(when) + " \u2014 unconfirmed.";
     else
-        sent = "Sent " + std::to_string(m_notify_last_n) + " notifications at " +
-               when + ".";
-    m_today->set_notify_status("On. " + sent + "  " + watching);
+        head = "Sent " + quoted + " at " + std::string(when) +
+               " \u2014 no confirmation: " + m_notify_last_error;
+
+    std::string s = "On. " + head + "  " + watching;
+    if (waiting)
+        s += "  Retrying " + std::to_string(waiting) +
+             (waiting == 1 ? " deadline." : " deadlines.");
+    m_today->set_notify_status(s);
 }
 
 void Shell::show_desktop_status(const std::string& s) {  // helper: the footer's second line
