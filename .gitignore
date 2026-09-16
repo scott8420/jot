@@ -1,0 +1,18 @@
+# Build trees. `build/` is the default; the other two are the deliberate
+# second and third configurations -- both halves of the desktop #ifdef get
+# compiled before a ship, and each needs its own tree.
+/build/
+/build-ecal/
+/build-noecal/
+build*/
+
+/backups/
+compile_commands.json
+*.o
+*.a
+.cache/
+
+# Editor / desktop litter
+*.swp
+*~
+.DS_Store

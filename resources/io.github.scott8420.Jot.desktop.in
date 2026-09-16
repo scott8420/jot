@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=jot
+GenericName=Notes and Todos
+Comment=A scribble pad that files itself
+Exec=@JOT_EXEC@
+Icon=jot-logo-symbolic
+Terminal=false
+Categories=Utility;TextEditor;ProjectManagement;
+Keywords=notes;todo;markdown;gtd;
+StartupNotify=true
+StartupWMClass=io.github.scott8420.Jot
+DBusActivatable=true
+X-GNOME-UsesNotifications=true
