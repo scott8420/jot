@@ -49,4 +49,16 @@ const std::vector<ShortcutSpec>& shortcut_registry();
 // chord is shadowed). Sorted, unique; empty => clean.
 std::vector<std::string> find_accel_collisions();
 
+// s016c. An application accelerator is heard BEFORE the focused widget, so a
+// global chord that a text box also uses is taken away from every text box in
+// the window. jot learned it the expensive way: Ctrl+Delete was delete-note,
+// and pressing it to delete a WORD in the body deleted the NOTE, subtree and
+// all, with no prompt and no undo.
+//
+// True when `accel` is a chord GTK's text widgets use for editing or moving.
+// The registry is checked against it under the selftest, so the rule is a
+// failing test rather than a thing to remember.
+bool steals_text_editing(const std::string& accel);
+std::vector<std::string> find_text_editing_steals();   // registry accels that do
+
 }  // namespace jot::core

@@ -66,15 +66,25 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // them, so update_note_actions() can grey them (helpers).
     m_act_new_child = add_action("new-child",      sigc::mem_fun(*this, &Shell::on_new_child));
     m_act_delete    = add_action("delete-note",    sigc::mem_fun(*this, &Shell::on_delete_note));
-    m_act_protect   = add_action("toggle-protect", sigc::mem_fun(*this, &Shell::on_toggle_protect));
+    // Stateful (s016c) so a menu draws it as a check item: "Protected", ticked
+    // or not, instead of "Protect / unprotect". The handler still decides; the
+    // tick is written by update_note_actions() from the model.
+    m_act_protect   = add_action_bool("toggle-protect",
+                                      sigc::mem_fun(*this, &Shell::on_toggle_protect), false);
     m_act_rename_note = add_action("rename-note", sigc::mem_fun(*this, &Shell::on_rename_note));
 
     // The three todo verbs. Two of them grey themselves on a note that is not
     // a todo -- a "tick" that does nothing on the thing you pointed at is the
     // kind of silence that teaches people the app is broken.
-    m_act_toggle_todo = add_action("toggle-todo", sigc::mem_fun(*this, &Shell::on_toggle_todo));
-    m_act_toggle_done = add_action("toggle-done", sigc::mem_fun(*this, &Shell::on_toggle_done));
-    m_act_toggle_flag = add_action("toggle-flag", sigc::mem_fun(*this, &Shell::on_toggle_flag));
+    //
+    // Stateful for the same reason as toggle-protect: the note menu shows
+    // "Todo", "Done", "Flagged" with a tick that says which way each will go.
+    m_act_toggle_todo = add_action_bool("toggle-todo",
+                                        sigc::mem_fun(*this, &Shell::on_toggle_todo), false);
+    m_act_toggle_done = add_action_bool("toggle-done",
+                                        sigc::mem_fun(*this, &Shell::on_toggle_done), false);
+    m_act_toggle_flag = add_action_bool("toggle-flag",
+                                        sigc::mem_fun(*this, &Shell::on_toggle_flag), false);
 
     // Which half of the left pane shows. Stateful string, exactly like the two
     // pane toggles are stateful bools -- the tab buttons and the View menu's

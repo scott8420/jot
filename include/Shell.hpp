@@ -204,6 +204,7 @@ private:
     widgets::Button     m_logo_button;   // frameless brand mark; opens About
     widgets::Button     m_new_button;
     widgets::MenuButton m_menu_button;
+    widgets::MenuButton m_note_menu_button;   // s016c: the note verbs, beside the main menu
 
     // The capture line. Always visible rather than summoned: a capture box you
     // have to open first costs a click, and the whole premise is that capture

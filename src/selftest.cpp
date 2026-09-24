@@ -1262,6 +1262,27 @@ int main() {
               sc::find_accel_collisions().empty()
                   ? "clean" : sc::find_accel_collisions().front());
 
+        // s016c. The control that must PASS first: the chord that caused the
+        // bug is recognised in all three spellings, so a clean registry means
+        // the detector found nothing rather than that it cannot see.
+        check("shortcuts: Ctrl+Delete is recognised as a text-editing chord",
+              sc::steals_text_editing("<Ctrl>Delete") &&
+                  sc::steals_text_editing("<Control>delete") &&
+                  sc::steals_text_editing("<Primary>Delete"));
+        check("shortcuts: an ordinary app chord is not",
+              !sc::steals_text_editing("<Ctrl>n") && !sc::steals_text_editing("F2"));
+        check("shortcuts: no app-wide shortcut takes a key away from a text box",
+              sc::find_text_editing_steals().empty(),
+              sc::find_text_editing_steals().empty()
+                  ? "clean" : sc::find_text_editing_steals().front());
+        {
+            bool bound = false;
+            for (const auto& r : sc::shortcut_registry())
+                if (r.action == "win.delete-note" && !r.accels.empty()) bound = true;
+            check("shortcuts: delete-note has no app-wide key (the tree binds Delete)",
+                  !bound);
+        }
+
         // Sections authored A-Z + contiguous: the dialog walks linearly and
         // starts a heading on change, so a stray out-of-order row would split a
         // section into two headings.

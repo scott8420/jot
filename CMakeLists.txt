@@ -163,6 +163,7 @@ add_executable(jot
     # jot's own surfaces. Both read a core::NodeSource and nothing else; the
     # fixture store is swapped for the real one in Shell without touching them.
     src/TreePane.cpp
+    src/Menus.cpp
     src/TreePane_dnd.cpp
     src/EditorPane.cpp
     # The third pane. Reads the NodeSource and the link index, writes nothing --

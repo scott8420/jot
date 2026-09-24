@@ -1,5 +1,6 @@
 #include "TreePane.hpp"
 #include "Log.hpp"
+#include "Menus.hpp"
 #include "core/Tasks.hpp"
 
 #include <glibmm/markup.h>
@@ -38,6 +39,31 @@ TreePane::TreePane(std::string_view name)
         m_sig_selected.emit(m_selected);
     });
 
+    // ── Delete, while the TREE has focus (s016c) ────────────────────────────
+    // Bound here, on the list, rather than as an application accelerator. An
+    // app accel is heard before the focused widget, so the old app-wide
+    // Ctrl+Delete fired from inside the note body -- where a text box uses it
+    // to delete a word -- and deleted the note instead. A key on the list only
+    // hears keys the list is focused for, which is the Files convention and
+    // the whole fix. Bubble phase, and never during an inline rename: the
+    // rename entry is a descendant, and Delete there is a character.
+    auto del = Gtk::EventControllerKey::create();
+    del->signal_key_pressed().connect(
+        [this](guint keyval, guint, Gdk::ModifierType state) {
+            if (keyval != GDK_KEY_Delete && keyval != GDK_KEY_KP_Delete) return false;
+            if (renaming()) return false;
+            const auto mods = state & (Gdk::ModifierType::CONTROL_MASK |
+                                       Gdk::ModifierType::SHIFT_MASK |
+                                       Gdk::ModifierType::ALT_MASK);
+            if (mods != Gdk::ModifierType{}) return false;
+            if (m_selected.empty()) return false;
+            if (auto lg = log::get(log::Area::Tree))
+                lg->info("Delete in the tree on {}", m_selected);
+            activate_action("win.delete-note");
+            return true;
+        }, false);
+    m_list.add_controller(del);
+
     build_row_menu();
     attach_root_drop();
 }
@@ -53,24 +79,9 @@ TreePane::TreePane(std::string_view name)
 // here duplicates a handler.
 // ─────────────────────────────────────────────────────────────────────────────
 void TreePane::build_row_menu() {
-    m_menu_model = Gio::Menu::create();
-
-    auto todo = Gio::Menu::create();
-    todo->append("Make a todo / not a todo", "win.toggle-todo");
-    todo->append("Tick / untick", "win.toggle-done");
-    todo->append("Flag", "win.toggle-flag");
-    m_menu_model->append_section(todo);
-
-    auto note = Gio::Menu::create();
-    note->append("New note under this", "win.new-child");
-    note->append("Rename", "win.rename-note");
-    note->append("Copy link to this note", "win.copy-link");
-    m_menu_model->append_section(note);
-
-    auto danger = Gio::Menu::create();
-    danger->append("Protect / unprotect", "win.toggle-protect");
-    danger->append("Delete", "win.delete-note");
-    m_menu_model->append_section(danger);
+    // The same model the header's note button shows (Menus.cpp, s016c), so
+    // the two menus cannot drift apart again.
+    m_menu_model = menus::note_menu();
 
     m_menu.set_menu_model(m_menu_model);
     // ── PARENTED TO THE PANE, NOT TO THE LIST ───────────────────────────────
@@ -87,7 +98,7 @@ void TreePane::build_row_menu() {
     m_menu.set_halign(Gtk::Align::START);
 
     // Right-click anywhere in the pane. On a row it selects that row; on empty
-    // space below the rows it clears the selection, so "New note under this"
+    // space below the rows it clears the selection, so "New child note"
     // greys itself out and the menu describes what it will actually do.
     auto click = Gtk::GestureClick::create();
     click->set_button(GDK_BUTTON_SECONDARY);

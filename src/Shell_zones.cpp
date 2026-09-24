@@ -4,6 +4,7 @@
 #include "TreePane.hpp"
 #include "TodayPane.hpp"
 #include "Log.hpp"
+#include "Menus.hpp"
 
 #include <glibmm/variant.h>
 
@@ -49,8 +50,17 @@ void Shell::build_shell() {  // zone: window + header + paned body
     build_capture_bar(*header);
 
     m_menu_button.set_icon_name("open-menu-symbolic");
+    m_menu_button.set_tooltip_text("Main menu");
     m_menu_button.set_menu_model(build_menu());
     header->pack_end(m_menu_button);
+
+    // The NOTE menu (s016c), beside the main one. The hamburger had grown to
+    // ~30 items doing four jobs; the ten that act on the selected note moved
+    // here, and it is the same model the tree's right-click shows (Menus.cpp).
+    m_note_menu_button.set_icon_name("view-more-symbolic");
+    m_note_menu_button.set_tooltip_text("This note");
+    m_note_menu_button.set_menu_model(menus::note_menu());
+    header->pack_end(m_note_menu_button);
 
     build_pane_toggles(*header);
 
@@ -262,26 +272,24 @@ void Shell::build_jots_title() {  // zone: header title menu button
     m_jots_button.set_menu_model(m_jots_menu);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// build_menu -- the MAIN menu, app-level things only (s016c).
+//
+// It had grown to about thirty items in seven sections, doing four jobs: note
+// verbs, file verbs, view state, and settings. Scott's rule: a menu is only
+// helpful if its items are concise and easy to find. So:
+//
+//   * note and todo verbs -> the note menu (the button beside this one, and the
+//     tree's right-click), one shared model in Menus.cpp;
+//   * the three settings -> gone from menus entirely; Preferences is their one
+//     home, the same rule s016a applied to the Today footer;
+//   * view state and diagnostics -> submenus, because they are looked for,
+//     not read in passing.
+//
+// Every key still works; nothing here was the only way to reach anything.
+// ─────────────────────────────────────────────────────────────────────────────
 Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto menu = Gio::Menu::create();
-
-    auto todos = Gio::Menu::create();
-    todos->append("Make a todo / not a todo", "win.toggle-todo");
-    todos->append("Tick / untick", "win.toggle-done");
-    todos->append("Flag", "win.toggle-flag");
-    menu->append_section(todos);
-
-    auto notes = Gio::Menu::create();
-    notes->append("Capture a thought", "win.capture");
-    notes->append("New note", "win.new-note");
-    // The better answer to "I need the uuid": nobody wants an id, they want a
-    // link, so this produces the whole thing ready to paste.
-    notes->append("Copy link to this note", "win.copy-link");
-    notes->append("New note under selection", "win.new-child");
-    notes->append("Delete note", "win.delete-note");
-    notes->append("Rename", "win.rename-note");
-    notes->append("Protect / unprotect", "win.toggle-protect");
-    menu->append_section(notes);
 
     auto file = Gio::Menu::create();
     // "New" and "Open" are the same operation on disk -- a jots folder is just
@@ -291,43 +299,44 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     file->append("Open jots\u2026", "win.open-jots");
     m_recents_menu = Gio::Menu::create();
     file->append_submenu("Recent jots", m_recents_menu);
-    // Nothing is ever unsaved for long -- structure writes immediately, bodies
-    // on a timer and on leaving a note. Save exists anyway, because an app with
-    // no save verb looks like one that might lose your work, and the reflex
-    // deserves an answer rather than an explanation.
-    //
-    // It is called "Save", not "Save all": the plural was describing the
-    // implementation (flush every dirty body) rather than the thing the user
-    // is doing, and every app they have ever used calls this Save.
-    file->append("Save", "win.save-all");
-    // Save as... writes a SECOND jots folder containing everything and switches
-    // to it, leaving the original where it is. In the scratch buffer it is the
-    // same gesture as the close prompt's Save arm, reached deliberately instead
-    // of on the way out.
-    file->append("Save as\u2026", "win.save-as");
     menu->append_section(file);
 
-    auto diag = Gio::Menu::create();
-    diag->append("Dump node tree", "win.dump-nodes");
-    diag->append("Dump registry", "win.dump-registry");
-    diag->append("Test notifications", "win.test-notify");
-    menu->append_section(diag);
+    // Save exists although nothing is unsaved for long (structure writes at
+    // once, bodies on a timer), because an app with no save verb looks like one
+    // that might lose your work. "Save", not "Save all" -- the plural described
+    // the implementation, not what the user is doing.
+    auto save = Gio::Menu::create();
+    save->append("Save", "win.save-all");
+    save->append("Save as\u2026", "win.save-as");
+    menu->append_section(save);
 
+    // The two left-pane views as radio items on the one stateful action the tab
+    // buttons use, and the two pane toggles as check items. F9 / F10 are the
+    // fast road; this is where you find them.
     auto view = Gio::Menu::create();
-    // The two left-pane views, as radio items on the one stateful action the
-    // tab buttons use. Same state, two consumers, one writer.
     view->append("Notes", "win.left-view::notes");
     view->append("Today", "win.left-view::today");
-    view->append("Show the side pane", "win.toggle-tree");
-    view->append("Show note details", "win.toggle-drawer");
-    view->append("Show dated todos on the desktop", "win.toggle-desktop");
-    view->append("Refresh the desktop now", "win.desktop-sync");
-    view->append("Notify me when a todo is due", "win.toggle-notify");
-    view->append("Keep jot running when the window is closed", "win.toggle-background");
-    menu->append_section(view);
+    auto panes = Gio::Menu::create();
+    panes->append("Side pane", "win.toggle-tree");
+    panes->append("Note details", "win.toggle-drawer");
+    view->append_section(panes);
+
+    // For finding out what jot thinks is true. Refresh-the-desktop lives here
+    // now: it is a nudge for when the calendar looks stale, which is a
+    // diagnosis, not a setting.
+    auto diag = Gio::Menu::create();
+    diag->append("Dump node tree", "win.dump-nodes");
+    diag->append("Dump widget registry", "win.dump-registry");
+    diag->append("Test notifications", "win.test-notify");
+    diag->append("Refresh desktop calendar", "win.desktop-sync");
+
+    auto sub = Gio::Menu::create();
+    sub->append_submenu("View", view);
+    sub->append_submenu("Diagnostics", diag);
+    menu->append_section(sub);
 
     auto app = Gio::Menu::create();
-    app->append("Preferences\u2026", "win.preferences");
+    app->append("Preferences", "win.preferences");
     app->append("Keyboard shortcuts", "win.shortcuts");
     app->append("About jot", "win.about");
     app->append("Quit", "win.quit");

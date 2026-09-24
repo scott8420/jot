@@ -27,6 +27,7 @@ Shell::Shell()
     : m_logo_button("shell.logo_button"),
       m_new_button("shell.new_button"),
       m_menu_button("shell.menu_button"),
+      m_note_menu_button("shell.note_menu_button"),
       m_capture("shell.capture"),
       m_jots_button("shell.jots_button"),
       m_jots_name("shell.jots_name"),

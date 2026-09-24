@@ -442,6 +442,16 @@ void Shell::update_note_actions() {  // helper: grey what the selection can't do
     if (m_act_rename_note) m_act_rename_note->set_enabled(n != nullptr && !n->protect);
     if (m_act_protect)   m_act_protect->set_enabled(n != nullptr);
     if (m_act_delete)    m_act_delete->set_enabled(n != nullptr && !n->protect);
+
+    // The ticks (s016c). Written only here, from the model, so the check items
+    // in both note menus always say what the selected note IS.
+    auto tick = [](const Glib::RefPtr<Gio::SimpleAction>& a, bool on) {
+        if (a) a->set_state(Glib::Variant<bool>::create(on));
+    };
+    tick(m_act_toggle_todo, is_task);
+    tick(m_act_toggle_done, is_task && n->task.done);
+    tick(m_act_toggle_flag, is_task && n->task.flagged);
+    tick(m_act_protect,     n && n->protect);
 }
 
 std::string Shell::prefs_file() const {  // helper: XDG path for the layout pump

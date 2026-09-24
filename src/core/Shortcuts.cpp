@@ -124,7 +124,10 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
          "Preferences \u2014 including the global capture shortcut"},
         {"General", "win.shortcuts",     {"<Ctrl>question", "<Ctrl>slash"}, "",
          "Keyboard shortcuts (this window)"},
-        {"General", "win.about",         {"F1"}, "", "About jot"},
+        // No About row: it had F1, which every GNOME app reserves for HELP, and
+        // pressing it expecting help and getting a credits window teaches that
+        // jot's keys are not the ones you already know (s016c). A row with no
+        // key has nothing to say in a shortcuts list.
         {"General", "win.quit",          {"<Ctrl>q"}, "", "Quit"},
 
         // ── Mouse ─────────────────────────────────────────────────────────────
@@ -144,7 +147,11 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
          "Copy a link to this note, ready to paste into another"},
         {"Notes", "win.new-child",      {"<Ctrl><Shift>n"}, "",
          "New note under the selected one"},
-        {"Notes", "win.delete-note",    {"<Ctrl>Delete"}, "",
+        // Doc-only: Delete is bound by the TREE, not the application, so it
+        // only fires while the tree has focus -- the Files convention. It was
+        // Ctrl+Delete app-wide until s016c, which a text box uses to delete a
+        // word; see steals_text_editing().
+        {"Notes", "", {}, "Delete (in the tree)",
          "Delete the selected note and everything under it"},
         {"Notes", "win.toggle-protect", {"<Ctrl>l"}, "",
          "Protect or unprotect the selected note"},
@@ -185,6 +192,51 @@ std::vector<std::string> find_accel_collisions() {
     std::vector<std::string> out;
     for (const auto& [accel, e] : seen)
         if (e.first >= 2 && e.second) out.push_back(accel);  // std::map keeps it sorted+unique
+    return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Text-editing chords  (s016c)
+// ─────────────────────────────────────────────────────────────────────────────
+namespace {
+
+// "<Control>Delete", "<Primary>delete" and "<Ctrl>Delete" are one chord.
+// Lower-case everything and fold the three spellings of Control into one.
+std::string fold(std::string a) {
+    for (auto& c : a) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (const char* alias : {"<control>", "<primary>"}) {
+        for (std::size_t at; (at = a.find(alias)) != std::string::npos;)
+            a.replace(at, std::string(alias).size(), "<ctrl>");
+    }
+    return a;
+}
+
+}  // namespace
+
+bool steals_text_editing(const std::string& accel) {
+    // What GtkText and GtkTextView bind for editing and moving, plus the
+    // clipboard and undo chords every text box honours. A bare printable key
+    // is not listed because nothing in jot binds one app-wide.
+    static const char* kText[] = {
+        "delete", "backspace", "<ctrl>delete", "<ctrl>backspace",
+        "<shift>delete", "<shift>insert", "<ctrl>insert",
+        "<ctrl>a", "<ctrl>c", "<ctrl>v", "<ctrl>x", "<ctrl>z", "<ctrl><shift>z",
+        "<ctrl>y", "home", "end", "<ctrl>home", "<ctrl>end",
+        "<ctrl>left", "<ctrl>right", "<ctrl>up", "<ctrl>down",
+        "return", "tab", "space",
+    };
+    const std::string a = fold(accel);
+    for (const char* t : kText)
+        if (a == t) return true;
+    return false;
+}
+
+std::vector<std::string> find_text_editing_steals() {
+    std::vector<std::string> out;
+    for (const auto& s : shortcut_registry())
+        if (!s.action.empty())
+            for (const auto& a : s.accels)
+                if (steals_text_editing(a)) out.push_back(s.action + " " + a);
     return out;
 }
 
