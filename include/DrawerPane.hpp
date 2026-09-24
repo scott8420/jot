@@ -6,6 +6,8 @@
 
 #include <sigc++/signal.h>
 
+#include <map>
+
 #include <string>
 #include <vector>
 
@@ -33,7 +35,7 @@
 //                  is a commitment to a storage location. Showing what the body
 //                  already says commits nothing and is the cheapest way to look
 //                  at inline tags before deciding whether they are the answer.
-//   Where       -- the parent's TITLE, the child count, the protected state.
+//   Structure   -- the parent's TITLE, the child count, the protected state.
 //                  This is what the s005 status line carried, and the status
 //                  line retires here rather than earlier: it existed to prove a
 //                  drag preserved identity, that test held, and the information
@@ -47,6 +49,29 @@
 //                  the log is a developer need that folds away. THE PARENT ID
 //                  DOES NOT APPEAR AT ALL, in any state -- the parent's title
 //                  is the answer and the tree already shows where you are.
+//
+// SECTIONS (s016a). Everything below Name is a collapsible section with a
+// clickable header, and every section is DECLARED IN ONE TABLE (kSections, top
+// of DrawerPane.cpp): key, heading, open-by-default, hide-when-empty. Scott's
+// direction was that properties had been appended to the bottom of this pane
+// one milestone at a time; the table is the structural answer. A new property
+// goes into a section that exists or gets a row in the table, and there is no
+// longer a bottom to append to.
+//
+//   Name        -- PINNED, not a section. It is the pane's title as much as a
+//                  field, and a folded-away name is a panel about nothing.
+//   Todo        -- the task block.
+//   Structure   -- where the note sits, its children, protection, and how the
+//                  children run (Sequential / Parallel) -- a statement about
+//                  the note's place in the tree, so it lives with the rest of
+//                  that.
+//   Links, Linked from, Tags -- as described above; hidden entirely when empty.
+//   File, Identity -- reference, closed by default.
+//
+// Open or closed is remembered APP-WIDE (core::Prefs::drawer_open), and the
+// drawer does not write prefs itself: it says which section changed and the
+// Shell stores it. A section header carries a count where one means something
+// ("Links 3"), so a closed section still answers "is there anything in here".
 //
 // It reads a core::NodeSource and a const core::LinkIndex& and nothing else. It
 // owns neither. Clicking a link row emits `signal_goto` and the Shell decides
@@ -76,6 +101,16 @@ public:
 
     core::NodeId current() const { return m_id; }
 
+    // Section open/closed state, keyed by section key. Keys not in the map take
+    // the table's default. Called once at startup with what Prefs remembered.
+    void set_section_states(const std::map<std::string, bool>& open);
+
+    // A section header was clicked: key, and whether it is now open. The Shell
+    // stores it; the drawer does not know a prefs file exists.
+    sigc::signal<void(std::string, bool)>& signal_section_toggled() {
+        return m_sig_section;
+    }
+
     // A link row was activated. The Shell reveals and selects; the drawer does
     // not know the tree exists.
     sigc::signal<void(core::NodeId)>& signal_goto() { return m_sig_goto; }
@@ -85,17 +120,29 @@ public:
     sigc::signal<void(core::NodeId)>& signal_copy_link() { return m_sig_copy_link; }
 
 private:
-    // One section: a dim heading and a vertical box of rows, hidden entirely
-    // when it has nothing to say. An always-visible "Backlinks: none" on every
-    // note is four wasted lines on the notes that have none, which is most.
+    // One collapsible section (s016a). The header is a flat button: arrow,
+    // heading, and a count on the right when the section has one. `body` is
+    // what folds; `rows` is the part of it rebuilt on every refresh, so held
+    // widgets (the task controls, the ordering radios) can live in `body`
+    // beside it without being torn down under someone's cursor.
     struct Section {
-        widgets::Box*   frame = nullptr;
-        widgets::Label* head  = nullptr;
-        widgets::Box*   body  = nullptr;
+        std::string       key;
+        bool              hide_empty = false;   // hidden when it has nothing to say
+        bool              open       = true;
+        widgets::Box*     frame = nullptr;
+        widgets::Button*  head  = nullptr;
+        widgets::Image*   arrow = nullptr;
+        widgets::Label*   title = nullptr;
+        widgets::Label*   count = nullptr;
+        widgets::Box*     body  = nullptr;
+        widgets::Box*     rows  = nullptr;
     };
 
-    Section add_section(const std::string& name, const std::string& heading);
-    void    clear(Section& s);
+    Section add_section(const std::string& key);   // heading/defaults from kSections
+    void    clear(Section& s);                     // rows emptied, count blanked
+    void    apply_open(Section& s);                // arrow + body to match s.open
+    void    set_count(Section& s, std::size_t n);  // "" at zero
+    void    show_sections(bool on);
     void    write_title();
     Gtk::Widget* link_row(const std::string& label, const std::string& detail,
                           const core::NodeId& go_to, bool dangling);
@@ -118,7 +165,7 @@ private:
     void fill_links(const core::Node& n);
     void fill_backlinks(const core::Node& n);
     void fill_tags(const core::Node& n);
-    void fill_where(const core::Node& n);
+    void fill_structure(const core::Node& n);
     void fill_file(const core::Node& n);
     void fill_identity(const core::Node& n);
 
@@ -139,6 +186,10 @@ private:
     widgets::Label m_name_head;
     widgets::Entry m_name;
 
+    // In display order. Held by value; m_all points at them for the loops.
+    Section m_todo_sec, m_structure, m_links, m_backlinks, m_tags, m_file, m_identity;
+    std::vector<Section*> m_all;
+
     // True while show_node() is filling the entry: GTK fires `changed` on a
     // programmatic set, and writing that back would mark every note modified
     // just for being looked at. (The same stone EditorPane carries.)
@@ -147,7 +198,6 @@ private:
     // Task controls. Held (not rebuilt like the report rows) because they carry
     // focus and a cursor: rebuilding an entry under someone's hands is how a
     // date you were half-way through typing disappears.
-    widgets::Label       m_task_head;
     widgets::CheckButton m_todo;        // is this node a todo at all
     widgets::Box         m_task_body;   // everything that only applies once it is
     widgets::CheckButton m_done;
@@ -169,15 +219,12 @@ private:
     widgets::CheckButton m_order_seq;
     widgets::CheckButton m_order_par;
 
-    Section m_links, m_backlinks, m_tags, m_where, m_file;
-
-    widgets::Expander m_identity;
-    widgets::Box      m_identity_body;
     widgets::Label    m_uuid;
     widgets::Button   m_copy_link;
 
     sigc::signal<void(core::NodeId)> m_sig_goto;
     sigc::signal<void(core::NodeId)> m_sig_copy_link;
+    sigc::signal<void(std::string, bool)> m_sig_section;
 };
 
 }  // namespace jot

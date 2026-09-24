@@ -1299,14 +1299,17 @@ void Shell::show_background_status() {  // helper: the footer's sixth line
                 : "Off. Closing the window quits jot.");
         return;
     }
+    // s016a: the Background Apps promise is gone from both lines. s012 LOOKED,
+    // and an unsandboxed jot is not listed there -- so a status line that sent
+    // the user to that menu to quit was sending them somewhere jot is not.
     if (!m_notify_ok) {
         m_today->set_background_status(
-            "On \u2014 but jot has no installed .desktop entry, so GNOME will not "
-            "list it under Background Apps. Run  ./build.sh --install-desktop  once.");
+            "On \u2014 but jot has no installed .desktop entry, so its notifications "
+            "go nowhere. Run  ./build.sh --install-desktop  once.");
         return;
     }
     std::string s = "On. Closing the window hides it; the clock keeps running. "
-                    "Quit from Background Apps in the system menu, or Ctrl+Q here.";
+                    "Quit from jot's menu, or Ctrl+Q.";
     if (scratch_has_content())
         s += "  These notes are not on disk \u2014 they are held in memory until you quit.";
     m_today->set_background_status(s);

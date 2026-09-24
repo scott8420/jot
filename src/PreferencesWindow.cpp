@@ -42,7 +42,7 @@ PreferencesWindow::PreferencesWindow() {
     set_title("jot Preferences");
     set_modal(false);
     set_resizable(true);
-    set_default_size(580, 400);
+    set_default_size(600, 560);
     set_hide_on_close(true);   // built once by the Shell, re-presented after that
 
     m_grid.set_margin(16);
@@ -53,15 +53,25 @@ PreferencesWindow::PreferencesWindow() {
     int r = 0;
     r = add_heading("Capture", r);
     r = build_hotkey_section(r);
-    r = add_heading("While jot is running", r);
+    // s016a: one heading per FEATURE, where s014 had one heading for all three
+    // switches. They used to be three boxes in the Today footer, titled by
+    // their own labels; here each gets the room to say what it does, which is
+    // what the footer's tooltips were quietly doing instead.
     r = build_running_section(r);
 
     m_btn_close.set_halign(Gtk::Align::END);
     m_btn_close.set_margin(8);
     m_btn_close.signal_clicked().connect([this]() { set_visible(false); });
 
+    // Scrolls, because it will grow: s016a took it from two headings to four,
+    // and a preferences window that clips its last section on a small screen
+    // is one whose last setting nobody finds.
     m_grid.set_vexpand(true);
-    m_root.append(m_grid);
+    m_scroll.set_child(m_grid);
+    m_scroll.set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
+    m_scroll.set_vexpand(true);
+    m_scroll.set_propagate_natural_height(true);
+    m_root.append(m_scroll);
     m_root.append(m_btn_close);
     set_child(m_root);
 
@@ -140,12 +150,9 @@ int PreferencesWindow::build_hotkey_section(int row) {
 }
 
 int PreferencesWindow::build_running_section(int row) {
-    m_desktop_check.set_label("Show dated todos on the desktop");
+    m_desktop_check.set_label("Show dated todos in the GNOME calendar");
     m_notify_check.set_label("Notify me when a todo is due");
     m_background_check.set_label("Keep jot running when the window is closed");
-    m_background_check.set_tooltip_text(
-        "Due notifications need jot to be running. With this off, a closed jot "
-        "announces nothing until you open it again.");
 
     // The signal, not the state: the ACTION is the writer, and these boxes ask
     // it to flip. m_setting is what keeps set_*_on() from looping back out.
@@ -159,10 +166,43 @@ int PreferencesWindow::build_running_section(int row) {
         if (!m_setting) m_sig_background.emit(m_background_check.get_active());
     });
 
-    m_grid.attach(m_desktop_check,    1, row++, 1, 1);
-    m_grid.attach(m_notify_check,     1, row++, 1, 1);
+    // Notifications first: ON by default, and the one most people will touch.
+    row = add_heading("Notifications", row);
+    m_grid.attach(m_notify_check, 1, row++, 1, 1);
+    row = add_note("A desktop notification when an available todo reaches its "
+                   "due date; click it to open the todo here. Blocked and "
+                   "deferred todos stay quiet. What was last delivered is "
+                   "reported at the foot of Today.", row);
+
+    row = add_heading("Desktop calendar", row);
+    m_grid.attach(m_desktop_check, 1, row++, 1, 1);
+    row = add_note("Dated todos appear as all-day events in the calendar "
+                   "drop-down. One way only: nothing done there comes back "
+                   "here. This writes into another application's calendar, "
+                   "which is why it is off until you turn it on.", row);
+    m_desktop_note.set_halign(Gtk::Align::START);
+    m_desktop_note.set_xalign(0.0f);
+    m_desktop_note.set_wrap(true);
+    m_desktop_note.add_css_class("dim-label");
+    m_desktop_note.set_text("This build of jot has no desktop calendar support.");
+    m_desktop_note.set_visible(false);
+    m_grid.attach(m_desktop_note, 1, row++, 1, 1);
+
+    // Last, because it is the precondition the other two lean on rather than a
+    // feature of its own. The note says what the X will DO, and no longer
+    // promises a Background Apps entry: s012 looked, and an unsandboxed jot is
+    // not listed there.
+    row = add_heading("When the window closes", row);
     m_grid.attach(m_background_check, 1, row++, 1, 1);
+    row = add_note("Closing the window hides it instead of quitting, so due "
+                   "dates are still announced. Quit from the menu, or Ctrl+Q, "
+                   "really quits.", row);
     return row;
+}
+
+void PreferencesWindow::set_desktop_available(bool can) {
+    m_desktop_check.set_sensitive(can);
+    m_desktop_note.set_visible(!can);
 }
 
 void PreferencesWindow::set_desktop_on(bool on) {

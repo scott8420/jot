@@ -60,6 +60,14 @@ Prefs load_prefs(const std::string& file) {
             for (const auto& e : *it)
                 if (e.is_string()) p.announced.push_back(e.get<std::string>());
         }
+        // An object of bools. Same tolerance as `announced`: a wrong-typed value
+        // drops that one entry, and a wrong-typed container drops the lot to
+        // defaults, never the file.
+        if (auto it = j.find("drawer_open"); it != j.end() && it->is_object()) {
+            p.drawer_open.clear();
+            for (auto e = it->begin(); e != it->end(); ++e)
+                if (e.value().is_boolean()) p.drawer_open[e.key()] = e.value().get<bool>();
+        }
     } catch (const std::exception&) {
         return Prefs{};                            // unparseable -- defaults, never throw
     }
@@ -84,6 +92,7 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     j["notify_due"]    = p.notify_due;
     j["background"]    = p.background;
     j["announced"]     = p.announced;
+    j["drawer_open"]   = p.drawer_open;
     std::ofstream f(file);
     if (!f) return false;
     f << j.dump(2) << "\n";

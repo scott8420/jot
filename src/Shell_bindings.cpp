@@ -125,24 +125,10 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // it the same way -- reveal in the tree, load the note. Neither pane knows
     // the other exists.
     m_today->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));
-    // The footer asks; the action decides. Routing the box through the ACTION
-    // rather than through on_toggle_desktop() directly is what keeps the menu
-    // item in step without either widget knowing the other exists.
-    m_today->signal_notify_toggled().connect([this](bool) {
-        activate_action("win.toggle-notify");    // the "win." prefix -- see below
-    });
-    m_today->signal_background_toggled().connect([this](bool) {
-        activate_action("win.toggle-background");
-    });
-    m_today->signal_desktop_toggled().connect([this](bool) {
-        // "win." PREFIXED, and it matters: Gtk::Widget::activate_action looks
-        // the name up in the action MUXER, where window actions live under
-        // "win." and application ones under "app.". A bare "toggle-desktop"
-        // finds nothing, returns false, and the box ticks while nothing
-        // happens -- silently, because a failed activation is a return value
-        // nobody was reading.
-        activate_action("win.toggle-desktop");
-    });
+    // The footer used to carry three check boxes that asked these actions to
+    // flip. s016a moved the switches to Preferences alone; the footer keeps the
+    // status lines and a button onto win.preferences, so there is nothing here
+    // to connect any more.
     m_drawer->signal_copy_link().connect(sigc::mem_fun(*this, &Shell::on_copy_link));
 }
 

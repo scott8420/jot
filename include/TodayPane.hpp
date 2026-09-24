@@ -48,41 +48,21 @@ public:
     void set_source(core::NodeSource* src, const core::TaskIndex* tasks);
     void refresh();
 
-    // ── the desktop footer (s009) ──────────────────────────────────────────
-    // Today is the report of what is on today; the GNOME calendar card is the
-    // same question asked somewhere else. So the switch for the projection
-    // lives HERE, under the report it mirrors, rather than two levels into a
-    // menu where a feature you cannot see is a feature you do not know you have.
+    // ── the footer: three REPORTS (s009, s011, s012; reshaped s016a) ───────
+    // Each of these features happens in another process -- the calendar
+    // drop-down, the notification tray, a jot with no window -- so the sentence
+    // saying what happened, and when, is the only instrument. It stays here,
+    // under the report it belongs beside.
     //
-    // THE PANE DOES NOT KNOW EVOLUTION DATA SERVER EXISTS. It emits a request
-    // and it renders a string; the Shell owns the backend and decides what the
-    // string says. Same contract as signal_goto: this pane asks, it never
-    // decides.
-    void set_desktop_available(bool can);        // false => the box is insensitive
-    void set_desktop_on(bool on);                // set WITHOUT re-emitting
+    // THE SWITCHES DO NOT. They lived here until s016a, when they moved to the
+    // Preferences window alone (Scott's call: a pane about today's tasks is not
+    // a settings page). The footer ends in a "Preferences..." button instead.
+    //
+    // THE PANE DOES NOT KNOW EVOLUTION DATA SERVER EXISTS, nor the notification
+    // daemon. It renders strings; the Shell decides what they say.
     void set_desktop_status(const std::string& text);
-
-    // ── the notification half (s011) ───────────────────────────────────────
-    // Second box in the same footer, and they sit together because they are two
-    // answers to one question: how does the desktop tell me a deadline arrived.
-    // The calendar row is what it knows while jot is CLOSED; the notification is
-    // what it says while jot is open, and it is the one you can click.
-    void set_notify_on(bool on);                 // set WITHOUT re-emitting
     void set_notify_status(const std::string& text);
-
-    // ── the residency half (s012) ──────────────────────────────────────────
-    // Third box, same footer, and it belongs with the other two rather than in
-    // a preferences window jot does not have: it is the PRECONDITION for both.
-    // A calendar row is written while jot runs and a notification is sent while
-    // jot runs, so "does jot keep running" is the first of the three questions,
-    // not a separate subject. It sits under them because it is the one you
-    // reach for once the other two have disappointed you.
-    void set_background_on(bool on);             // set WITHOUT re-emitting
     void set_background_status(const std::string& text);
-
-    sigc::signal<void(bool)>& signal_desktop_toggled() { return m_sig_desktop; }
-    sigc::signal<void(bool)>& signal_notify_toggled()  { return m_sig_notify; }
-    sigc::signal<void(bool)>& signal_background_toggled() { return m_sig_background; }
 
     // A row was clicked: show me that note. Same contract as the drawer's.
     sigc::signal<void(core::NodeId)>& signal_goto() { return m_sig_goto; }
@@ -110,18 +90,16 @@ private:
     widgets::Box            m_column;
     widgets::Label          m_empty;
 
-    // The footer. A CheckButton rather than a Gtk::Switch because the rest of
-    // jot has no switches and one would read as a different kind of control.
-    widgets::Box        m_desktop_bar;
-    widgets::CheckButton m_desktop_check;
-    widgets::Label       m_desktop_status;
-    bool                 m_setting_desktop = false;   // the m_switching guard, again
-    widgets::CheckButton m_notify_check;
-    widgets::Label       m_notify_status;
-    bool                 m_setting_notify  = false;
-    widgets::CheckButton m_bg_check;
-    widgets::Label       m_bg_status;
-    bool                 m_setting_bg      = false;
+    // The footer: a caption and a status sentence per feature, and the way
+    // to Preferences. No check boxes -- see the public block above.
+    widgets::Box    m_desktop_bar;
+    widgets::Label  m_desktop_cap;
+    widgets::Label  m_desktop_status;
+    widgets::Label  m_notify_cap;
+    widgets::Label  m_notify_status;
+    widgets::Label  m_bg_cap;
+    widgets::Label  m_bg_status;
+    widgets::Button m_prefs_button;
 
     // True while the filter buttons are being set programmatically: they are a
     // radio group built out of ToggleButtons, so setting one clears another and
@@ -129,9 +107,6 @@ private:
     bool m_switching = false;
 
     sigc::signal<void(core::NodeId)> m_sig_goto;
-    sigc::signal<void(bool)>         m_sig_desktop;
-    sigc::signal<void(bool)>         m_sig_notify;
-    sigc::signal<void(bool)>         m_sig_background;
 };
 
 }  // namespace jot

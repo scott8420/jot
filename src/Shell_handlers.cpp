@@ -384,8 +384,8 @@ void Shell::on_preferences() {  // handler: open the preferences window
     if (!m_preferences) {
         m_preferences = std::make_unique<PreferencesWindow>();
         // The rows do not own the state; they ASK. Routing through the action
-        // is what keeps the menu item, the Today footer box and the
-        // preferences row in step without any of the three knowing the others
+        // is what keeps the menu item and the preferences row in step
+        // without either of them knowing the others
         // exist -- the same wiring the footer got in s009 and s012.
         m_preferences->signal_desktop_toggled().connect(
             [this](bool) { activate_action("win.toggle-desktop"); });
@@ -394,6 +394,7 @@ void Shell::on_preferences() {  // handler: open the preferences window
         m_preferences->signal_background_toggled().connect(
             [this](bool) { activate_action("win.toggle-background"); });
     }
+    m_preferences->set_desktop_available(Desktop::compiled_in());
     m_preferences->set_desktop_on(m_prefs.desktop_tasks);
     m_preferences->set_notify_on(m_prefs.notify_due);
     m_preferences->set_background_on(m_prefs.background);
@@ -469,7 +470,6 @@ void Shell::on_toggle_drawer() {  // handler: show/hide the metadata drawer
 void Shell::on_toggle_desktop() {  // handler: turn the desktop projection on/off
     m_prefs.desktop_tasks = !m_prefs.desktop_tasks;
     m_act_toggle_desktop->set_state(Glib::Variant<bool>::create(m_prefs.desktop_tasks));
-    if (m_today) m_today->set_desktop_on(m_prefs.desktop_tasks);
     if (m_preferences) m_preferences->set_desktop_on(m_prefs.desktop_tasks);
     core::save_prefs(m_prefs_file, m_prefs);
 
@@ -500,7 +500,6 @@ void Shell::on_toggle_desktop() {  // handler: turn the desktop projection on/of
 void Shell::on_toggle_notify() {  // handler: turn due notifications on/off
     m_prefs.notify_due = !m_prefs.notify_due;
     m_act_toggle_notify->set_state(Glib::Variant<bool>::create(m_prefs.notify_due));
-    if (m_today) m_today->set_notify_on(m_prefs.notify_due);
     if (m_preferences) m_preferences->set_notify_on(m_prefs.notify_due);
     core::save_prefs(m_prefs_file, m_prefs);
 
@@ -526,7 +525,6 @@ void Shell::on_toggle_notify() {  // handler: turn due notifications on/off
 void Shell::on_toggle_background() {  // handler: stay running with no window, or don't
     m_prefs.background = !m_prefs.background;
     m_act_toggle_background->set_state(Glib::Variant<bool>::create(m_prefs.background));
-    if (m_today) m_today->set_background_on(m_prefs.background);
     if (m_preferences) m_preferences->set_background_on(m_prefs.background);
     core::save_prefs(m_prefs_file, m_prefs);
 

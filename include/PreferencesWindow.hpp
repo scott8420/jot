@@ -19,11 +19,12 @@ namespace jot {
 // question: a chord is not a check box, it needs a row, a label, a conflict
 // warning and a command line you can read, and none of that fits in a footer.
 //
-// The footer's boxes STAY. They and the rows here drive the SAME win.* stateful
-// actions -- one piece of state, three consumers (menu item, footer box,
-// preferences row), which is the shape jot has used for view state since s006.
-// Two widgets setting a bool is how the menu ends up ticked and the box does
-// not.
+// s016a finished the move: the footer's boxes are GONE and this window is the
+// one place a setting lives (Scott's call). The rows drive win.* stateful
+// actions rather than owning a bool -- one piece of state, with the menu item
+// and the row as its consumers -- which is the shape jot has used for view
+// state since s006. The footer keeps the STATUS lines, because a report of what
+// another process did has to be where you look, and a setting does not.
 //
 // Hide-on-close singleton, like AboutWindow and ShortcutsDialog: built once by
 // the Shell and re-presented, so its named children never re-register.
@@ -41,8 +42,8 @@ public:
 
     void show(Gtk::Window& parent);
 
-    // Set WITHOUT re-emitting -- the Shell is the writer, exactly as with the
-    // Today footer's boxes.
+    // Set WITHOUT re-emitting -- the Shell is the writer.
+    void set_desktop_available(bool can);   // false: box greyed, and a line says why
     void set_desktop_on(bool on);
     void set_notify_on(bool on);
     void set_background_on(bool on);
@@ -68,6 +69,7 @@ private:
     int  add_row(const std::string& caption, Gtk::Widget& content, int row);
 
     widgets::Box  m_root{"prefs.root", Gtk::Orientation::VERTICAL};
+    widgets::ScrolledWindow m_scroll{"prefs.scroll"};
     Gtk::Grid     m_grid;
     widgets::Button m_btn_close{"prefs.close", "Close"};
 
@@ -82,6 +84,7 @@ private:
     widgets::CheckButton m_desktop_check{"prefs.desktop_check"};
     widgets::CheckButton m_notify_check{"prefs.notify_check"};
     widgets::CheckButton m_background_check{"prefs.background_check"};
+    widgets::Label       m_desktop_note{"prefs.desktop_note"};
 
     sigc::signal<void(bool)> m_sig_desktop;
     sigc::signal<void(bool)> m_sig_notify;

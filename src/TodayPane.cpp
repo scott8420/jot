@@ -66,12 +66,13 @@ TodayPane::TodayPane(std::string_view name)
       m_column("today.column", Gtk::Orientation::VERTICAL, 14),
       m_empty("today.empty"),
       m_desktop_bar("today.desktop_bar", Gtk::Orientation::VERTICAL, 2),
-      m_desktop_check("today.desktop_check"),
+      m_desktop_cap("today.desktop_caption"),
       m_desktop_status("today.desktop_status"),
-      m_notify_check("today.notify_check"),
+      m_notify_cap("today.notify_caption"),
       m_notify_status("today.notify_status"),
-      m_bg_check("today.background_check"),
-      m_bg_status("today.background_status") {
+      m_bg_cap("today.background_caption"),
+      m_bg_status("today.background_status"),
+      m_prefs_button("today.preferences") {
     build_filter_bar();
 
     m_column.set_margin(12);
@@ -89,80 +90,62 @@ TodayPane::TodayPane(std::string_view name)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// build_desktop_bar -- the footer, and the surface s009 ends at.
+// build_desktop_bar -- the footer: REPORTS, not settings (s016a).
 //
-// Two lines at the bottom of the report: the offer, and what happened. The
-// second line is the whole reason this is not just a menu item. The effect of
-// this feature is INVISIBLE FROM INSIDE JOT -- it happens in a dropdown in
-// another process -- so without a status line the only way to find out whether
-// it worked is to go and look at the desktop, and the only way to find out that
-// it BROKE is to notice something missing from a panel you were not watching.
+// s009 put the projection's check box here, s011 and s012 added two more, and
+// the footer became the app's settings page by accretion -- a pane about
+// today's tasks carrying three switches about how jot behaves. s014 built a
+// real Preferences window and left the boxes in both places; s016a (Scott's
+// call) takes them out of here.
+//
+// What STAYS is the half that could never have moved: the status lines. Each of
+// these features lands in ANOTHER PROCESS -- a calendar drop-down, the
+// notification tray, a process with no window -- so the sentence that says what
+// happened and when is the only instrument there is, and it has to be visible
+// where the user already looks, not two clicks into a dialog. A setting is
+// changed once; a report is read every day.
+//
+// Each line gets a caption now that the check box that used to title it is
+// gone, and one flat "Preferences..." button at the bottom goes to where the
+// switches live.
 // ─────────────────────────────────────────────────────────────────────────────
 void TodayPane::build_desktop_bar() {
     m_desktop_bar.set_margin_start(12);
     m_desktop_bar.set_margin_end(12);
     m_desktop_bar.set_margin_top(6);
-    m_desktop_bar.set_margin_bottom(10);
-    m_desktop_bar.set_spacing(4);
+    m_desktop_bar.set_margin_bottom(6);
+    m_desktop_bar.set_spacing(2);
 
-    m_desktop_check.set_label("Show dated todos on the desktop");
-    m_desktop_check.set_tooltip_text(
-        "Write todos that have a due date into a GNOME task list, so they "
-        "appear in the calendar drop-down. One way: ticking one off there "
-        "does nothing here.");
-    m_desktop_check.signal_toggled().connect([this]() {
-        if (m_setting_desktop) return;      // set_desktop_on() must not echo
-        m_sig_desktop.emit(m_desktop_check.get_active());
-    });
+    // One report: a caption and the sentence under it. The caption is what the
+    // check box's label used to be, shortened to a noun -- it names the feature,
+    // it no longer offers to change it.
+    auto report = [this](widgets::Label& cap, widgets::Label& status,
+                         const char* caption) {
+        cap.set_text(caption);
+        cap.set_xalign(0.0f);
+        cap.add_css_class("caption-heading");
+        cap.set_margin_top(4);
+        status.set_xalign(0.0f);
+        status.set_wrap(true);
+        status.add_css_class("dim-label");
+        status.add_css_class("caption");
+        m_desktop_bar.append(cap);
+        m_desktop_bar.append(status);
+    };
+    report(m_desktop_cap, m_desktop_status, "Desktop calendar");
+    report(m_notify_cap,  m_notify_status,  "Due notifications");
+    report(m_bg_cap,      m_bg_status,      "When the window closes");
 
-    m_desktop_status.set_xalign(0.0f);
-    m_desktop_status.set_wrap(true);
-    m_desktop_status.add_css_class("dim-label");
-    m_desktop_status.set_margin_start(28);   // under the check's label, not its box
-
-    // ── the notification box, in the same footer ───────────────────────────
-    // Same shape, same guard, one rule apart: this one is ON by default.
-    // See core::Prefs -- the projection writes into another application's
-    // database and a notification writes nothing.
-    m_notify_check.set_label("Notify me when a todo is due");
-    m_notify_check.set_tooltip_text(
-        "Send a desktop notification when an available todo reaches its due "
-        "date. Click the notification to open it here. Blocked and deferred "
-        "todos stay quiet.");
-    m_notify_check.signal_toggled().connect([this]() {
-        if (m_setting_notify) return;
-        m_sig_notify.emit(m_notify_check.get_active());
-    });
-
-    m_notify_status.set_xalign(0.0f);
-    m_notify_status.set_wrap(true);
-    m_notify_status.add_css_class("dim-label");
-    m_notify_status.set_margin_start(28);
-
-    // ── the residency box, under the two it makes possible ─────────────────
-    // The wording says what the X will do, because that is the only thing this
-    // switch changes that the user will notice by accident.
-    m_bg_check.set_label("Keep jot running when the window is closed");
-    m_bg_check.set_tooltip_text(
-        "Closing the window hides it instead of quitting, so due dates are "
-        "still announced. GNOME lists jot under Background Apps in the system "
-        "menu, and Quit there -- or Ctrl+Q here -- really quits.");
-    m_bg_check.signal_toggled().connect([this]() {
-        if (m_setting_bg) return;
-        m_sig_background.emit(m_bg_check.get_active());
-    });
-
-    m_bg_status.set_xalign(0.0f);
-    m_bg_status.set_wrap(true);
-    m_bg_status.add_css_class("dim-label");
-    m_bg_status.set_margin_start(28);
-
-    m_desktop_bar.append(m_desktop_check);
-    m_desktop_bar.append(m_desktop_status);
-    m_desktop_bar.append(m_notify_check);
-    m_desktop_bar.append(m_notify_status);
-    m_desktop_bar.append(m_bg_check);
-    m_desktop_bar.append(m_bg_status);
+    m_prefs_button.set_label("Preferences\u2026");
+    m_prefs_button.set_has_frame(false);
+    m_prefs_button.set_halign(Gtk::Align::START);
+    m_prefs_button.set_margin_top(4);
+    m_prefs_button.add_css_class("caption");
+    m_prefs_button.set_tooltip_text("Turn these on or off");
+    // win.preferences through the muxer, like every other button in jot that
+    // opens something the Shell owns. This pane does not know the window exists.
+    m_prefs_button.set_action_name("win.preferences");
+    m_desktop_bar.append(m_prefs_button);
 
     auto* rule = Gtk::make_managed<widgets::Separator>(
         "today.desktop_rule", Gtk::Orientation::HORIZONTAL);
@@ -170,39 +153,14 @@ void TodayPane::build_desktop_bar() {
     append(m_desktop_bar);
 }
 
-void TodayPane::set_desktop_available(bool can) {
-    m_desktop_check.set_sensitive(can);
-}
-
-// Set the box WITHOUT emitting. The action is the single source of truth for
-// whether the projection is on (the menu item and this box are two consumers of
-// it), and a box that emitted when the action set it would race the action.
-void TodayPane::set_desktop_on(bool on) {
-    m_setting_desktop = true;
-    m_desktop_check.set_active(on);
-    m_setting_desktop = false;
-}
-
 void TodayPane::set_desktop_status(const std::string& text) {
     m_desktop_status.set_text(text);
     m_desktop_status.set_visible(!text.empty());
 }
 
-void TodayPane::set_notify_on(bool on) {
-    m_setting_notify = true;
-    m_notify_check.set_active(on);
-    m_setting_notify = false;
-}
-
 void TodayPane::set_notify_status(const std::string& text) {
     m_notify_status.set_text(text);
     m_notify_status.set_visible(!text.empty());
-}
-
-void TodayPane::set_background_on(bool on) {
-    m_setting_bg = true;
-    m_bg_check.set_active(on);
-    m_setting_bg = false;
 }
 
 void TodayPane::set_background_status(const std::string& text) {

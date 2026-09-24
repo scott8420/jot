@@ -76,6 +76,14 @@ void Shell::build_ui() {
     m_tasks.rebuild(*m_store);        // and one for the todos
     m_drawer->set_source(m_store.get(), &m_links);
     m_drawer->set_jots_dir(m_project ? m_project->dir() : std::string{});
+    // s016a: which drawer sections were left folded. App-wide, remembered the
+    // moment a header is clicked -- the same save-on-change the pane toggles
+    // use, so a crash never costs the layout.
+    m_drawer->set_section_states(m_prefs.drawer_open);
+    m_drawer->signal_section_toggled().connect([this](std::string key, bool open) {
+        m_prefs.drawer_open[key] = open;
+        core::save_prefs(m_prefs_file, m_prefs);
+    });
     m_today->set_source(m_store.get(), &m_tasks);
 
     // The desktop footer, brought up to match the state the action already
@@ -87,8 +95,6 @@ void Shell::build_ui() {
     // status line sits on "Connecting..." forever.
     m_desktop.set_report([this](const DesktopResult& r) { on_desktop_result(r); });
 
-    m_today->set_desktop_available(Desktop::compiled_in());
-    m_today->set_desktop_on(m_prefs.desktop_tasks);
     if (!Desktop::compiled_in())
         m_today->set_desktop_status("This build has no desktop support.");
     else if (m_prefs.desktop_tasks) {
@@ -120,7 +126,6 @@ void Shell::build_ui() {
     // desktop projection's deferred report one field up: the request is made in
     // one place and answered in another, and the state only moves on the answer.
     m_notifier.set_reply([this](const Receipt& r) { on_notify_receipt(r); });
-    m_today->set_notify_on(m_prefs.notify_due);
     show_notify_status();
     start_notify_timer();
 
@@ -129,7 +134,6 @@ void Shell::build_ui() {
     // for notifications; it turns out to be the same prerequisite for being
     // LISTED under Background Apps, because both go through the application id.
     // One lookup, two features, and the status line under the box says so.
-    m_today->set_background_on(m_prefs.background);
     show_background_status();
     apply_background_hold();
 

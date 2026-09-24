@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -91,6 +92,18 @@ struct Prefs {
     // maximized window reports the SCREEN's size: writing that back would mean
     // un-maximizing gave you a window the size of the display, and the real
     // size would be lost the first time you ever maximized.
+    // ── the drawer's sections (s016a) ──────────────────────────────────────
+    // Which of the drawer's collapsible sections are open, by section KEY
+    // ("todo", "links", ...). APP-WIDE, not per note: a section you fold away
+    // is a kind of information you do not want to look at, and that does not
+    // change when you click the next note.
+    //
+    // Only what the user has CHOSEN is stored. A key that is absent takes the
+    // drawer's own default for that section, so adding a section later needs
+    // no migration and a default that changes is not overridden by a value
+    // nobody ever picked.
+    std::map<std::string, bool> drawer_open;
+
     int  win_width     = 940;
     int  win_height    = 620;
     bool win_maximized = false;

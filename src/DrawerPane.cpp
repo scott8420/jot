@@ -2,6 +2,7 @@
 #include "Log.hpp"
 #include "core/Markdown.hpp"
 
+#include <gtkmm/cssprovider.h>
 #include <gtkmm/enums.h>
 #include <gtkmm/eventcontrollerfocus.h>
 
@@ -52,17 +53,71 @@ std::string titled(const core::Node* n) {
     return n->title.empty() ? std::string("Untitled") : n->title;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// THE SECTION TABLE (s016a). Every category the drawer shows is declared here
+// and nowhere else: its key (the widget-name stem and the Prefs key), its
+// heading, whether it starts open, and whether it hides when empty.
+//
+// Open by default: everything you can EDIT (Todo, Structure's ordering) and
+// everything that hides itself when empty (Links, Linked from, Tags) -- a
+// section that is only on screen when it has something to say should not then
+// make you click to hear it. Closed by default: File and Identity, which are
+// reference you go looking for rather than read in passing.
+//
+// A new property goes in an existing row's section or gets a row here. If it
+// does not fit any category, the category is what is missing.
+// ─────────────────────────────────────────────────────────────────────────────
+struct SectionSpec {
+    const char* key;
+    const char* heading;
+    bool        default_open;
+    bool        hide_empty;
+};
+
+constexpr SectionSpec kSections[] = {
+    {"todo",      "Todo",        true,  false},
+    {"structure", "Structure",   true,  false},
+    {"links",     "Links",       true,  true },
+    {"backlinks", "Linked from", true,  true },
+    {"tags",      "Tags",        true,  true },
+    {"file",      "File",        false, false},
+    {"identity",  "Identity",    false, false},
+};
+
+// The header is a flat Button so it is focusable and Space/Enter fold it, but a
+// button brings its own padding, which set the arrows a few pixels in from the
+// pinned "Name" caption above them. Trimmed so the column has one left edge.
+// Installed once per display, on the pattern TreePane_dnd.cpp's drop CSS set.
+void install_section_css() {
+    static bool done = false;
+    if (done) return;
+    auto display = Gdk::Display::get_default();
+    if (!display) return;
+    auto css = Gtk::CssProvider::create();
+    css->load_from_data(
+        ".drawer-section-head { padding: 3px 4px 3px 0; min-height: 0; }");
+    gtk_style_context_add_provider_for_display(
+        display->gobj(), GTK_STYLE_PROVIDER(css->gobj()),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    done = true;
+}
+
+const SectionSpec* spec_for(const std::string& key) {
+    for (const auto& sp : kSections)
+        if (key == sp.key) return &sp;
+    return nullptr;
+}
+
 }  // namespace
 
 DrawerPane::DrawerPane(std::string_view name)
     : widgets::Box(name, Gtk::Orientation::VERTICAL, 0),
       m_scroll("drawer.scroll"),
-      m_column("drawer.column", Gtk::Orientation::VERTICAL, 18),
+      m_column("drawer.column", Gtk::Orientation::VERTICAL, 6),
       m_empty("drawer.empty"),
       m_name_head("drawer.name_head"),
       m_name("drawer.name"),
-      m_task_head("drawer.task_head"),
-      m_todo("drawer.todo"),
+      m_todo("drawer.is_todo"),
       m_task_body("drawer.task_body", Gtk::Orientation::VERTICAL, 6),
       m_done("drawer.done"),
       m_flag("drawer.flag"),
@@ -78,8 +133,6 @@ DrawerPane::DrawerPane(std::string_view name)
       m_order_none("drawer.order_none"),
       m_order_seq("drawer.order_seq"),
       m_order_par("drawer.order_par"),
-      m_identity("drawer.identity"),
-      m_identity_body("drawer.identity_body", Gtk::Orientation::VERTICAL, 6),
       m_uuid("drawer.uuid"),
       m_copy_link("drawer.copy_link") {
     m_column.set_margin(14);
@@ -103,35 +156,37 @@ DrawerPane::DrawerPane(std::string_view name)
 
     m_name.set_placeholder_text("Untitled");
     m_name.signal_changed().connect([this]() { write_title(); });
+    m_name.set_margin_bottom(6);
     m_column.append(m_name);
+
+    // ── The sections, in display order ──────────────────────────────────────
+    // Built before their contents, because the task block and the ordering
+    // radios are HELD widgets that go into a section's body rather than into
+    // the column.
+    m_todo_sec  = add_section("todo");
+    m_structure = add_section("structure");
+    m_links     = add_section("links");
+    m_backlinks = add_section("backlinks");
+    m_tags      = add_section("tags");
+    m_file      = add_section("file");
+    m_identity  = add_section("identity");
+    m_all = {&m_todo_sec, &m_structure, &m_links, &m_backlinks,
+             &m_tags,     &m_file,      &m_identity};
 
     build_task_block();
 
-    m_links     = add_section("links", "Links");
-    m_backlinks = add_section("backlinks", "Linked from");
-    m_tags      = add_section("tags", "Tags");
-    m_where     = add_section("where", "Note");
-    m_file      = add_section("file", "File");
-
     // ── Identity: folded away, not removed ──────────────────────────────────
     // The uuid is a developer's correlation key -- it matches a line in the log
-    // and a filename in notes/. That is a real need and a rare one, so it gets
-    // a disclosure rather than a permanent line of hex at the bottom of every
-    // note. The parent id is NOT here, in any state: the parent's title is up
-    // in Note, and the tree already shows where you are.
+    // and a filename in notes/. That is a real need and a rare one, so its
+    // section starts closed rather than showing a line of hex under every note.
+    // The parent id is NOT here, in any state: the parent's title is up in
+    // Structure, and the tree already shows where you are.
     m_uuid.set_xalign(0.0f);
     m_uuid.set_selectable(true);          // the whole point is copying it
     m_uuid.set_wrap(true);
     m_uuid.add_css_class("monospace");
     m_uuid.add_css_class("caption");
-    m_identity_body.append(m_uuid);
-    m_identity_body.set_margin_top(6);
-    m_identity_body.set_margin_start(4);
-    m_identity.set_child(m_identity_body);
-    m_identity.set_label("Identity");
-    m_identity.set_expanded(false);
-    m_identity.add_css_class("caption");
-    m_column.append(m_identity);
+    m_identity.body->append(m_uuid);
 
     // ── Copy link ───────────────────────────────────────────────────────────
     // The better answer to "I need the uuid". Nobody wants the id; they want a
@@ -143,6 +198,11 @@ DrawerPane::DrawerPane(std::string_view name)
     m_copy_link.signal_clicked().connect([this]() {
         if (!m_id.empty()) m_sig_copy_link.emit(m_id);
     });
+    // Pinned below the sections, not inside one: it is an ACTION on the note,
+    // and putting it in Links would hide it on every note that has none yet --
+    // which is exactly the note you are about to link to.
+    m_copy_link.set_margin_top(10);
+    m_copy_link.set_halign(Gtk::Align::START);
     m_column.append(m_copy_link);
 
     m_scroll.set_child(m_column);
@@ -166,18 +226,12 @@ DrawerPane::DrawerPane(std::string_view name)
 // the three rename surfaces settled into in s006.
 // ─────────────────────────────────────────────────────────────────────────────
 void DrawerPane::build_task_block() {
-    m_task_head.set_text("Todo");
-    m_task_head.set_xalign(0.0f);
-    m_task_head.add_css_class("dim-label");
-    m_task_head.add_css_class("caption-heading");
-    m_column.append(m_task_head);
-
     m_todo.set_label("This is a todo");
     m_todo.signal_toggled().connect([this]() {
         if (m_loading || !m_src || m_id.empty()) return;
         m_src->make_task(m_id, m_todo.get_active());
     });
-    m_column.append(m_todo);
+    m_todo_sec.body->append(m_todo);
 
     m_done.set_label("Done");
     m_done.signal_toggled().connect([this]() {
@@ -234,9 +288,9 @@ void DrawerPane::build_task_block() {
     m_avail.add_css_class("caption");
     m_task_body.append(m_avail);
 
-    m_column.append(m_task_body);
+    m_todo_sec.body->append(m_task_body);
 
-    // ── Children ────────────────────────────────────────────────────────────
+    // ── Children (in the Structure section) ─────────────────────────────────
     // Sequential vs Parallel is the whole GTD engine, and it is a statement
     // about the CHILDREN, so it lives on the parent and not on any of them.
     // Radio rather than a dropdown: three options, all of which want to be
@@ -271,7 +325,8 @@ void DrawerPane::build_task_block() {
     m_order_row.append(m_order_none);
     m_order_row.append(m_order_seq);
     m_order_row.append(m_order_par);
-    m_column.append(m_order_row);
+    m_order_row.set_margin_top(6);
+    m_structure.body->append(m_order_row);   // after the rebuilt rows, held
 }
 
 // An entry -> the model. A field that does not parse is REFUSED and says so by
@@ -384,29 +439,101 @@ void DrawerPane::update_task_sensitivity(const core::Node& n) {
     m_order_par.set_sensitive(on);
 }
 
-DrawerPane::Section DrawerPane::add_section(const std::string& name,
-                                            const std::string& heading) {
+// One section: a header button over a folding body. Everything here is
+// REGISTERED -- sections are built once and live as long as the drawer, so
+// `drawer.links.head` is a real address, unlike the rows rebuilt inside them.
+DrawerPane::Section DrawerPane::add_section(const std::string& key) {
+    install_section_css();
+    const SectionSpec* sp = spec_for(key);
     Section s;
-    s.frame = Gtk::make_managed<widgets::Box>("drawer." + name,
-                                              Gtk::Orientation::VERTICAL, 4);
-    s.head = Gtk::make_managed<widgets::Label>("drawer." + name + "_head");
-    s.head->set_text(heading);
-    s.head->set_xalign(0.0f);
-    s.head->add_css_class("dim-label");
-    s.head->add_css_class("caption-heading");
+    s.key        = key;
+    s.open       = sp ? sp->default_open : true;
+    s.hide_empty = sp ? sp->hide_empty : false;
+
+    s.frame = Gtk::make_managed<widgets::Box>("drawer." + key,
+                                              Gtk::Orientation::VERTICAL, 2);
+
+    s.head = Gtk::make_managed<widgets::Button>("drawer." + key + ".head");
+    s.head->set_has_frame(false);
+    s.head->add_css_class("drawer-section-head");
+    auto* hbox = Gtk::make_managed<widgets::Box>("drawer." + key + ".head_box",
+                                                 Gtk::Orientation::HORIZONTAL, 6);
+    s.arrow = Gtk::make_managed<widgets::Image>("drawer." + key + ".arrow");
+    s.title = Gtk::make_managed<widgets::Label>("drawer." + key + ".title");
+    s.title->set_text(sp ? sp->heading : key);
+    s.title->set_xalign(0.0f);
+    s.title->set_hexpand(true);
+    s.title->add_css_class("caption-heading");
+    s.count = Gtk::make_managed<widgets::Label>("drawer." + key + ".count");
+    s.count->add_css_class("dim-label");
+    s.count->add_css_class("caption");
+    hbox->append(*s.arrow);
+    hbox->append(*s.title);
+    hbox->append(*s.count);
+    s.head->set_child(*hbox);
     s.frame->append(*s.head);
 
-    s.body = Gtk::make_managed<widgets::Box>("drawer." + name + "_body",
+    s.body = Gtk::make_managed<widgets::Box>("drawer." + key + ".body",
+                                             Gtk::Orientation::VERTICAL, 4);
+    s.body->set_margin_start(22);   // under the heading's text, not its arrow
+    s.body->set_margin_bottom(6);
+    s.rows = Gtk::make_managed<widgets::Box>("drawer." + key + ".rows",
                                              Gtk::Orientation::VERTICAL, 2);
+    s.body->append(*s.rows);
     s.frame->append(*s.body);
     m_column.append(*s.frame);
+
+    // The click finds its section by KEY, not by a captured pointer or `this`
+    // plus an index: Section is a value copied into a member after this
+    // returns, so the address it has now is not the one it will live at.
+    s.head->signal_clicked().connect([this, key]() {
+        for (Section* sec : m_all) {
+            if (sec->key != key) continue;
+            sec->open = !sec->open;
+            apply_open(*sec);
+            if (auto lg = log::get(log::Area::Drawer))
+                lg->debug("section {} {}", key, sec->open ? "opened" : "closed");
+            m_sig_section.emit(key, sec->open);
+            return;
+        }
+    });
+
+    apply_open(s);
     return s;
 }
 
+void DrawerPane::apply_open(Section& s) {
+    if (!s.body || !s.arrow) return;
+    s.body->set_visible(s.open);
+    s.arrow->set_from_icon_name(s.open ? "pan-down-symbolic" : "pan-end-symbolic");
+    s.head->set_tooltip_text(s.open ? "Fold this section" : "Open this section");
+}
+
+void DrawerPane::set_count(Section& s, std::size_t n) {
+    if (s.count) s.count->set_text(n ? std::to_string(n) : std::string{});
+}
+
+void DrawerPane::set_section_states(const std::map<std::string, bool>& open) {
+    for (Section* s : m_all) {
+        auto it = open.find(s->key);
+        const SectionSpec* sp = spec_for(s->key);
+        s->open = (it != open.end()) ? it->second : (sp ? sp->default_open : true);
+        apply_open(*s);
+    }
+}
+
+// The rebuilt part only. A hide-when-empty section goes; the others stay on
+// screen and their fill_ puts the rows back.
 void DrawerPane::clear(Section& s) {
-    if (!s.body) return;
-    while (auto* c = s.body->get_first_child()) s.body->remove(*c);
-    if (s.frame) s.frame->set_visible(false);
+    if (!s.rows) return;
+    while (auto* c = s.rows->get_first_child()) s.rows->remove(*c);
+    set_count(s, 0);
+    if (s.frame && s.hide_empty) s.frame->set_visible(false);
+}
+
+void DrawerPane::show_sections(bool on) {
+    for (Section* s : m_all)
+        if (s->frame) s->frame->set_visible(on && !s->hide_empty);
 }
 
 // A row you can click to go somewhere. Flat, left-aligned, and UNREGISTERED:
@@ -489,32 +616,25 @@ void DrawerPane::refresh() {
 void DrawerPane::show_node(const core::NodeId& id) {
     m_id = id;
 
-    clear(m_links);
-    clear(m_backlinks);
-    clear(m_tags);
-    clear(m_where);
-    clear(m_file);
+    for (Section* sec : m_all) clear(*sec);
 
     const core::Node* n = (m_src && !id.empty()) ? m_src->find(id) : nullptr;
     if (!n) {
         m_id.clear();
         m_empty.set_visible(true);
-        m_identity.set_visible(false);
         m_copy_link.set_visible(false);
         m_name_head.set_visible(false);
         m_name.set_visible(false);
-        m_task_head.set_visible(false);
-        m_todo.set_visible(false);
-        m_task_body.set_visible(false);
-        m_order_row.set_visible(false);
+        show_sections(false);
         return;
     }
 
     m_empty.set_visible(false);
     m_name_head.set_visible(true);
     m_name.set_visible(true);
-    m_task_head.set_visible(true);
-    m_todo.set_visible(true);
+    // The always-present sections come back; hide-when-empty ones are left to
+    // their fill_ to reveal, so an empty one never flashes on screen.
+    show_sections(true);
 
     // Only when it differs. show_node() runs on every model change the drawer
     // cares about, and an unconditional set_text would put the cursor back at
@@ -523,16 +643,21 @@ void DrawerPane::show_node(const core::NodeId& id) {
     if (std::string(m_name.get_text()) != n->title) m_name.set_text(n->title);
     m_name.set_editable(!n->protect);
     m_loading = false;
-    m_identity.set_visible(true);
     m_copy_link.set_visible(true);
 
     fill_task(*n);
     fill_links(*n);
     fill_backlinks(*n);
     fill_tags(*n);
-    fill_where(*n);
+    fill_structure(*n);
     fill_file(*n);
     fill_identity(*n);
+
+    // A rows box with nothing in it still takes a spacing slot in its body, so
+    // a section whose content is all HELD widgets (Todo, Identity) would carry
+    // a gap above them. Hidden when empty, it costs nothing.
+    for (Section* sec : m_all)
+        if (sec->rows) sec->rows->set_visible(sec->rows->get_first_child() != nullptr);
 
     // The trace channel's half. The drawer's whole job is to report what is
     // true of a note, so "what did it think was true" is the first question
@@ -570,20 +695,21 @@ void DrawerPane::fill_links(const core::Node& n) {
 
         if (to.empty()) {
             const std::string kind = lk.image ? "image" : "external";
-            m_links.body->append(*link_row(label, lk.target + "  \u00b7  " + kind, "", false));
+            m_links.rows->append(*link_row(label, lk.target + "  \u00b7  " + kind, "", false));
             continue;
         }
         const core::Node* target = m_src ? m_src->find(to) : nullptr;
         if (!target) {
-            m_links.body->append(
+            m_links.rows->append(
                 *link_row(label, "this note no longer exists", "", /*dangling=*/true));
             continue;
         }
         const std::string now = titled(target);
-        m_links.body->append(
+        m_links.rows->append(
             *link_row(now, now == label ? std::string{} : "linked as \u201c" + label + "\u201d",
                       to, false));
     }
+    set_count(m_links, sc.links.size());
     m_links.frame->set_visible(true);
 }
 
@@ -609,9 +735,10 @@ void DrawerPane::fill_backlinks(const core::Node& n) {
                           [&](const core::LinkRef& r) { return r.from == e.from; }));
         std::string detail;
         if (mentions > 1) detail = std::to_string(mentions) + " mentions";
-        m_backlinks.body->append(*link_row(titled(from), detail, e.from, false));
+        m_backlinks.rows->append(*link_row(titled(from), detail, e.from, false));
     }
-    if (m_backlinks.body->get_first_child()) m_backlinks.frame->set_visible(true);
+    set_count(m_backlinks, seen.size());   // notes, not mentions -- matches the rows
+    if (m_backlinks.rows->get_first_child()) m_backlinks.frame->set_visible(true);
 }
 
 // Tags. READ-ONLY -- D4 is open and an editor is a commitment to a storage
@@ -630,7 +757,8 @@ void DrawerPane::fill_tags(const core::Node& n) {
         if (!line.empty()) line += "   ";
         line += "#" + t;
     }
-    m_tags.body->append(*fact_row(line, false));
+    m_tags.rows->append(*fact_row(line, false));
+    set_count(m_tags, names.size());
     m_tags.frame->set_visible(true);
 }
 
@@ -640,39 +768,39 @@ void DrawerPane::fill_tags(const core::Node& n) {
 //
 // The PARENT'S TITLE, never its id. An id in this row would be the one piece of
 // hex the drawer exists to fold away, sitting in the least foldable place.
-void DrawerPane::fill_where(const core::Node& n) {
+void DrawerPane::fill_structure(const core::Node& n) {
     const bool root = n.parent_id.empty();
     if (root) {
-        m_where.body->append(*fact_row("Top level", false));
+        m_structure.rows->append(*fact_row("Top level", false));
     } else {
         const core::Node* p = m_src ? m_src->find(n.parent_id) : nullptr;
-        m_where.body->append(
+        m_structure.rows->append(
             *fact_row("Under " + (p ? titled(p) : std::string("a note that is missing")),
                       false));
     }
 
     const std::size_t kids = m_src ? m_src->children(n.id).size() : 0;
-    m_where.body->append(*fact_row(
+    m_structure.rows->append(*fact_row(
         std::to_string(kids) + (kids == 1 ? " child" : " children"), true));
 
     if (n.protect)
-        m_where.body->append(*fact_row("Protected \u2014 read-only", false));
+        m_structure.rows->append(*fact_row("Protected \u2014 read-only", false));
 
-    m_where.frame->set_visible(true);
+    m_structure.frame->set_visible(true);
 }
 
 // The NOTE's file. The JOTS FOLDER is app-level and lives in the header, where
 // s005 put it; two panels at two altitudes and neither repeats the other.
 void DrawerPane::fill_file(const core::Node& n) {
     if (m_jots_dir.empty()) {
-        m_file.body->append(*fact_row("Not saved to disk yet", true));
+        m_file.rows->append(*fact_row("Not saved to disk yet", true));
         m_file.frame->set_visible(true);
         return;
     }
 
     const std::filesystem::path path =
         std::filesystem::path(m_jots_dir) / "notes" / (n.id + ".md");
-    m_file.body->append(*fact_row("notes/" + n.id + ".md", false));
+    m_file.rows->append(*fact_row("notes/" + n.id + ".md", false));
 
     std::error_code ec;
     if (std::filesystem::exists(path, ec)) {
@@ -684,11 +812,11 @@ void DrawerPane::fill_file(const core::Node& n) {
         // for exactly as long as the deferred write takes.
         const std::string mod = when(n.modified);
         if (!mod.empty()) line += (line.empty() ? "" : "  \u00b7  ") + mod;
-        if (!line.empty()) m_file.body->append(*fact_row(line, true));
+        if (!line.empty()) m_file.rows->append(*fact_row(line, true));
     } else {
         // Structure writes immediately; bodies land on the flush. A note created
         // seconds ago legitimately has no file yet.
-        m_file.body->append(*fact_row("not written yet", true));
+        m_file.rows->append(*fact_row("not written yet", true));
     }
     m_file.frame->set_visible(true);
 }

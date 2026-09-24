@@ -604,6 +604,7 @@ int main() {
         p.win_width = 1440;
         p.win_height = 900;
         p.win_maximized = true;
+        p.drawer_open = {{"links", false}, {"file", true}};
         check("prefs: save creates its directory", core::save_prefs(file, p));
 
         const core::Prefs r = core::load_prefs(file);
@@ -614,6 +615,24 @@ int main() {
                   r.background == p.background &&
                   r.win_width == p.win_width && r.win_height == p.win_height &&
                   r.win_maximized == p.win_maximized);
+        // s016a. Both directions, because a stored false is the case that
+        // matters: it is the user overriding a section that defaults open.
+        check("prefs: drawer section states round-trip, closed and open",
+              r.drawer_open.size() == 2 && r.drawer_open.at("links") == false &&
+                  r.drawer_open.at("file") == true);
+        check("prefs: a first run has chosen no drawer sections",
+              d.drawer_open.empty());
+        {
+            std::ofstream f(file);
+            f << R"({"drawer_open":{"tags":false,"file":"yes","links":true},"show_tree":false})";
+        }
+        const core::Prefs mixed = core::load_prefs(file);
+        check("prefs: a wrong-typed drawer entry drops alone, not the rest",
+              mixed.drawer_open.count("file") == 0 && mixed.drawer_open.at("tags") == false &&
+                  mixed.drawer_open.at("links") == true && !mixed.show_tree);
+        { std::ofstream f(file); f << R"({"drawer_open":[1,2,3]})"; }
+        check("prefs: a drawer_open that is not an object is ignored",
+              core::load_prefs(file).drawer_open.empty());
 
         // A size can outlive the monitor it was stored on, and a window wider
         // than any display is one you cannot reach the edges of to fix.
