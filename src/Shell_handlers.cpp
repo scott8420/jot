@@ -590,11 +590,12 @@ void Shell::on_copy_link(const core::NodeId& id) {  // handler: link -> clipboar
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Images in (s016b). Copy first, reference second: by the time the note says
-// `![..](attachments/x.png)`, x.png is already on disk. The other order would
+// Files in (s016b images; s018 any file). Copy first, reference second: by the
+// time the note says `![..](attachments/x.png)` or `[..](attachments/x.pdf)`,
+// the file is already on disk. The other order would
 // leave a window in which the note points at nothing.
 // ─────────────────────────────────────────────────────────────────────────────
-void Shell::on_images_dropped(std::vector<std::string> paths, int offset) {  // handler
+void Shell::on_files_dropped(std::vector<std::string> paths, int offset) {  // handler
     auto& store = ingest_store();
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
     std::vector<std::pair<std::string, std::string>> added;
@@ -614,8 +615,8 @@ void Shell::on_images_dropped(std::vector<std::string> paths, int offset) {  // 
     if (!failed.empty()) {
         std::string detail;
         for (const auto& f : failed) detail += f + "\n";
-        report_problem(failed.size() == 1 ? "An image could not be copied"
-                                          : "Some images could not be copied",
+        report_problem(failed.size() == 1 ? "A file could not be enclosed"
+                                          : "Some files could not be enclosed",
                        detail);
     }
 }
@@ -677,6 +678,12 @@ void Shell::on_enclosure_action(std::string verb, std::string name) {  // handle
     }
 
     if (verb == "copy") {
+        // The menu offers Copy Image only on an image row; this is the guard
+        // for a stale menu or a hand-fired action, not the usual road.
+        if (!core::is_image_filename(name)) {
+            report_problem("Could not copy " + name, "Copy Image is for pictures; use Save a Copy.");
+            return;
+        }
         try {
             auto tex = Gdk::Texture::create_from_file(file);
             get_clipboard()->set_texture(tex);

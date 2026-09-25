@@ -159,7 +159,7 @@ private:
     void on_desktop_sync_now();                  // category: handler: rewrite the desktop list now
     void on_goto_note(const core::NodeId& id);   // category: handler: a drawer link row -> reveal + select
     void on_copy_link(const core::NodeId& id);   // category: handler: [Title](jot:<id>) -> clipboard
-    void on_images_dropped(std::vector<std::string> paths, int offset);  // category: handler: files dropped on the body -> enclosures
+    void on_files_dropped(std::vector<std::string> paths, int offset);  // category: handler: files dropped on the body -> enclosures
     void on_image_pasted(std::string png, int offset);  // category: handler: a clipboard picture -> an enclosure
     void on_enclosure_action(std::string verb, std::string name);  // category: handler: open / reveal / copy / save one enclosure
 

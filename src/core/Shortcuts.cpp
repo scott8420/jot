@@ -24,7 +24,7 @@ std::string map_key(const std::string& key) {
     if (key.empty()) return "";
     static const std::map<std::string, std::string> named = {
         {"comma", ","},     {"period", "."},     {"question", "?"},
-        {"slash", "/"},     {"minus", "\u2212"}, {"plus", "+"},
+        {"slash", "/"},     {"bracketleft", "["}, {"bracketright", "]"},     {"minus", "\u2212"}, {"plus", "+"},
         {"equal", "="},     {"space", "Space"},
         {"Return", "Enter"},{"Escape", "Esc"},
         {"Left", "\u2190"}, {"Right", "\u2192"}, {"Up", "\u2191"}, {"Down", "\u2193"},
@@ -155,7 +155,7 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
          "Delete the selected note and everything under it"},
         {"Notes", "win.toggle-protect", {"<Ctrl>l"}, "",
          "Protect or unprotect the selected note"},
-        {"Notes", "win.rename-note",    {"F2"}, "",
+        {"Notes", "win.rename-note",    {"<Ctrl>r", "F2"}, "",
          "Rename the selected note in the tree"},
 
         // ── Todos ─────────────────────────────────────────────────────────────
@@ -171,9 +171,16 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
 
         // ── View ──────────────────────────────────────────────
         // Both off is the focus mode: the note alone on screen.
-        {"View", "win.toggle-tree",     {"F9"}, "",
+        //
+        // Every F-key has a letter-row twin (Scott, s018): on a MacBook under
+        // Asahi Fedora the function row is not dependable. The brackets are
+        // by SIDE -- [ is the pane on the left, ] the one on the right. The
+        // twin is listed FIRST because a menu shows only the first accel, and
+        // the menu should show the key that works on the machine jot runs on.
+        {"View", "win.toggle-tree",     {"<Ctrl>bracketleft", "F9"}, "",
          "Show or hide the side pane (Notes and Today)"},
-        {"View", "win.toggle-drawer",   {"F10"}, "", "Show or hide note details"},
+        {"View", "win.toggle-drawer",   {"<Ctrl>bracketright", "F10"}, "",
+         "Show or hide note details"},
     };
     return kReg;
 }

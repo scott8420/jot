@@ -72,7 +72,7 @@ std::string slug_filename(const std::string& original) {
     std::string stem, ext;
     split_ext(base_name(original), stem, ext);
     std::string s = slug_part(stem);
-    if (s.empty()) s = "image";
+    if (s.empty()) s = is_image_filename(original) ? "image" : "file";
     std::string e = slug_part(ext);          // ".JPG" -> "jpg"
     return e.empty() ? s : s + "." + e;
 }
@@ -132,6 +132,11 @@ std::string image_markdown(const std::string& label, const std::string& name) {
     return "![" + l + "](" + kAttachPrefix + name + ")";
 }
 
+std::string enclosure_markdown(const std::string& label, const std::string& name) {
+    return is_image_filename(name) ? image_markdown(label, name)
+                                   : image_markdown(label, name).substr(1);   // drop the bang
+}
+
 // ── ingest ──────────────────────────────────────────────────────────────────
 
 namespace {
@@ -151,6 +156,7 @@ std::string ingest_file(AttachStore& store, const std::string& src_path,
                         std::int64_t now, std::string& err) {
     err.clear();
     std::error_code ec;
+    if (fs::is_directory(src_path, ec)) { err = "a folder cannot be enclosed"; return {}; }
     if (!fs::is_regular_file(src_path, ec)) { err = "not a file: " + src_path; return {}; }
     const std::string name = reserve(store, slug_filename(src_path), err);
     if (name.empty()) return {};

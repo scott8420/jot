@@ -122,14 +122,14 @@ bool EditorPane::on_drop(const Glib::ValueBase& value, double x, double y) {
     GSList* files = gdk_file_list_get_files(list);
     for (GSList* l = files; l; l = l->next) {
         char* p = g_file_get_path(G_FILE(l->data));
-        if (p && core::is_image_filename(p)) paths.emplace_back(p);
+        if (p) paths.emplace_back(p);   // any file (s018); a folder is refused by the ingest, aloud
         g_free(p);
     }
     g_slist_free(files);
 
     if (paths.empty()) {
         if (auto lg = log::get(log::Area::Editor))
-            lg->info("drop refused: no image among the dropped files");
+            lg->info("drop refused: nothing local among the dropped files");
         return false;
     }
 
@@ -140,7 +140,7 @@ bool EditorPane::on_drop(const Glib::ValueBase& value, double x, double y) {
     m_body.get_iter_at_location(it, bx, by);
     const int offset = it.get_offset();
     if (auto lg = log::get(log::Area::Editor))
-        lg->info("drop: {} image(s) at offset {}", paths.size(), offset);
+        lg->info("drop: {} file(s) at offset {}", paths.size(), offset);
     m_sig_dropped.emit(paths, offset);
     return true;
 }

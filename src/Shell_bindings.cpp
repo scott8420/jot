@@ -142,7 +142,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     m_drawer->signal_copy_link().connect(sigc::mem_fun(*this, &Shell::on_copy_link));
     // s016b: the editor recognises an image arriving; the Shell decides where
     // it goes, because only the Shell knows whether there is a folder yet.
-    m_editor->signal_images_dropped().connect(sigc::mem_fun(*this, &Shell::on_images_dropped));
+    m_editor->signal_files_dropped().connect(sigc::mem_fun(*this, &Shell::on_files_dropped));
     m_editor->signal_image_pasted().connect(sigc::mem_fun(*this, &Shell::on_image_pasted));
     // s017: the drawer's enclosure rows ask; the Shell has the window and
     // the clipboard those verbs need.

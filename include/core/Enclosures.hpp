@@ -56,7 +56,8 @@ struct AttachStore {
 
 // The original name, slugged: lower case, [a-z0-9] kept, every other run turned
 // into ONE dash, trimmed; the extension kept and lower-cased. An empty stem
-// becomes "image". "My Photo (1).JPG" -> "my-photo-1.jpg". Slugged so the
+// becomes "image" for an image and "file" for anything else (s018).
+// "My Photo (1).JPG" -> "my-photo-1.jpg". Slugged so the
 // markdown target never needs escaping -- a space or a paren in a filename is
 // exactly what breaks `![](...)` in every other editor.
 std::string slug_filename(const std::string& original);
@@ -71,7 +72,10 @@ std::string paste_filename(std::int64_t unix_time, const std::string& ext = "png
 std::string unique_filename(const std::string& dir, const std::string& name);
 
 // Is this a file jot shows as an image? By extension, case-insensitive. The
-// drawer asks the image loader for the truth; this is the cheap gate on a drop.
+// drawer asks the image loader for the truth. Since s018 this is no longer the
+// gate on a drop -- any file is an enclosure -- it is the KIND switch: an image
+// is referenced with `![..]`, gets a thumbnail and a Copy Image; anything else
+// is a plain `[..]` link with its type's icon.
 bool is_image_filename(const std::string& name);
 
 // The attachment name a markdown target points at, or EMPTY if it is not one
@@ -86,6 +90,11 @@ std::string image_markdown(const std::string& label, const std::string& name);
 
 // The label for a file: its stem, as the user named it (not slugged).
 std::string image_label(const std::string& original);
+
+// The reference for ANY enclosure (s018): `![label](attachments/name)` for an
+// image, `[label](attachments/name)` for anything else. The bang is what makes
+// a viewer inline it; a PDF inlined is a broken-image icon in every renderer.
+std::string enclosure_markdown(const std::string& label, const std::string& name);
 
 // ── ingest -- a file or some bytes become an enclosure ──────────────────────
 // Copies into `store.dir` (creating it) under a unique slugged name, records

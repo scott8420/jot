@@ -227,12 +227,12 @@ void Shell::build_left_pane() {  // zone: Notes | Today
 // ─────────────────────────────────────────────────────────────────────────────
 void Shell::build_pane_toggles(Gtk::HeaderBar& header) {  // zone: the focus-mode toggles
     m_tree_toggle.set_icon_name("sidebar-show-symbolic");
-    m_tree_toggle.set_tooltip_text("Show the side pane (F9)");
+    m_tree_toggle.set_tooltip_text("Show the side pane (Ctrl+[ or F9)");
     m_tree_toggle.set_action_name("win.toggle-tree");
     header.pack_start(m_tree_toggle);
 
     m_drawer_toggle.set_icon_name("dialog-information-symbolic");
-    m_drawer_toggle.set_tooltip_text("Show note details (F10)");
+    m_drawer_toggle.set_tooltip_text("Show note details (Ctrl+] or F10)");
     m_drawer_toggle.set_action_name("win.toggle-drawer");
     header.pack_end(m_drawer_toggle);
 }

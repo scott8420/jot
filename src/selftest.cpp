@@ -1283,6 +1283,22 @@ int main() {
             check("shortcuts: delete-note has no app-wide key (the tree binds Delete)",
                   !bound);
         }
+        {
+            // s018 (Scott): the function row is not dependable on a MacBook
+            // under Asahi, so no action may be reachable ONLY by an F-key --
+            // and the first accel (the one a menu shows) is the twin.
+            auto fkey = [](const std::string& a) {
+                return a.size() >= 2 && a[0] == 'F' && std::isdigit(static_cast<unsigned char>(a[1]));
+            };
+            std::string bad;
+            for (const auto& r : sc::shortcut_registry()) {
+                if (r.action.empty() || r.accels.empty()) continue;
+                const bool any_f = std::any_of(r.accels.begin(), r.accels.end(), fkey);
+                if (any_f && fkey(r.accels.front())) bad += r.action + " ";
+            }
+            check("shortcuts: every F-key has a letter-row twin, listed first", bad.empty(),
+                  bad.empty() ? "clean" : bad);
+        }
 
         // Sections authored A-Z + contiguous: the dialog walks linearly and
         // starts a heading on change, so a stray out-of-order row would split a
@@ -2371,6 +2387,44 @@ int main() {
                   fs::file_size(fs::path(st.dir) / n3, ec) == 8, n3 + err);
         check("enclosure: ingest of a missing file fails with a reason",
               core::ingest_file(st, (root / "nope.png").string(), 1, err).empty() && !err.empty());
+
+        // s018 -- any file, not just an image. Its own store, so the counts
+        // the image tests below rely on are not disturbed.
+        {
+            check("file enclosure: an image is referenced with a bang",
+                  core::enclosure_markdown("Cat", "cat.png") == "![Cat](attachments/cat.png)");
+            check("file enclosure: any other file is a plain link",
+                  core::enclosure_markdown("Q3 [final]", "q3-final.pdf") ==
+                      "[Q3 final](attachments/q3-final.pdf)",
+                  core::enclosure_markdown("Q3 [final]", "q3-final.pdf"));
+            check("file enclosure: an unsluggable stem becomes 'file', not 'image'",
+                  core::slug_filename("\xe7\x8c\xab.PDF") == "file.pdf",
+                  core::slug_filename("\xe7\x8c\xab.PDF"));
+            const fs::path pdf = root / "src" / "Q3 Report.PDF";
+            std::ofstream(pdf, std::ios::binary) << "%PDF-1.7 not really";
+            core::AttachStore fst{(root / "files").string(), {}};
+            const std::string fn = core::ingest_file(fst, pdf.string(), 2000, err);
+            check("file enclosure: a PDF ingests like an image did", fn == "q3-report.pdf" &&
+                      fst.metas.count(fn) && fst.metas[fn].size == 19, fn + err);
+            check("file enclosure: a folder is refused, with a reason",
+                  core::ingest_file(fst, (root / "src").string(), 1, err).empty() &&
+                      err.find("folder") != std::string::npos, err);
+            const std::string fb = "See " + core::enclosure_markdown("Q3 Report", fn) +
+                                   " and ![p](attachments/q3-report.pdf)\n";
+            const auto fl = core::enclosures(fb, fst);
+            check("file enclosure: a plain link is listed, present, joined",
+                  fl.size() == 1 && fl[0].name == fn && fl[0].present && fl[0].has_meta &&
+                      fl[0].refs == 2 && fl[0].label == "Q3 Report",
+                  std::to_string(fl.size()));
+            std::string fb2 = fb;
+            check("file enclosure: a rename rewrites plain links and bang links alike",
+                  core::rename_references(fb2, fn, "q3-report-2.pdf") == 2 &&
+                      fb2.find("[Q3 Report](attachments/q3-report-2.pdf)") != std::string::npos,
+                  fb2);
+            const std::string out = (root / "out.pdf").string();
+            check("file enclosure: Save a Copy is byte-exact for any file",
+                  core::copy_out(fst, fn, out, err) && fs::file_size(out, ec) == 19, err);
+        }
 
         // the derived list
         const std::string body =

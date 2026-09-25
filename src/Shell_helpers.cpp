@@ -507,10 +507,10 @@ void Shell::apply_layout_state() {  // helper: the one place layout changes
     if (m_act_toggle_drawer)
         m_act_toggle_drawer->set_state(Glib::Variant<bool>::create(m_prefs.show_drawer));
 
-    m_tree_toggle.set_tooltip_text(m_prefs.show_tree ? "Hide the side pane (F9)"
-                                                     : "Show the side pane (F9)");
-    m_drawer_toggle.set_tooltip_text(m_prefs.show_drawer ? "Hide note details (F10)"
-                                                         : "Show note details (F10)");
+    m_tree_toggle.set_tooltip_text(m_prefs.show_tree ? "Hide the side pane (Ctrl+[ or F9)"
+                                                     : "Show the side pane (Ctrl+[ or F9)");
+    m_drawer_toggle.set_tooltip_text(m_prefs.show_drawer ? "Hide note details (Ctrl+] or F10)"
+                                                         : "Show note details (Ctrl+] or F10)");
 
     const auto restore = [this]() {
         if (m_prefs.show_tree)   m_paned_left.set_position(m_prefs.tree_width);
@@ -1360,13 +1360,13 @@ void Shell::place_enclosures(const std::vector<std::pair<std::string, std::strin
     std::string text;
     for (const auto& [name, label] : added) {
         if (!text.empty()) text += "\n";
-        text += core::image_markdown(label, name);
+        text += core::enclosure_markdown(label, name);
     }
     if (!m_editor->insert_block(offset, text)) {
         // The file is already safe in the store; only the reference failed.
-        // Say so -- an image that arrived nowhere visible is a lost image to
+        // Say so -- a file that arrived nowhere visible is a lost file to
         // the person who dropped it, even though it is on disk.
-        report_problem("The image was kept but not placed",
+        report_problem("The file was kept but not placed",
                        "It is in " + ingest_store().dir + ", but this note can't be edited.");
         return;
     }

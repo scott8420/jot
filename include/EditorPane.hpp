@@ -66,8 +66,9 @@ public:
     // name: where an attachment lives depends on whether there is a jots
     // folder yet, and that is the Shell's knowledge, not the note's.
     //
-    // Local paths of the dropped files that look like images, and where.
-    sigc::signal<void(std::vector<std::string>, int)>& signal_images_dropped() {
+    // Local paths of the dropped files, and where. ANY file since s018 -- the
+    // kind (image or not) is decided when the reference is written, not here.
+    sigc::signal<void(std::vector<std::string>, int)>& signal_files_dropped() {
         return m_sig_dropped;
     }
     // PNG bytes of a pasted picture, and where.

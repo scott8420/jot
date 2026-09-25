@@ -3,6 +3,7 @@
 #include "core/Markdown.hpp"
 
 #include <gdkmm/pixbuf.h>
+#include <giomm/contenttype.h>
 #include <giomm/menu.h>
 #include <giomm/menuitem.h>
 #include <giomm/simpleactiongroup.h>
@@ -903,7 +904,8 @@ void DrawerPane::title_changed_elsewhere(const std::string& title) {
 // references, once per file, joined with what the store remembers. This file
 // only draws it.
 //
-// A row: thumbnail on the left, name over a detail line on the right. The
+// A row: thumbnail (an image) or type icon (any other file, s018) on the left,
+// name over a detail line on the right. The
 // detail says what a Usage panel says -- size, where it came from, when -- and
 // "Missing" in place of all of it when the note points at a file that is not
 // in the folder, because that is the one status that needs acting on.
@@ -938,13 +940,25 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
     // into that square keeping its aspect (a GtkPicture sizes itself to the
     // picture, which is what made the first look ragged) and draws from the
     // 2x-decoded texture on a HiDPI screen.
-    Glib::RefPtr<Gdk::Texture> tex = e.present ? thumbnail(path) : Glib::RefPtr<Gdk::Texture>{};
+    //
+    // s018: only an IMAGE is decoded. Any other file shows its type's icon,
+    // looked up from the name (the same guess Files makes), so a PDF looks
+    // like a PDF and nothing is ever read to draw the row.
+    const bool picture = core::is_image_filename(e.name);
+    bool uncertain = false;
+    const std::string ctype = Gio::content_type_guess(e.name, nullptr, 0, uncertain);
+    Glib::RefPtr<Gdk::Texture> tex =
+        (e.present && picture) ? thumbnail(path) : Glib::RefPtr<Gdk::Texture>{};
     auto* img = Gtk::make_managed<widgets::Image>(widgets::unregistered, "drawer.enclosure_thumb");
     if (tex) {
         img->set(tex);
-    } else {
+    } else if (picture) {
         img->set_from_icon_name(e.present ? "image-x-generic-symbolic" : "image-missing");
         img->add_css_class("dim-label");
+    } else {
+        if (auto icon = Gio::content_type_get_icon(ctype)) img->set(icon);
+        else img->set_from_icon_name("text-x-generic");
+        if (!e.present) img->add_css_class("dim-label");
     }
     img->set_pixel_size(kThumb);
     img->set_size_request(kThumb, kThumb);
@@ -969,6 +983,12 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
         std::error_code ec;
         const auto sz = std::filesystem::file_size(path, ec);
         detail = ec ? std::string{} : human_size(sz);
+        // What it is, for a file whose icon may be the generic page: "PDF
+        // document", "Zip archive". An image says it with its thumbnail.
+        if (!picture && ctype != "application/octet-stream") {
+            const std::string kind = Gio::content_type_get_description(ctype);
+            if (!kind.empty()) detail = kind + (detail.empty() ? "" : "  \u00b7  " + detail);
+        }
         std::string from;
         if (e.has_meta)
             from = e.meta.source == "clipboard" ? std::string("pasted") : std::string("from Files");
@@ -1019,7 +1039,7 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
             item->set_action_and_target(action, target);
             out->append_item(item);
         };
-        add_out("Copy Image", "encl.copy");
+        if (picture) add_out("Copy Image", "encl.copy");   // a picture only (s018)
         add_out("Save a Copy\u2026", "encl.save");
         menu->append_section(out);
 
@@ -1027,7 +1047,8 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
         more->set_icon_name("view-more-symbolic");
         more->set_has_frame(false);
         more->set_valign(Gtk::Align::CENTER);
-        more->set_tooltip_text("Open, show in Files, copy or save this file");
+        more->set_tooltip_text(picture ? "Open, show in Files, copy or save this image"
+                                       : "Open, show in Files, or save a copy of this file");
         more->set_menu_model(menu);
         row->append(*more);
 
