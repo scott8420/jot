@@ -1,6 +1,11 @@
 #include "EditorPane.hpp"
 #include "Log.hpp"
 
+#include "core/Enclosures.hpp"
+
+#include <gdkmm/clipboard.h>
+#include <gdkmm/contentformats.h>
+#include <gdkmm/texture.h>
 #include <glibmm/main.h>
 #include <pango/pango-attributes.h>
 
@@ -80,7 +85,123 @@ EditorPane::EditorPane(std::string_view name)
         [this](int n, double x, double y) { on_body_click(n, x, y); });
     m_body.add_controller(m_click);
 
+    // ── a drop of files (s016b) ─────────────────────────────────────────────
+    // CAPTURE phase, on the text view itself: GtkTextView has its own drop
+    // target for text, in the bubble phase, and a drag from Files offers the
+    // file list AS text too (the uri). Heard second, a dropped photo would
+    // arrive as the string "file:///home/..." typed into the note. Heard
+    // first, it arrives as a file. A drop that holds no image is refused and
+    // nothing is inserted -- non-image enclosures are a later milestone.
+    m_drop = Gtk::DropTarget::create(GDK_TYPE_FILE_LIST, Gdk::DragAction::COPY);
+    m_drop->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    m_drop->signal_drop().connect(
+        [this](const Glib::ValueBase& v, double x, double y) { return on_drop(v, x, y); },
+        false);
+    m_body.add_controller(m_drop);
+
+    // ── a paste of a picture (s016b) ────────────────────────────────────────
+    // "paste-clipboard" is the keybinding signal Ctrl+V AND the context menu
+    // both emit, so hooking it covers both. Connected with the C API because
+    // gtkmm 4.10 does not wrap it; run before the default handler, which it
+    // stops only when the clipboard holds an image and NO text.
+    g_signal_connect(m_body.gobj(), "paste-clipboard", G_CALLBACK(&EditorPane::paste_trampoline),
+                     this);
+
     show_node("");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enclosures in. Recognise, locate, emit -- nothing here writes a file.
+// ─────────────────────────────────────────────────────────────────────────────
+bool EditorPane::on_drop(const Glib::ValueBase& value, double x, double y) {
+    if (!m_body.get_editable() || m_id.empty()) return false;
+    auto* list = static_cast<GdkFileList*>(g_value_get_boxed(value.gobj()));
+    if (!list) return false;
+
+    std::vector<std::string> paths;
+    GSList* files = gdk_file_list_get_files(list);
+    for (GSList* l = files; l; l = l->next) {
+        char* p = g_file_get_path(G_FILE(l->data));
+        if (p && core::is_image_filename(p)) paths.emplace_back(p);
+        g_free(p);
+    }
+    g_slist_free(files);
+
+    if (paths.empty()) {
+        if (auto lg = log::get(log::Area::Editor))
+            lg->info("drop refused: no image among the dropped files");
+        return false;
+    }
+
+    int bx = 0, by = 0;
+    m_body.window_to_buffer_coords(Gtk::TextWindowType::WIDGET, static_cast<int>(x),
+                                   static_cast<int>(y), bx, by);
+    Gtk::TextIter it;
+    m_body.get_iter_at_location(it, bx, by);
+    const int offset = it.get_offset();
+    if (auto lg = log::get(log::Area::Editor))
+        lg->info("drop: {} image(s) at offset {}", paths.size(), offset);
+    m_sig_dropped.emit(paths, offset);
+    return true;
+}
+
+void EditorPane::paste_trampoline(GtkTextView*, gpointer self) {
+    static_cast<EditorPane*>(self)->on_paste_clipboard();
+}
+
+void EditorPane::on_paste_clipboard() {
+    if (!m_body.get_editable() || m_id.empty()) return;
+    auto clip = m_body.get_clipboard();
+    auto formats = clip ? clip->get_formats() : Glib::RefPtr<Gdk::ContentFormats>{};
+    if (!formats) return;
+    // Text wins whenever there is text. An app that copies a selection often
+    // offers a picture of it as well (office suites do), and the user copied
+    // WORDS. Only a clipboard that is a picture and nothing readable becomes
+    // an enclosure -- a screenshot, a browser's Copy Image.
+    const bool image = formats->contain_gtype(GDK_TYPE_TEXTURE);
+    const bool text  = formats->contain_gtype(G_TYPE_STRING);
+    if (!image || text) return;
+
+    g_signal_stop_emission_by_name(m_body.gobj(), "paste-clipboard");
+    const int offset = cursor_offset();
+    const core::NodeId id = m_id;
+    if (auto lg = log::get(log::Area::Editor)) lg->info("paste: an image, at offset {}", offset);
+
+    clip->read_texture_async([this, clip, offset, id](Glib::RefPtr<Gio::AsyncResult>& r) {
+        Glib::RefPtr<Gdk::Texture> tex;
+        try {
+            tex = clip->read_texture_finish(r);
+        } catch (const Glib::Error& e) {
+            if (auto lg = log::get(log::Area::Editor))
+                lg->warn("paste: the clipboard image could not be read: {}", e.what());
+            return;
+        }
+        // The note may have changed while the clipboard answered. An image
+        // pasted into one note must not land in the next one you clicked.
+        if (!tex || id != m_id) return;
+        auto bytes = tex->save_to_png_bytes();
+        if (!bytes) return;
+        gsize n = 0;
+        const auto* data = static_cast<const char*>(bytes->get_data(n));
+        m_sig_pasted.emit(std::string(data, n), offset);
+    }, Glib::RefPtr<Gio::Cancellable>{});
+}
+
+int EditorPane::cursor_offset() const {
+    auto buf = const_cast<Gtk::TextView&>(static_cast<const Gtk::TextView&>(m_body)).get_buffer();
+    return buf->get_insert()->get_iter().get_offset();
+}
+
+bool EditorPane::insert_block(int cp_offset, const std::string& text) {
+    if (!m_body.get_editable() || m_id.empty() || text.empty()) return false;
+    auto buf = m_body.get_buffer();
+    auto it = buf->get_iter_at_offset(cp_offset);
+    std::string block = text;
+    if (!it.starts_line()) block = "\n" + block;
+    if (!it.ends_line()) block += "\n";
+    it = buf->insert(it, block);
+    buf->place_cursor(it);
+    return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 #pragma once
+#include "core/Enclosures.hpp"
 #include "core/Nodes.hpp"
 
 #include <set>
@@ -130,7 +131,27 @@ public:
     // number of nodes adopted; a caller comparing that against from.count()
     // learns whether the source had anything unreachable in it. Refuses (0) if
     // this project already has notes in it.
-    std::size_t adopt(const NodeSource& from);
+    //
+    // ENCLOSURES (s016b). `att` is where the source's attachments live and
+    // what is known about them -- the scratch buffer's staging folder, or the
+    // old jots folder on a Save As. Every attachment the adopted bodies
+    // REFERENCE is carried into this folder's attachments/ (moved when
+    // `move_files`, copied otherwise), metadata with it; a name that collides
+    // here gets a free one and the bodies are rewritten to match BEFORE they
+    // are written, so a note never points at a name its file does not have.
+    // Unreferenced files are left where they are: nothing is deleted.
+    std::size_t adopt(const NodeSource& from, const AttachStore* att = nullptr,
+                      bool move_files = false);
+
+    // ── enclosures ──────────────────────────────────────────────────────────
+    // The attachments/ folder and what jot.json remembers about each file.
+    const AttachStore& attach() const { return m_attach; }
+    // A new enclosure's metadata. Structure: it lives in jot.json and is
+    // written now, not deferred -- the file is already on disk.
+    void record_enclosure(const std::string& name, const EnclosureMeta& meta);
+    // The ingest path mutates the store directly; this is the same write.
+    AttachStore& attach_for_ingest() { return m_attach; }
+    void         enclosures_changed() { m_structure_dirty = true; flush(); }
 
     const std::string& dir() const { return m_dir; }
     bool dirty() const { return m_structure_dirty || !m_dirty_bodies.empty(); }
@@ -162,6 +183,7 @@ private:
     void        adopt_orphans(std::vector<Node>& nodes);
 
     std::string        m_dir;
+    AttachStore        m_attach;         // dir = <m_dir>/attachments
     std::set<NodeId>   m_dirty_bodies;
     std::set<NodeId>   m_deleted;        // files to unlink on the next flush
     bool               m_structure_dirty = false;

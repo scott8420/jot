@@ -11,11 +11,15 @@
 #include "core/Recents.hpp"
 
 #include <gtkmm/filedialog.h>
+#include <gdkmm/clipboard.h>
+#include <gdkmm/texture.h>
+#include <gtkmm/filelauncher.h>
 #include <giomm/appinfo.h>
 #include <giomm/asyncresult.h>
 #include <giomm/file.h>
 #include <glibmm/miscutils.h>
 
+#include <ctime>
 #include <filesystem>
 
 // Shell_handlers.cpp -- HANDLERS. Slot bodies: what a user action actually does.
@@ -154,10 +158,13 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
             if (!m_editor->current().empty() && !m_store->find(m_editor->current())) {
                 m_tree->select("");
                 m_editor->show_node("");
-                m_drawer->show_node("");
-            } else {
-                m_drawer->refresh();   // a backlink may have just died
             }
+            // The drawer on an IDLE in both arms (s017 fix): its rows hold live
+            // controllers now -- a menu button with an open popover, a
+            // double-click gesture -- and a rebuild from inside an event being
+            // delivered to one of them is the gtk_widget_get_parent CRITICAL.
+            // An idle refresh of a vanished note shows the empty drawer.
+            queue_drawer_refresh();   // a backlink may have just died, too
             break;
         case C::Task:
             // A task edit can change what is AVAILABLE somewhere else entirely
@@ -165,7 +172,7 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
             // three rows down and possibly under a collapsed parent. So the
             // whole report is re-derived rather than the one row repainted.
             refresh_tasks(false, id);
-            if (id == m_editor->current()) m_drawer->refresh();
+            if (id == m_editor->current()) queue_drawer_refresh();   // idle: see Removed
             break;
         case C::Moved:
             // A move changes DOCUMENT ORDER, and document order is what decides
@@ -179,7 +186,7 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
             // parent and the protected state -- both are invalidated by a change
             // neither of them authored. (This is what the status line used to do.)
             if (id == m_editor->current()) m_editor->refresh();
-            m_drawer->refresh();
+            queue_drawer_refresh();   // idle: see Removed
             break;
         case C::Title: {
             // TWO surfaces can rename: the tree's inline rename and the
@@ -580,6 +587,131 @@ void Shell::on_copy_link(const core::NodeId& id) {  // handler: link -> clipboar
     const std::string link = "[" + title + "](" + core::kJotScheme + n->id + ")";
     get_clipboard()->set_text(link);
     if (auto lg = log::get(log::Area::Shell)) lg->info("copied link: {}", link);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Images in (s016b). Copy first, reference second: by the time the note says
+// `![..](attachments/x.png)`, x.png is already on disk. The other order would
+// leave a window in which the note points at nothing.
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::on_images_dropped(std::vector<std::string> paths, int offset) {  // handler
+    auto& store = ingest_store();
+    const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    std::vector<std::pair<std::string, std::string>> added;
+    std::vector<std::string> failed;
+    for (const auto& p : paths) {
+        std::string err;
+        const std::string name = core::ingest_file(store, p, now, err);
+        if (name.empty()) {
+            failed.push_back(p + " (" + err + ")");
+            continue;
+        }
+        if (auto lg = log::get(log::Area::Io))
+            lg->info("enclosure: '{}' -> {}/{}", p, store.dir, name);
+        added.emplace_back(name, core::image_label(p));
+    }
+    place_enclosures(added, offset);
+    if (!failed.empty()) {
+        std::string detail;
+        for (const auto& f : failed) detail += f + "\n";
+        report_problem(failed.size() == 1 ? "An image could not be copied"
+                                          : "Some images could not be copied",
+                       detail);
+    }
+}
+
+void Shell::on_image_pasted(std::string png, int offset) {  // handler
+    auto& store = ingest_store();
+    const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    std::string err;
+    const std::string name =
+        core::ingest_bytes(store, png, core::paste_filename(now), "clipboard", now, err);
+    if (name.empty()) {
+        report_problem("The pasted image could not be saved", err);
+        return;
+    }
+    if (auto lg = log::get(log::Area::Io))
+        lg->info("enclosure: pasted {} byte(s) -> {}/{}", png.size(), store.dir, name);
+    place_enclosures({{name, "pasted image"}}, offset);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enclosures out (s017). Every verb resolves the name through
+// core::enclosure_path -- the one place a name becomes a path -- and every
+// failure is said on screen, because each of these is something the user
+// asked for and would otherwise watch do nothing.
+//
+// Open and Show in Files hand the file to the desktop (GtkFileLauncher, which
+// goes through the OpenURI portal when there is one and gio otherwise). Copy
+// Image puts a TEXTURE on the clipboard, so it pastes as a picture anywhere
+// -- including back into jot, where it becomes a new enclosure. Save a Copy
+// asks where, then core::copy_out writes it; the enclosure is never touched.
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::on_enclosure_action(std::string verb, std::string name) {  // handler
+    const core::AttachStore* store = attach_store();
+    const std::string path = store ? core::enclosure_path(*store, name) : std::string{};
+    if (path.empty() || !std::filesystem::is_regular_file(path)) {
+        report_problem("That file is not there", name + " is not in the attachments folder.");
+        return;
+    }
+    auto file = Gio::File::create_for_path(path);
+    if (auto lg = log::get(log::Area::Io)) lg->info("enclosure {}: {}", verb, path);
+
+    if (verb == "open" || verb == "reveal") {
+        auto launcher = Gtk::FileLauncher::create(file);
+        const bool open = (verb == "open");
+        auto done = [this, launcher, open, name](Glib::RefPtr<Gio::AsyncResult>& r) {
+            try {
+                if (open) launcher->launch_finish(r);
+                else      launcher->open_containing_folder_finish(r);
+            } catch (const Glib::Error& e) {
+                // Dismissing the app chooser is not a failure worth a dialog.
+                if (e.matches(GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED)) return;
+                report_problem(open ? "Could not open " + name : "Could not show " + name,
+                               e.what());
+            }
+        };
+        if (open) launcher->launch(*this, done);
+        else      launcher->open_containing_folder(*this, done);
+        return;
+    }
+
+    if (verb == "copy") {
+        try {
+            auto tex = Gdk::Texture::create_from_file(file);
+            get_clipboard()->set_texture(tex);
+        } catch (const Glib::Error& e) {
+            report_problem("Could not copy " + name, e.what());
+        }
+        return;
+    }
+
+    if (verb == "save") {
+        auto dialog = Gtk::FileDialog::create();
+        dialog->set_title("Save a Copy");
+        dialog->set_initial_name(name);
+        dialog->save(*this, [this, dialog, name](Glib::RefPtr<Gio::AsyncResult>& r) {
+            Glib::RefPtr<Gio::File> dest;
+            try {
+                dest = dialog->save_finish(r);
+            } catch (const Glib::Error&) {
+                return;   // cancelled
+            }
+            if (!dest || dest->get_path().empty()) return;
+            // Re-resolved here, not captured: the store may have been swapped
+            // while the dialog was open (Save As), and the name is what the
+            // user chose, not the path it had a minute ago.
+            const core::AttachStore* now = attach_store();
+            std::string err;
+            if (!now || !core::copy_out(*now, name, dest->get_path(), err)) {
+                report_problem("Could not save a copy of " + name, err);
+                return;
+            }
+            if (auto lg = log::get(log::Area::Io))
+                lg->info("enclosure saved: {} -> {}", name, dest->get_path());
+        });
+        return;
+    }
 }
 
 }  // namespace jot

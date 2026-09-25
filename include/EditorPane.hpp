@@ -3,10 +3,12 @@
 #include "core/Nodes.hpp"
 #include "widgets/Widgets.hpp"
 
+#include <gtkmm/droptarget.h>
 #include <gtkmm/gestureclick.h>
 #include <gtkmm/texttag.h>
 #include <map>
 #include <string>
+#include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EditorPane -- the note itself: a title entry and a markdown body that styles
@@ -57,7 +59,36 @@ public:
     void focus_capture();
     core::NodeId current() const { return m_id; }
 
+    // ── enclosures in (s016b) ───────────────────────────────────────────────
+    // The editor RECOGNISES an image arriving -- a drop of files from Files, or
+    // a paste whose clipboard holds a picture and no text -- and says so with
+    // the buffer offset it arrived at. It does not copy anything or choose a
+    // name: where an attachment lives depends on whether there is a jots
+    // folder yet, and that is the Shell's knowledge, not the note's.
+    //
+    // Local paths of the dropped files that look like images, and where.
+    sigc::signal<void(std::vector<std::string>, int)>& signal_images_dropped() {
+        return m_sig_dropped;
+    }
+    // PNG bytes of a pasted picture, and where.
+    sigc::signal<void(std::string, int)>& signal_image_pasted() { return m_sig_pasted; }
+
+    // Put text into the body at a codepoint offset, as if typed there: it goes
+    // through the ordinary `changed` -> write-through path, so the store, the
+    // drawer and the index hear about it the usual way. Block-shaped: a
+    // newline is added before when the offset is mid-line and after when text
+    // follows, so an image reference always sits on its own line. Refused on
+    // a protected note. Returns false if nothing was inserted.
+    bool insert_block(int cp_offset, const std::string& text);
+
+    // The cursor's offset, for a paste (which lands at the cursor).
+    int cursor_offset() const;
+
 private:
+    bool on_drop(const Glib::ValueBase& value, double x, double y);
+    void on_paste_clipboard();       // "paste-clipboard", run BEFORE the default
+    static void paste_trampoline(GtkTextView*, gpointer self);
+
     void write_body();
     void set_editable(bool on);
 
@@ -82,6 +113,9 @@ private:
     widgets::Label          m_status;
 
     Glib::RefPtr<Gtk::GestureClick> m_click;
+    Glib::RefPtr<Gtk::DropTarget>   m_drop;
+    sigc::signal<void(std::vector<std::string>, int)> m_sig_dropped;
+    sigc::signal<void(std::string, int)>              m_sig_pasted;
     std::map<core::Style, Glib::RefPtr<Gtk::TextTag>> m_tags;
 
     // The last scan of what is currently in the buffer. Kept because the click

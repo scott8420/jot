@@ -2,7 +2,16 @@
 #include "Log.hpp"
 #include "core/Markdown.hpp"
 
+#include <gdkmm/pixbuf.h>
+#include <giomm/menu.h>
+#include <giomm/menuitem.h>
+#include <giomm/simpleactiongroup.h>
+#include <glibmm/variant.h>
 #include <gtkmm/cssprovider.h>
+#include <gtkmm/gestureclick.h>
+#include <gtkmm/menubutton.h>
+#include <gtkmm/popover.h>
+#include <glibmm/main.h>
 #include <gtkmm/enums.h>
 #include <gtkmm/eventcontrollerfocus.h>
 
@@ -80,6 +89,7 @@ constexpr SectionSpec kSections[] = {
     {"links",     "Links",       true,  true },
     {"backlinks", "Linked from", true,  true },
     {"tags",      "Tags",        true,  true },
+    {"enclosures","Enclosures",  true,  true },
     {"file",      "File",        false, false},
     {"identity",  "Identity",    false, false},
 };
@@ -168,10 +178,11 @@ DrawerPane::DrawerPane(std::string_view name)
     m_links     = add_section("links");
     m_backlinks = add_section("backlinks");
     m_tags      = add_section("tags");
+    m_enclosures = add_section("enclosures");
     m_file      = add_section("file");
     m_identity  = add_section("identity");
-    m_all = {&m_todo_sec, &m_structure, &m_links, &m_backlinks,
-             &m_tags,     &m_file,      &m_identity};
+    m_all = {&m_todo_sec, &m_structure,  &m_links, &m_backlinks,
+             &m_tags,     &m_enclosures, &m_file,  &m_identity};
 
     build_task_block();
 
@@ -204,6 +215,27 @@ DrawerPane::DrawerPane(std::string_view name)
     m_copy_link.set_margin_top(10);
     m_copy_link.set_halign(Gtk::Align::START);
     m_column.append(m_copy_link);
+
+    // ── enclosure actions (s017) ────────────────────────────────────────────
+    // One action per verb, parameterised by the file's NAME, on a group the
+    // drawer owns ("encl.*"). The rows are rebuilt on every refresh; the
+    // actions are not, so a menu open while the note changes still points at
+    // something that exists. The drawer only says what was asked for.
+    {
+        auto group = Gio::SimpleActionGroup::create();
+        for (const char* verb : {"open", "reveal", "copy", "save"}) {
+            const std::string v = verb;
+            group->add_action_with_parameter(
+                v, Glib::VARIANT_TYPE_STRING, [this, v](const Glib::VariantBase& p) {
+                    const auto name =
+                        Glib::VariantBase::cast_dynamic<Glib::Variant<Glib::ustring>>(p).get();
+                    if (auto lg = log::get(log::Area::Drawer))
+                        lg->info("enclosure {} '{}'", v, std::string(name));
+                    m_sig_enclosure.emit(v, name);
+                });
+        }
+        insert_action_group("encl", group);
+    }
 
     m_scroll.set_child(m_column);
     m_scroll.set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
@@ -608,13 +640,31 @@ void DrawerPane::set_jots_dir(const std::string& dir) {
     if (!m_id.empty()) refresh();
 }
 
+void DrawerPane::set_attach(const core::AttachStore* store) {
+    m_attach = store;
+    if (!m_id.empty()) refresh();
+}
+
 void DrawerPane::refresh() {
     const core::NodeId id = m_id;
     show_node(id);
 }
 
 void DrawerPane::show_node(const core::NodeId& id) {
+    // Held while a row menu is open (see m_menus_open). Only a refresh of the
+    // SAME note is held -- a different note can only be asked for by a click
+    // elsewhere, which closes the menu first.
+    if (m_menus_open > 0 && id == m_id) {
+        m_refresh_pending = true;
+        if (auto lg = log::get(log::Area::Drawer))
+            lg->debug("refresh held: a row menu is open");
+        return;
+    }
     m_id = id;
+    // The rows (and any menu they own) are about to go. A count that outlived
+    // its button would hold every refresh after it, forever.
+    m_menus_open = 0;
+    m_refresh_pending = false;
 
     for (Section* sec : m_all) clear(*sec);
 
@@ -649,6 +699,7 @@ void DrawerPane::show_node(const core::NodeId& id) {
     fill_links(*n);
     fill_backlinks(*n);
     fill_tags(*n);
+    fill_enclosures(*n);
     fill_structure(*n);
     fill_file(*n);
     fill_identity(*n);
@@ -678,7 +729,8 @@ void DrawerPane::show_node(const core::NodeId& id) {
 // Three kinds of row, and the difference between them is the honest part:
 //   * a jot: link to a note that exists     -> clickable, shows the CURRENT title
 //   * a jot: link to a note that does not   -> dimmed, says so, not clickable
-//   * anything else (http, an attachment)   -> the target as written, not clickable
+//   * anything else (http, a web image)       -> the target as written, not clickable
+//   (an attachment is not here: s016b gave it the Enclosures section)
 //
 // Showing the note's current title rather than the link's label is deliberate:
 // a link written as "the grocery thing" pointing at a note since renamed to
@@ -689,7 +741,13 @@ void DrawerPane::fill_links(const core::Node& n) {
     const core::Scan sc = core::scan(n.body);
     if (sc.links.empty()) return;
 
+    std::size_t shown = 0;
     for (const auto& lk : sc.links) {
+        // An attachment is an ENCLOSURE (s016b) and has its own section with a
+        // thumbnail and a status. Listing it here too would be the same fact
+        // twice, in the less useful of the two places.
+        if (!core::attachment_name(lk.target).empty()) continue;
+        ++shown;
         const std::string label = lk.label.empty() ? std::string("(no label)") : lk.label;
         const core::NodeId to = core::link_node_id(lk.target);
 
@@ -709,7 +767,8 @@ void DrawerPane::fill_links(const core::Node& n) {
             *link_row(now, now == label ? std::string{} : "linked as \u201c" + label + "\u201d",
                       to, false));
     }
-    set_count(m_links, sc.links.size());
+    if (shown == 0) return;
+    set_count(m_links, shown);
     m_links.frame->set_visible(true);
 }
 
@@ -837,6 +896,196 @@ void DrawerPane::title_changed_elsewhere(const std::string& title) {
     m_loading = true;
     m_name.set_text(title);
     m_loading = false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enclosures (s016b). The list is core::enclosures(): every attachment the body
+// references, once per file, joined with what the store remembers. This file
+// only draws it.
+//
+// A row: thumbnail on the left, name over a detail line on the right. The
+// detail says what a Usage panel says -- size, where it came from, when -- and
+// "Missing" in place of all of it when the note points at a file that is not
+// in the folder, because that is the one status that needs acting on.
+// ─────────────────────────────────────────────────────────────────────────────
+void DrawerPane::fill_enclosures(const core::Node& n) {
+    static const core::AttachStore kNone{};
+    const auto list = core::enclosures(n.body, m_attach ? *m_attach : kNone);
+    if (list.empty()) return;
+    for (const auto& e : list) m_enclosures.rows->append(*enclosure_row(e));
+    set_count(m_enclosures, list.size());
+    m_enclosures.frame->set_visible(true);
+
+    if (auto lg = log::get(log::Area::Drawer)) {
+        std::size_t missing = 0;
+        for (const auto& e : list) missing += e.present ? 0 : 1;
+        lg->debug("enclosures: {} file(s), {} missing, store '{}'", list.size(), missing,
+                  m_attach ? m_attach->dir : std::string("(none)"));
+    }
+}
+
+Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
+    constexpr int kThumb = 56;
+    auto* row = Gtk::make_managed<widgets::Box>(widgets::unregistered, "drawer.enclosure",
+                                                Gtk::Orientation::HORIZONTAL, 8);
+    row->set_margin_bottom(4);
+
+    const std::string path =
+        m_attach ? (std::filesystem::path(m_attach->dir) / e.name).string() : std::string{};
+
+    // The thumbnail, or a stand-in, in the SAME square either way so every
+    // name starts on one edge. A GtkImage at a pixel size fits a paintable
+    // into that square keeping its aspect (a GtkPicture sizes itself to the
+    // picture, which is what made the first look ragged) and draws from the
+    // 2x-decoded texture on a HiDPI screen.
+    Glib::RefPtr<Gdk::Texture> tex = e.present ? thumbnail(path) : Glib::RefPtr<Gdk::Texture>{};
+    auto* img = Gtk::make_managed<widgets::Image>(widgets::unregistered, "drawer.enclosure_thumb");
+    if (tex) {
+        img->set(tex);
+    } else {
+        img->set_from_icon_name(e.present ? "image-x-generic-symbolic" : "image-missing");
+        img->add_css_class("dim-label");
+    }
+    img->set_pixel_size(kThumb);
+    img->set_size_request(kThumb, kThumb);
+    img->set_valign(Gtk::Align::START);
+    row->append(*img);
+
+    auto* text = Gtk::make_managed<widgets::Box>(widgets::unregistered, "drawer.enclosure_text",
+                                                 Gtk::Orientation::VERTICAL, 0);
+    text->set_hexpand(true);
+    text->set_valign(Gtk::Align::CENTER);
+
+    auto* name = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.row_label");
+    name->set_text(e.name);
+    name->set_xalign(0.0f);
+    name->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
+    text->append(*name);
+
+    std::string detail;
+    if (!e.present) {
+        detail = "Missing";
+    } else {
+        std::error_code ec;
+        const auto sz = std::filesystem::file_size(path, ec);
+        detail = ec ? std::string{} : human_size(sz);
+        std::string from;
+        if (e.has_meta)
+            from = e.meta.source == "clipboard" ? std::string("pasted") : std::string("from Files");
+        if (!from.empty()) detail += (detail.empty() ? "" : "  \u00b7  ") + from;
+        if (e.refs > 1) detail += "  \u00b7  " + std::to_string(e.refs) + " references";
+    }
+    auto* d = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.row_detail");
+    d->set_text(detail);
+    d->set_xalign(0.0f);
+    d->set_ellipsize(Pango::EllipsizeMode::END);
+    // Missing is the one status that asks for something to be done, so it is
+    // the one that is not dimmed.
+    d->add_css_class(e.present ? "dim-label" : "error");
+    d->add_css_class("caption");
+    text->append(*d);
+    row->append(*text);
+
+    // The long form, on hover: where it came from and when. A path is too long
+    // for a detail line and exactly what a tooltip is for.
+    std::string tip = std::string(core::kAttachPrefix) + e.name;
+    if (!e.present) tip += "\nThe note points at this file, but it is not in the attachments folder.";
+    if (e.has_meta) {
+        if (!e.meta.source.empty())
+            tip += "\n" + (e.meta.source == "clipboard" ? std::string("Pasted from the clipboard")
+                                                         : "Copied from " + e.meta.source);
+        if (const std::string at = when(e.meta.added); !at.empty()) tip += "\nAdded " + at;
+        tip += "\nEmbedded \u2014 jot keeps its own copy";
+    }
+    row->set_tooltip_text(tip);
+
+    // The actions (s017). Only for a file that is THERE -- a Missing row has
+    // nothing to open or copy, and a menu of greyed items would be a menu
+    // that exists to say no. Double-clicking the thumbnail is Open: the one
+    // verb you reach for without reading.
+    if (e.present) {
+        const auto target = Glib::Variant<Glib::ustring>::create(e.name);
+        auto menu = Gio::Menu::create();
+        auto add = [&](const char* label, const char* action) {
+            auto item = Gio::MenuItem::create(label, "");
+            item->set_action_and_target(action, target);
+            menu->append_item(item);
+        };
+        add("Open", "encl.open");
+        add("Show in Files", "encl.reveal");
+        auto out = Gio::Menu::create();
+        auto add_out = [&](const char* label, const char* action) {
+            auto item = Gio::MenuItem::create(label, "");
+            item->set_action_and_target(action, target);
+            out->append_item(item);
+        };
+        add_out("Copy Image", "encl.copy");
+        add_out("Save a Copy\u2026", "encl.save");
+        menu->append_section(out);
+
+        auto* more = Gtk::make_managed<Gtk::MenuButton>();
+        more->set_icon_name("view-more-symbolic");
+        more->set_has_frame(false);
+        more->set_valign(Gtk::Align::CENTER);
+        more->set_tooltip_text("Open, show in Files, copy or save this file");
+        more->set_menu_model(menu);
+        row->append(*more);
+
+        // Count the menu open and closed. On close, a held refresh runs on an
+        // IDLE, never inside the hide -- the hide is itself an event on the
+        // popover the refresh would destroy.
+        if (auto* pop = more->get_popover()) {
+            pop->signal_show().connect([this]() { ++m_menus_open; });
+            pop->signal_hide().connect([this]() {
+                if (m_menus_open > 0) --m_menus_open;
+                if (m_menus_open == 0 && m_refresh_pending) {
+                    m_refresh_pending = false;
+                    Glib::signal_idle().connect_once([this]() { refresh(); });
+                }
+            });
+        }
+
+        auto dbl = Gtk::GestureClick::create();
+        dbl->set_button(GDK_BUTTON_PRIMARY);
+        const std::string name = e.name;
+        dbl->signal_pressed().connect([this, name](int n, double, double) {
+            if (n == 2) m_sig_enclosure.emit("open", name);
+        });
+        img->add_controller(dbl);
+    }
+    return row;
+}
+
+Glib::RefPtr<Gdk::Texture> DrawerPane::thumbnail(const std::string& path) {
+    std::error_code ec;
+    const auto size = static_cast<std::int64_t>(std::filesystem::file_size(path, ec));
+    if (ec) return {};
+    const auto mt = std::filesystem::last_write_time(path, ec);
+    const std::int64_t stamp = ec ? 0 : static_cast<std::int64_t>(mt.time_since_epoch().count());
+
+    if (auto it = m_thumbs.find(path);
+        it != m_thumbs.end() && it->second.stamp == stamp && it->second.size == size)
+        return it->second.tex;
+
+    // Decoded at thumbnail size by the pixbuf loader (which also knows SVG),
+    // then handed to GTK as PNG bytes -- the non-deprecated road from a
+    // pixbuf to a texture. A file the loader cannot read gets the stand-in
+    // icon, and is remembered as such so it is not retried every keystroke.
+    Glib::RefPtr<Gdk::Texture> tex;
+    try {
+        auto pb = Gdk::Pixbuf::create_from_file(path, 112, 112, true);
+        gchar* buf = nullptr;
+        gsize len = 0;
+        pb->save_to_buffer(buf, len, "png");
+        auto bytes = Glib::Bytes::create(buf, len);
+        g_free(buf);
+        tex = Gdk::Texture::create_from_bytes(bytes);
+    } catch (const Glib::Error& e) {
+        if (auto lg = log::get(log::Area::Drawer))
+            lg->warn("thumbnail '{}': {}", path, e.what());
+    }
+    m_thumbs[path] = Thumb{stamp, size, tex};
+    return tex;
 }
 
 void DrawerPane::fill_identity(const core::Node& n) {

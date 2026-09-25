@@ -8,6 +8,7 @@
 #include "core/Lifecycle.hpp"
 #include "core/Notify.hpp"
 #include "core/Prefs.hpp"
+#include "core/Enclosures.hpp"
 #include "core/Project.hpp"
 #include "widgets/Widgets.hpp"
 
@@ -158,6 +159,9 @@ private:
     void on_desktop_sync_now();                  // category: handler: rewrite the desktop list now
     void on_goto_note(const core::NodeId& id);   // category: handler: a drawer link row -> reveal + select
     void on_copy_link(const core::NodeId& id);   // category: handler: [Title](jot:<id>) -> clipboard
+    void on_images_dropped(std::vector<std::string> paths, int offset);  // category: handler: files dropped on the body -> enclosures
+    void on_image_pasted(std::string png, int offset);  // category: handler: a clipboard picture -> an enclosure
+    void on_enclosure_action(std::string verb, std::string name);  // category: handler: open / reveal / copy / save one enclosure
 
     // ── helpers ────────────────────────────────────────────────────────────
     void note_recent(const std::string& path);   // category: helper: push onto the list + persist
@@ -178,6 +182,10 @@ private:
     void open_jots(const std::string& dir);     // category: helper: point the surfaces at a jots folder
     void update_note_actions();                  // category: helper: grey what the selection can't do
     std::string prefs_file() const;              // category: helper: the XDG path for the layout pump
+    core::AttachStore& ingest_store();           // category: helper: where a new enclosure goes (folder or scratch)
+    const core::AttachStore* attach_store() const;  // category: helper: the same, read-only, for the drawer
+    void place_enclosures(const std::vector<std::pair<std::string, std::string>>& added,
+                          int offset);           // category: helper: record metadata, write the references in
     std::string pending_dir() const;             // category: helper: the XDG path for the capture spool
     void drain_pending();                        // category: helper: file what was captured while jot was closed
     void apply_layout_state();                   // category: helper: ONE writer for both panes' visibility
@@ -356,6 +364,13 @@ private:
     // flush to disk and name its own directory.
     std::unique_ptr<core::NodeSource> m_store;
     core::Project*                      m_project = nullptr;
+
+    // The scratch buffer's enclosures (s016b). The notes are in memory, but an
+    // image cannot be: it is staged in <data>/jot/scratch-attachments/ the
+    // moment it arrives, so nothing dropped is lost, and adopt MOVES what the
+    // notes reference into the new folder's attachments/. The metadata lives
+    // here, in memory, beside the notes it describes -- lost or kept with them.
+    core::AttachStore                   m_scratch_attach;
 
     // Recents -- recent JOTS FOLDERS now that D1 is answered, which is the job
     // the folder pump was kept alive for.

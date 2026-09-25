@@ -223,7 +223,15 @@ void Shell::save_scratch(const std::string& target) {
     }
 
     const std::size_t had = m_store ? m_store->count() : 0;
-    const std::size_t took = jots->adopt(*m_store);
+    // Enclosures travel with the notes. From the scratch buffer they MOVE --
+    // the staging folder was only ever a waiting room. From a jots folder
+    // (Save As) they are COPIED, because the original folder keeps its notes
+    // and its notes still point at their images.
+    const bool from_scratch = (m_project == nullptr);
+    const std::size_t took =
+        jots->adopt(*m_store, from_scratch ? &m_scratch_attach : &m_project->attach(),
+                    /*move_files=*/from_scratch);
+    if (from_scratch) m_scratch_attach.metas.clear();   // carried; the rest stay as files
     if (took != had) {
         // adopt walks from the roots, so a shortfall means the scratch buffer
         // held something the tree could not reach. It has never happened and
@@ -243,6 +251,7 @@ void Shell::save_scratch(const std::string& target) {
     m_links.rebuild(*m_store);
     m_drawer->set_source(m_store.get(), &m_links);
     m_drawer->set_jots_dir(m_project ? m_project->dir() : std::string{});
+    m_drawer->set_attach(attach_store());
     note_recent(target);
     update_jots_title();
 
@@ -415,6 +424,7 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     m_links.rebuild(*m_store);
     m_drawer->set_source(m_store.get(), &m_links);
     m_drawer->set_jots_dir(m_project ? m_project->dir() : std::string{});
+    m_drawer->set_attach(attach_store());
     note_recent(dir);
     update_jots_title();
 
@@ -1323,6 +1333,44 @@ void Shell::show_background_status() {  // helper: the footer's sixth line
     if (scratch_has_content())
         s += "  These notes are not on disk \u2014 they are held in memory until you quit.";
     m_today->set_background_status(s);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enclosures (s016b) -- where an arriving image goes, and how it gets into the
+// note. The files and the choice of name are core's (core/Enclosures); this is
+// only "which store", and the edit.
+// ─────────────────────────────────────────────────────────────────────────────
+core::AttachStore& Shell::ingest_store() {  // helper: the jots folder's attachments/, or the scratch stage
+    return m_project ? m_project->attach_for_ingest() : m_scratch_attach;
+}
+
+const core::AttachStore* Shell::attach_store() const {  // helper: the same, for reading
+    return m_project ? &m_project->attach() : &m_scratch_attach;
+}
+
+// `added` is (name, label) per file already copied into the store. The
+// metadata was recorded by the ingest; a jots folder writes jot.json now, the
+// scratch buffer keeps it in memory. Then ONE edit puts every reference in, so
+// a drop of three images is one change to the note, not three.
+void Shell::place_enclosures(const std::vector<std::pair<std::string, std::string>>& added,
+                             int offset) {
+    if (added.empty()) return;
+    if (m_project) m_project->enclosures_changed();
+
+    std::string text;
+    for (const auto& [name, label] : added) {
+        if (!text.empty()) text += "\n";
+        text += core::image_markdown(label, name);
+    }
+    if (!m_editor->insert_block(offset, text)) {
+        // The file is already safe in the store; only the reference failed.
+        // Say so -- an image that arrived nowhere visible is a lost image to
+        // the person who dropped it, even though it is on disk.
+        report_problem("The image was kept but not placed",
+                       "It is in " + ingest_store().dir + ", but this note can't be edited.");
+        return;
+    }
+    queue_drawer_refresh();   // idle: this can run inside the drop event
 }
 
 }  // namespace jot

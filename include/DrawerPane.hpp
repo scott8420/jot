@@ -1,9 +1,11 @@
 #pragma once
+#include "core/Enclosures.hpp"
 #include "core/Links.hpp"
 #include "core/Nodes.hpp"
 #include "core/Tasks.hpp"
 #include "widgets/Widgets.hpp"
 
+#include <gdkmm/texture.h>
 #include <sigc++/signal.h>
 
 #include <map>
@@ -66,6 +68,11 @@
 //                  the note's place in the tree, so it lives with the rest of
 //                  that.
 //   Links, Linked from, Tags -- as described above; hidden entirely when empty.
+//   Enclosures  -- (s016b) what the note CARRIES: one row per attached file,
+//                  a thumbnail, its name, size, where it came from, and
+//                  Missing when the note points at a file that is not there.
+//                  Derived from the body's references (core::enclosures), so
+//                  it cannot disagree with the note. Hidden when empty.
 //   File, Identity -- reference, closed by default.
 //
 // Open or closed is remembered APP-WIDE (core::Prefs::drawer_open), and the
@@ -99,6 +106,12 @@ public:
     // path from a NodeSource would mean knowing which implementation it is.
     void set_jots_dir(const std::string& dir);
 
+    // Where this note's enclosures live and what is known about them: the jots
+    // folder's attachments/, or the scratch buffer's staging folder. Told, not
+    // asked, for the same reason as the jots dir. Not owned; the Shell re-tells
+    // it on every store swap, so it never outlives the store it points into.
+    void set_attach(const core::AttachStore* store);
+
     core::NodeId current() const { return m_id; }
 
     // Section open/closed state, keyed by section key. Keys not in the map take
@@ -114,6 +127,13 @@ public:
     // A link row was activated. The Shell reveals and selects; the drawer does
     // not know the tree exists.
     sigc::signal<void(core::NodeId)>& signal_goto() { return m_sig_goto; }
+
+    // An enclosure row's menu (s017): what ("open", "reveal", "copy", "save")
+    // and which file (its name within the store). The Shell acts -- it owns
+    // the window a launcher or a save dialog needs, and the clipboard.
+    sigc::signal<void(std::string, std::string)>& signal_enclosure_action() {
+        return m_sig_enclosure;
+    }
 
     // "Copy link to this note" was pressed. The Shell owns the clipboard,
     // because a clipboard is a window-level thing.
@@ -168,11 +188,34 @@ private:
     void fill_structure(const core::Node& n);
     void fill_file(const core::Node& n);
     void fill_identity(const core::Node& n);
+    void fill_enclosures(const core::Node& n);
+    Gtk::Widget* enclosure_row(const core::Enclosure& e);
+    Glib::RefPtr<Gdk::Texture> thumbnail(const std::string& path);
 
     core::NodeSource*      m_src   = nullptr;   // not owned; the seam
     const core::LinkIndex* m_index = nullptr;   // not owned; the Shell keeps it current
     core::NodeId           m_id;
     std::string            m_jots_dir;
+    const core::AttachStore* m_attach = nullptr;   // not owned; see set_attach
+
+    // Thumbnails, by path, keyed on (mtime, size) so a replaced file is
+    // re-read and an unchanged one is not. show_node() runs on EVERY
+    // keystroke into the note; decoding a photo per keystroke would be the
+    // drawer making the typing slow. Decoded AT thumbnail size, never full.
+    struct Thumb {
+        std::int64_t stamp = 0;
+        std::int64_t size  = 0;
+        Glib::RefPtr<Gdk::Texture> tex;
+    };
+    std::map<std::string, Thumb> m_thumbs;
+
+    // s017 fix. An enclosure row's menu is a popover owned by a button IN a
+    // rebuilt row. A rebuild while it is open destroys the button under its
+    // own popover -- on Scott's GNOME/Wayland that was a gtk_widget_get_parent
+    // CRITICAL and a hang. So while any row menu is open, a refresh is HELD
+    // and runs once, on an idle, after the menu closes.
+    int  m_menus_open      = 0;
+    bool m_refresh_pending = false;
 
     widgets::ScrolledWindow m_scroll;
     widgets::Box            m_column;
@@ -187,7 +230,8 @@ private:
     widgets::Entry m_name;
 
     // In display order. Held by value; m_all points at them for the loops.
-    Section m_todo_sec, m_structure, m_links, m_backlinks, m_tags, m_file, m_identity;
+    Section m_todo_sec, m_structure, m_links, m_backlinks, m_tags, m_enclosures, m_file,
+            m_identity;
     std::vector<Section*> m_all;
 
     // True while show_node() is filling the entry: GTK fires `changed` on a
@@ -225,6 +269,7 @@ private:
     sigc::signal<void(core::NodeId)> m_sig_goto;
     sigc::signal<void(core::NodeId)> m_sig_copy_link;
     sigc::signal<void(std::string, bool)> m_sig_section;
+    sigc::signal<void(std::string, std::string)> m_sig_enclosure;
 };
 
 }  // namespace jot

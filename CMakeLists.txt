@@ -62,6 +62,10 @@ add_library(jot_core STATIC
     # the spool file is the ONLY copy of what the user typed until a drain
     # succeeds, so a parse that quietly returns nothing would be a lost note.
     src/core/Pending.cpp
+    # Enclosures (s016b): what a note carries -- naming, ingest, the list
+    # DERIVED from the body's references, and the carry into a jots folder on
+    # adopt. Under the selftest because a lost image is found only by looking.
+    src/core/Enclosures.cpp
     # Prefs -- the layout state the drawer toggles write. A SECOND pump on the
     # Recents shape rather than a settings framework: four fields do not earn a
     # GSettings schema, and a schema would turn "run the build" into "install".

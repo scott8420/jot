@@ -21,6 +21,7 @@
 #include "core/Shortcuts.hpp"
 #include "core/Notify.hpp"
 #include "core/Hotkey.hpp"
+#include "core/Enclosures.hpp"
 #include "core/Pending.hpp"
 #include "core/Projection.hpp"
 #include "core/Tasks.hpp"
@@ -2310,6 +2311,201 @@ int main() {
               core::pending_dir("/home/s/.local/share") == "/home/s/.local/share/jot/pending");
 
         std::filesystem::remove_all(dir, ec);
+    }
+
+    // ── enclosures (s016b) ──────────────────────────────────────────────────
+    // Images as the first enclosure kind. The list is DERIVED from the body;
+    // the files and the metadata are carried by adopt. Every check here is a
+    // way an image could be lost or pointed at wrongly without the screen
+    // saying so.
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path root = fs::temp_directory_path() / "jot_selftest_enclosures";
+        fs::remove_all(root, ec);
+        fs::create_directories(root / "src", ec);
+
+        check("enclosure: slug keeps the name, lowers it, dashes the rest",
+              core::slug_filename("My Photo (1).JPG") == "my-photo-1.jpg",
+              core::slug_filename("My Photo (1).JPG"));
+        check("enclosure: slug takes only the basename of a path",
+              core::slug_filename("/home/s/Pictures/Cat.png") == "cat.png");
+        check("enclosure: an unsluggable stem becomes 'image'",
+              core::slug_filename("\xe7\x8c\xab.png") == "image.png",
+              core::slug_filename("\xe7\x8c\xab.png"));
+        check("enclosure: a dotfile is a name, not an extension",
+              core::slug_filename(".hidden") == "hidden");
+        check("enclosure: a pasted image is named by the moment",
+              core::paste_filename(0).rfind("pasted-", 0) == 0 &&
+                  core::paste_filename(0).size() == std::string("pasted-19700101-000000.png").size());
+        check("enclosure: image by extension, case-insensitive",
+              core::is_image_filename("a.PNG") && core::is_image_filename("b.jpeg") &&
+                  !core::is_image_filename("c.pdf") && !core::is_image_filename("png"));
+        check("enclosure: attachment_name reads our prefix",
+              core::attachment_name("attachments/a.png") == "a.png");
+        check("enclosure: attachment_name refuses escape and subfolders",
+              core::attachment_name("attachments/../x.png").empty() &&
+                  core::attachment_name("attachments/a/b.png").empty() &&
+                  core::attachment_name("https://x/a.png").empty() &&
+                  core::attachment_name("attachments/").empty());
+        check("enclosure: the reference drops brackets from the label",
+              core::image_markdown("a [b]", "a.png") == "![a b](attachments/a.png)");
+
+        // ingest, and unique names
+        const fs::path srcf = root / "src" / "Holiday Snap.PNG";
+        std::ofstream(srcf, std::ios::binary) << "not really a png";
+        core::AttachStore st{(root / "scratch").string(), {}};
+        std::string err;
+        const std::string n1 = core::ingest_file(st, srcf.string(), 1000, err);
+        const std::string n2 = core::ingest_file(st, srcf.string(), 1001, err);
+        check("enclosure: ingest copies under the slugged name", n1 == "holiday-snap.png", n1 + err);
+        check("enclosure: a second ingest of the same name gets -2", n2 == "holiday-snap-2.png", n2);
+        check("enclosure: the source is untouched", fs::exists(srcf, ec));
+        check("enclosure: metadata records source, size and time",
+              st.metas.count(n1) && st.metas[n1].source == srcf.string() &&
+                  st.metas[n1].size == 16 && st.metas[n1].added == 1000 &&
+                  st.metas[n1].mode == "embedded");
+        const std::string n3 = core::ingest_bytes(st, "PNGBYTES", "pasted-20260101-000000.png",
+                                                  "clipboard", 1002, err);
+        check("enclosure: bytes ingest writes the file", n3 == "pasted-20260101-000000.png" &&
+                  fs::file_size(fs::path(st.dir) / n3, ec) == 8, n3 + err);
+        check("enclosure: ingest of a missing file fails with a reason",
+              core::ingest_file(st, (root / "nope.png").string(), 1, err).empty() && !err.empty());
+
+        // the derived list
+        const std::string body =
+            "# Trip\n![Holiday Snap](attachments/holiday-snap.png)\n"
+            "again ![again](attachments/holiday-snap.png) and [a link](attachments/gone.png)\n"
+            "![web](https://example.com/x.png) `![code](attachments/code.png)`\n";
+        const auto encl = core::enclosures(body, st);
+        check("enclosure: one entry per FILE, first-mention order",
+              encl.size() == 2 && encl[0].name == "holiday-snap.png" && encl[1].name == "gone.png",
+              std::to_string(encl.size()));
+        check("enclosure: repeated references are counted, not listed",
+              !encl.empty() && encl[0].refs == 2 && encl[0].line == 1);
+        check("enclosure: present and joined with its metadata",
+              !encl.empty() && encl[0].present && encl[0].has_meta && encl[0].meta.size == 16);
+        check("enclosure: a reference with no file is listed and says so",
+              encl.size() == 2 && !encl[1].present && !encl[1].has_meta);
+        check("enclosure: web images and code spans are not enclosures",
+              std::none_of(encl.begin(), encl.end(), [](const core::Enclosure& e) {
+                  return e.name == "code.png";
+              }));
+
+        std::string b2 = body;
+        check("enclosure: rename rewrites every reference to that file and only it",
+              core::rename_references(b2, "holiday-snap.png", "holiday-snap-9.png") == 2 &&
+                  b2.find("attachments/holiday-snap.png") == std::string::npos &&
+                  b2.find("attachments/gone.png") != std::string::npos &&
+                  b2.find("`![code](attachments/code.png)`") != std::string::npos);
+
+        // jot.json pump
+        const auto back = core::decode_metas(core::encode_metas(st.metas));
+        check("enclosure: metadata round-trips through its JSON",
+              back.size() == st.metas.size() && back.at(n1).source == srcf.string() &&
+                  back.at(n3).source == "clipboard" && back.at(n1).added == 1000);
+        check("enclosure: decode refuses a key that escapes the folder",
+              core::decode_metas(R"({"../x.png":{"size":1}})").empty());
+
+        // adopt: the scratch buffer's images go home, collisions renamed in
+        // the bodies before they are written.
+        {
+            core::MemoryNodes mem;
+            const auto a = mem.create("", "Trip");
+            mem.set_body(a, "![Holiday Snap](attachments/holiday-snap.png)\n"
+                            "![p](attachments/pasted-20260101-000000.png)\n"
+                            "![lost](attachments/never-was.png)\n");
+            const fs::path dest = root / "Dest.jots";
+            fs::create_directories(dest / "attachments", ec);
+            std::ofstream(dest / "attachments" / "holiday-snap.png") << "someone else's";
+
+            core::Project p;
+            check("enclosure/adopt: opens", p.open(dest.string()));
+            check("enclosure/adopt: adopts the note", p.adopt(mem, &st, /*move=*/true) == 1);
+            const auto roots = p.children("");
+            const core::Node* nd = roots.empty() ? nullptr : p.find(roots.front());
+            check("enclosure/adopt: a colliding name is renamed IN THE BODY",
+                  nd && nd->body.find("attachments/holiday-snap-2.png") != std::string::npos &&
+                      nd->body.find("attachments/holiday-snap.png)") == std::string::npos,
+                  nd ? nd->body : "");
+            check("enclosure/adopt: the file arrived under that name",
+                  fs::file_size(dest / "attachments" / "holiday-snap-2.png", ec) == 16);
+            check("enclosure/adopt: what was already there is untouched",
+                  fs::file_size(dest / "attachments" / "holiday-snap.png", ec) == 14);
+            check("enclosure/adopt: a move leaves the scratch copy gone",
+                  !fs::exists(fs::path(st.dir) / "holiday-snap.png", ec) &&
+                      !fs::exists(fs::path(st.dir) / n3, ec));
+            check("enclosure/adopt: an UNREFERENCED scratch file stays where it was",
+                  fs::exists(fs::path(st.dir) / n2, ec));
+            check("enclosure/adopt: a missing file stays referenced (Missing, not dropped)",
+                  nd && nd->body.find("attachments/never-was.png") != std::string::npos);
+            check("enclosure/adopt: metadata carried under the NEW name",
+                  p.attach().metas.count("holiday-snap-2.png") &&
+                      p.attach().metas.at("holiday-snap-2.png").source == srcf.string() &&
+                      p.attach().metas.count(n3));
+            p.flush();
+            const std::string disk = [&] {
+                std::ifstream in(dest / "jot.json");
+                return std::string(std::istreambuf_iterator<char>(in), {});
+            }();
+            check("enclosure/adopt: jot.json carries the enclosures object (v3)",
+                  disk.find("\"enclosures\"") != std::string::npos &&
+                      disk.find("\"version\": 3") != std::string::npos);
+            core::Project q;
+            check("enclosure/adopt: metadata survives a reopen",
+                  q.open(dest.string()) && q.attach().metas.count("holiday-snap-2.png") &&
+                      q.attach().metas.at("holiday-snap-2.png").size == 16);
+        }
+        {
+            // Save As from a jots folder COPIES: the old folder keeps its images.
+            core::Project src;
+            src.open((root / "Dest.jots").string());
+            core::Project cp;
+            cp.open((root / "Copy.jots").string());
+            check("enclosure/adopt: save-as adopts", cp.adopt(src, &src.attach(), false) == 1);
+            check("enclosure/adopt: save-as COPIES -- both folders have the image",
+                  fs::exists(root / "Copy.jots" / "attachments" / "holiday-snap-2.png", ec) &&
+                      fs::exists(root / "Dest.jots" / "attachments" / "holiday-snap-2.png", ec));
+        }
+        {
+            // A folder with no enclosures writes no enclosures key.
+            core::Project p;
+            p.open((root / "Plain.jots").string());
+            p.create("", "x");
+            p.flush();
+            std::ifstream in(root / "Plain.jots" / "jot.json");
+            const std::string disk((std::istreambuf_iterator<char>(in)), {});
+            check("enclosure: no enclosures, no key -- a plain folder's jot.json is unchanged",
+                  disk.find("enclosures") == std::string::npos);
+        }
+        {
+            // s017: out. Save a copy, and the path guard.
+            core::AttachStore o{(root / "out_src").string(), {}};
+            fs::create_directories(o.dir, ec);
+            std::ofstream(fs::path(o.dir) / "a.png", std::ios::binary) << "AAAA";
+            std::string e2;
+            check("enclosure/out: a path for a real name",
+                  core::enclosure_path(o, "a.png") == (fs::path(o.dir) / "a.png").string());
+            check("enclosure/out: no path for a name that escapes",
+                  core::enclosure_path(o, "../x.png").empty() &&
+                      core::enclosure_path(o, "a/b.png").empty() &&
+                      core::enclosure_path(core::AttachStore{}, "a.png").empty());
+            const fs::path dest = root / "exported.png";
+            check("enclosure/out: copy_out writes the bytes",
+                  core::copy_out(o, "a.png", dest.string(), e2) &&
+                      fs::file_size(dest, ec) == 4, e2);
+            std::ofstream(dest, std::ios::binary | std::ios::trunc) << "old-and-longer";
+            check("enclosure/out: copy_out overwrites (the dialog asked)",
+                  core::copy_out(o, "a.png", dest.string(), e2) && fs::file_size(dest, ec) == 4);
+            check("enclosure/out: no temp file left behind",
+                  !fs::exists(dest.string() + ".jot-tmp", ec));
+            check("enclosure/out: copying onto itself is refused and harmless",
+                  !core::copy_out(o, "a.png", (fs::path(o.dir) / "a.png").string(), e2) &&
+                      fs::file_size(fs::path(o.dir) / "a.png", ec) == 4);
+            check("enclosure/out: a missing enclosure says so",
+                  !core::copy_out(o, "gone.png", dest.string(), e2) && !e2.empty());
+        }
+        fs::remove_all(root, ec);
     }
 
     std::cout << "-----------------------------------------------\n";

@@ -9,6 +9,8 @@
 #include "Log.hpp"
 
 #include <giomm/desktopappinfo.h>
+#include <glibmm/miscutils.h>
+#include <filesystem>
 #include "core/Prefs.hpp"
 #include "core/Recents.hpp"
 #include "Registry.hpp"
@@ -60,6 +62,10 @@ void Shell::build_ui() {
     // showing the opposite of the layout for one frame.
     m_prefs_file = prefs_file();
     m_prefs      = core::load_prefs(m_prefs_file);
+    // Named now, created on the first image that needs it -- a scratch buffer
+    // nobody drops a picture into never touches the disk.
+    m_scratch_attach.dir =
+        (std::filesystem::path(Glib::get_user_data_dir()) / "jot" / "scratch-attachments").string();
 
     build_shell();     // zone
 
@@ -77,6 +83,7 @@ void Shell::build_ui() {
     m_tasks.rebuild(*m_store);        // and one for the todos
     m_drawer->set_source(m_store.get(), &m_links);
     m_drawer->set_jots_dir(m_project ? m_project->dir() : std::string{});
+    m_drawer->set_attach(attach_store());
     // s016a: which drawer sections were left folded. App-wide, remembered the
     // moment a header is clicked -- the same save-on-change the pane toggles
     // use, so a crash never costs the layout.

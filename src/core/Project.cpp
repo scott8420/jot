@@ -25,12 +25,16 @@ namespace {
 
 constexpr const char* kProjectFile = "jot.json";
 constexpr const char* kNotesDir    = "notes";
-constexpr const char* kAttachDir   = "attachments";
 // 2 as of s007: the node objects in jot.json may now carry task fields. A
 // version 1 file loads unchanged -- every task field is absent and every node
 // is a note, which is exactly what a version 1 folder meant. THE NOTE FILES ON
 // DISK DO NOT CHANGE AT ALL; task state is structure, and structure lives here.
-constexpr int         kFormatVersion = 2;
+//
+// 3 as of s016b: an optional top-level "enclosures" object, filename -> what
+// jot remembers about it (mode, source, size, added). Absent when there are
+// none, and a v2 reader ignores it -- losing it costs report lines in the
+// drawer, never an image, because the markdown is what points at the file.
+constexpr int         kFormatVersion = 3;
 
 // Status goes to disk as a WORD, not as an integer. An enum's numeric value is
 // a fact about this build's declaration order; "sequential" in a file still
@@ -267,7 +271,7 @@ std::string relocate_jots(const std::string& from, const std::string& to) {
 
 // ── adopt ───────────────────────────────────────────────────────────────────
 
-std::size_t Project::adopt(const NodeSource& from) {
+std::size_t Project::adopt(const NodeSource& from, const AttachStore* att, bool move_files) {
     if (m_dir.empty() || count() != 0 || from.count() == 0) return 0;
 
     // PREORDER from the roots, which is also the order jot.json wants: the
@@ -313,6 +317,20 @@ std::size_t Project::adopt(const NodeSource& from) {
         adopted.push_back(std::move(n));
     }
 
+    // Enclosures BEFORE the bodies are written: a collision here renames the
+    // file, and the bodies must say the new name the first time they touch
+    // the disk rather than being patched afterwards.
+    if (att) {
+        std::vector<std::string> names;
+        for (const auto& n : adopted)
+            for (auto& a : referenced_attachments(n.body))
+                if (std::find(names.begin(), names.end(), a) == names.end())
+                    names.push_back(std::move(a));
+        const auto renames = carry_attachments(*att, m_attach, names, move_files);
+        for (const auto& [old_name, new_name] : renames)
+            for (auto& n : adopted) rename_references(n.body, old_name, new_name);
+    }
+
     const std::size_t n_adopted = adopted.size();
     std::set<NodeId> bodies;
     for (const auto& n : adopted) bodies.insert(n.id);
@@ -351,6 +369,7 @@ bool Project::open(const std::string& dir) {
     fs::create_directories(fs::path(dir) / kAttachDir, ec);
 
     m_dir = dir;
+    m_attach = AttachStore{(fs::path(dir) / kAttachDir).string(), {}};
     m_recovered = 0;
     m_dirty_bodies.clear();
     m_deleted.clear();
@@ -358,6 +377,11 @@ bool Project::open(const std::string& dir) {
 
     std::vector<Node> nodes;
     load_project(nodes);      // a missing or broken project file is recovery, not failure
+    {
+        json j = json::parse(read_file(fs::path(m_dir) / kProjectFile), nullptr, false);
+        if (!j.is_discarded() && j.is_object() && j.contains("enclosures"))
+            m_attach.metas = decode_metas(j["enclosures"].dump());
+    }
     load_bodies(nodes);
     adopt_orphans(nodes);
 
@@ -484,6 +508,7 @@ bool Project::save_project() const {
         const auto kids = children(id);
         for (auto it = kids.rbegin(); it != kids.rend(); ++it) stack.push_back(*it);
     }
+    if (!m_attach.metas.empty()) j["enclosures"] = json::parse(encode_metas(m_attach.metas));
     return write_atomic(fs::path(m_dir) / kProjectFile, j.dump(2) + "\n");
 }
 
@@ -514,6 +539,12 @@ bool Project::flush() {
 // ── the writes: base first, then record what it made dirty ──────────────────
 
 NodeId Project::mint_id() { return make_uuid(); }
+
+void Project::record_enclosure(const std::string& name, const EnclosureMeta& meta) {
+    m_attach.metas[name] = meta;
+    m_structure_dirty = true;
+    flush();
+}
 
 NodeId Project::create(const NodeId& parent, const std::string& title) {
     const NodeId id = MemoryNodes::create(parent, title);
