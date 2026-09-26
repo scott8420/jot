@@ -10,6 +10,7 @@
 #include <gdkmm/texture.h>
 #include <gtkmm/button.h>
 #include <gtkmm/cssprovider.h>
+#include <gtkmm/icontheme.h>
 #include <gtkmm/label.h>
 #include <gtkmm/picture.h>
 #include <gtkmm/scrolledwindow.h>
@@ -162,6 +163,21 @@ EditorPane::EditorPane(std::string_view name)
     m_click->signal_released().connect(
         [this](int n, double x, double y) { on_body_click(n, x, y); });
     m_body.add_controller(m_click);
+
+    // s023: Live Preview draws over the text, and what it draws can be
+    // clicked. CAPTURE, so a hit on a drawn box or a Copy button is claimed
+    // before the text view places a cursor there (which would reveal the
+    // line and take the thing you clicked away). A miss is not claimed.
+    m_body.draw_above = [this](GtkSnapshot* snap) { draw_live(snap); };
+    m_press = Gtk::GestureClick::create();
+    m_press->set_button(GDK_BUTTON_PRIMARY);
+    m_press->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    m_press->signal_pressed().connect(
+        [this](int n, double x, double y) { on_body_press(n, x, y); });
+    m_body.add_controller(m_press);
+    m_body_motion = Gtk::EventControllerMotion::create();
+    m_body_motion->signal_motion().connect([this](double x, double y) { on_body_motion(x, y); });
+    m_body.add_controller(m_body_motion);
 
     // ── a drop of files (s016b) ─────────────────────────────────────────────
     // CAPTURE phase, on the text view itself: GtkTextView has its own drop
@@ -358,6 +374,11 @@ void EditorPane::build_tags() {
     m_codeblock_tag->property_family() = "monospace";
     m_codeblock_tag->property_scale() = 0.92;
 
+    // s023: room at the left of a bullet / task line whose mark is hidden, so
+    // the drawn glyph has somewhere to sit. The view's own margin is 10.
+    m_hang_tag = m_body.get_buffer()->create_tag("md-hang");
+    m_hang_tag->property_left_margin() = 32;
+
     // s022: Live Preview's one tag. Created LAST so nothing outranks it.
     m_hidden_tag = m_body.get_buffer()->create_tag("md-hidden");
     m_hidden_tag->property_invisible() = true;
@@ -464,6 +485,8 @@ void EditorPane::restyle() {
     for (const auto& [style, tag] : m_tags) buf->remove_tag(tag, b, e);
     if (m_codeblock_tag) buf->remove_tag(m_codeblock_tag, b, e);
     if (m_hidden_tag) buf->remove_tag(m_hidden_tag, b, e);
+    if (m_hang_tag) buf->remove_tag(m_hang_tag, b, e);
+    for (const auto& [h, tag] : m_room_tags) buf->remove_tag(tag, b, e);
 
     // include_hidden_chars=TRUE, and since s022 it matters: Live Preview's
     // marks are invisible text, and `false` would scan -- and WRITE TO DISK --
@@ -472,7 +495,8 @@ void EditorPane::restyle() {
     // iteration is in characters -- taking the bytes here, and taking the
     // codepoint offsets back out of the scan, is the whole of the UTF-8 story
     // on this side of the seam.
-    m_scan = core::scan(buf->get_text(/*include_hidden_chars=*/true).raw());
+    m_text = buf->get_text(/*include_hidden_chars=*/true).raw();
+    m_scan = core::scan(m_text);
 
     // s021b: a code-block line is styled by md-codeblock below, not by Code.
     std::set<int> block_lines;
@@ -514,7 +538,7 @@ void EditorPane::queue_restyle() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Live Preview (s022). core::live_hidden decides; this tags. Only ever from a
+// Live Preview (s022, s023). core::live_view decides; this tags and draws. Only ever from a
 // FRESH scan: restyle calls it right after scanning, and a cursor move with a
 // restyle still queued waits for that restyle rather than hide by offsets one
 // keystroke old.
@@ -544,14 +568,278 @@ void EditorPane::apply_live() {
     }
     m_reveal_first = first;
     m_reveal_last  = last;
-    buf->remove_tag(m_hidden_tag, buf->begin(), buf->end());
-    if (!m_live) return;
-    const int n = buf->end().get_offset();
-    for (const auto& r : core::live_hidden(m_scan, first, last)) {
-        if (r.begin >= n) break;
-        buf->apply_tag(m_hidden_tag, buf->get_iter_at_offset(r.begin),
-                       buf->get_iter_at_offset(std::min(r.end, n)));
+    const auto b = buf->begin(), e = buf->end();
+    buf->remove_tag(m_hidden_tag, b, e);
+    buf->remove_tag(m_hang_tag, b, e);
+    for (const auto& [h, tag] : m_room_tags) buf->remove_tag(tag, b, e);
+    m_images.clear();
+    m_view = core::LiveView{};
+    if (!m_live) {
+        m_body.queue_draw();
+        return;
     }
+
+    m_view = core::live_view(m_scan, m_text, first, last);
+    const int n = e.get_offset();
+    auto hide = [&](int from, int to) {
+        from = std::max(0, from);
+        to   = std::min(to, n);
+        if (to > from)
+            buf->apply_tag(m_hidden_tag, buf->get_iter_at_offset(from), buf->get_iter_at_offset(to));
+    };
+    for (const auto& r : m_view.hidden) hide(r.begin, r.end);
+
+    const int nlines = buf->get_line_count();
+    for (const int line : m_view.hang_lines) {
+        if (line >= nlines) continue;
+        auto lb = buf->get_iter_at_line(line);
+        auto le = lb;
+        if (!le.ends_line()) le.forward_to_line_end();
+        buf->apply_tag(m_hang_tag, lb, le);
+    }
+
+    // Pictures: hidden only if they load -- a missing one keeps its marks,
+    // which then say what is missing. Fitted to the column, never enlarged.
+    const int vw = m_body.get_width();
+    const int maxw = vw > 200 ? std::min(520, vw - 60) : 520;
+    for (const auto& d : m_view.decos) {
+        if (d.kind != core::LiveDeco::Kind::Image || d.line >= nlines) continue;
+        auto tex = texture_for(d.target);
+        if (!tex || tex->get_width() <= 0) continue;
+        const int w = std::min(tex->get_width(), maxw);
+        const int h = tex->get_height() * w / tex->get_width();
+        hide(d.cp, d.cp_end);
+        auto& room = m_room_tags[h];
+        if (!room) {
+            room = buf->create_tag();
+            room->property_pixels_below_lines() = h + 8;
+        }
+        auto lb = buf->get_iter_at_line(d.line);
+        auto le = lb;
+        if (!le.ends_line()) le.forward_to_line_end();
+        buf->apply_tag(room, lb, le);
+        m_images.push_back({d.line, tex, w, h});
+    }
+    m_body.queue_draw();
+}
+
+Glib::RefPtr<Gdk::Texture> EditorPane::texture_for(const std::string& target) {
+    const std::string path = m_resolve ? m_resolve(target) : std::string{};
+    if (path.empty()) return {};
+    if (auto it = m_tex_cache.find(path); it != m_tex_cache.end()) return it->second;
+    Glib::RefPtr<Gdk::Texture> tex;
+    try {
+        tex = Gdk::Texture::create_from_file(Gio::File::create_for_path(path));
+    } catch (const Glib::Error&) {
+        return {};   // not cached: the file may turn up
+    }
+    m_tex_cache[path] = tex;
+    return tex;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// draw_live (s023) -- Live Preview's pictures, in the text view's layer above
+// the text, in BUFFER coordinates: they scroll and re-wrap with the text and
+// nothing ever has to be moved. Hit areas are recorded as they are drawn.
+// ─────────────────────────────────────────────────────────────────────────────
+void EditorPane::draw_live(GtkSnapshot* snap) {
+    m_box_hits.clear();
+    m_copy_hits.clear();
+    if (!m_live || (m_view.decos.empty() && m_images.empty())) return;
+    auto buf = m_body.get_buffer();
+    const int nlines = buf->get_line_count();
+    Gdk::Rectangle vis;
+    m_body.get_visible_rect(vis);
+    GdkRGBA fg;
+    gtk_widget_get_color(GTK_WIDGET(m_body.gobj()), &fg);
+    const double right = vis.get_x() + vis.get_width() - m_body.get_right_margin();
+
+    auto where = [this](const Gtk::TextBuffer::iterator& it) {
+        Gdk::Rectangle strong, weak;
+        m_body.get_cursor_locations(it, strong, weak);
+        return strong;
+    };
+    auto cairo_over = [snap](double x, double y, double w, double h) {
+        graphene_rect_t gr = GRAPHENE_RECT_INIT(static_cast<float>(x), static_cast<float>(y),
+                                                static_cast<float>(w), static_cast<float>(h));
+        return gtk_snapshot_append_cairo(snap, &gr);
+    };
+
+    for (const auto& d : m_view.decos) {
+        if (d.line >= nlines) continue;
+        using K = core::LiveDeco::Kind;
+        if (d.kind == K::Bullet || d.kind == K::Box) {
+            // NOT get_iter_location: with invisible text before it, GTK 4.14
+            // reports x as if the hidden marks were still there (logged:
+            // x=49 for text drawn at 32). The cursor's own position is right.
+            const Gdk::Rectangle r = where(buf->get_iter_at_offset(d.cp));
+            const double cy = r.get_y() + r.get_height() / 2.0;
+            if (d.kind == K::Bullet) {
+                cairo_t* cr = cairo_over(r.get_x() - 16, r.get_y(), 16, r.get_height());
+                cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.75);
+                cairo_arc(cr, r.get_x() - 9, cy, 2.6, 0, 2 * G_PI);
+                cairo_fill(cr);
+                cairo_destroy(cr);
+            } else {
+                constexpr double S = 14;
+                const double bx = r.get_x() - 21, by = cy - S / 2;
+                cairo_t* cr = cairo_over(bx - 2, by - 2, S + 4, S + 4);
+                const double rad = 3;
+                cairo_new_sub_path(cr);
+                cairo_arc(cr, bx + S - rad, by + rad, rad, -G_PI / 2, 0);
+                cairo_arc(cr, bx + S - rad, by + S - rad, rad, 0, G_PI / 2);
+                cairo_arc(cr, bx + rad, by + S - rad, rad, G_PI / 2, G_PI);
+                cairo_arc(cr, bx + rad, by + rad, rad, G_PI, 3 * G_PI / 2);
+                cairo_close_path(cr);
+                if (d.checked) {
+                    cairo_set_source_rgba(cr, 0.26, 0.52, 0.88, 1.0);
+                    cairo_fill(cr);
+                    cairo_set_source_rgba(cr, 1, 1, 1, 1);
+                    cairo_set_line_width(cr, 2);
+                    cairo_move_to(cr, bx + 3.5, by + 7.5);
+                    cairo_line_to(cr, bx + 6, by + 10);
+                    cairo_line_to(cr, bx + 10.5, by + 4.5);
+                    cairo_stroke(cr);
+                } else {
+                    cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.55);
+                    cairo_set_line_width(cr, 1.4);
+                    cairo_stroke(cr);
+                }
+                cairo_destroy(cr);
+                m_box_hits.push_back({Gdk::Rectangle(static_cast<int>(bx) - 3, static_cast<int>(by) - 3,
+                                                     static_cast<int>(S) + 6, static_cast<int>(S) + 6),
+                                      d.line});
+            }
+        } else if (d.kind == K::Rule) {
+            auto it = buf->get_iter_at_line(d.line);
+            int y = 0, h = 0;
+            m_body.get_line_yrange(it, y, h);
+            const Gdk::Rectangle r = where(it);
+            const double x0 = r.get_x(), yy = y + h / 2.0;
+            cairo_t* cr = cairo_over(x0, yy - 1, right - x0, 2);
+            cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.3);
+            cairo_rectangle(cr, x0, yy - 0.5, right - x0, 1);
+            cairo_fill(cr);
+            cairo_destroy(cr);
+        } else if (d.kind == K::Code) {
+            auto it = buf->get_iter_at_line(d.line);
+            int y = 0, h = 0;
+            m_body.get_line_yrange(it, y, h);
+            const double ix = right - 20, iy = y + 2;
+            // The info string ("cpp"), dimmed, left of the button.
+            if (!d.lang.empty()) {
+                auto layout = m_body.create_pango_layout(d.lang);
+                Pango::FontDescription fd = m_body.get_pango_context()->get_font_description();
+                fd.set_size(fd.get_size() * 85 / 100);
+                layout->set_font_description(fd);
+                int lw = 0, lh = 0;
+                layout->get_pixel_size(lw, lh);
+                GdkRGBA dim = fg;
+                dim.alpha = 0.55f;
+                graphene_point_t pt = GRAPHENE_POINT_INIT(static_cast<float>(ix - 8 - lw),
+                                                          static_cast<float>(iy + (16 - lh) / 2.0));
+                gtk_snapshot_save(snap);
+                gtk_snapshot_translate(snap, &pt);
+                gtk_snapshot_append_layout(snap, layout->gobj(), &dim);
+                gtk_snapshot_restore(snap);
+            }
+            auto theme = Gtk::IconTheme::get_for_display(m_body.get_display());
+            auto icon = theme->lookup_icon(m_copied_line == d.line ? "object-select-symbolic"
+                                                                   : "edit-copy-symbolic",
+                                           16, m_body.get_scale_factor());
+            if (icon) {
+                graphene_point_t pt = GRAPHENE_POINT_INIT(static_cast<float>(ix), static_cast<float>(iy));
+                gtk_snapshot_save(snap);
+                gtk_snapshot_translate(snap, &pt);
+                gtk_symbolic_paintable_snapshot_symbolic(GTK_SYMBOLIC_PAINTABLE(icon->gobj()), snap,
+                                                         16, 16, &fg, 1);
+                gtk_snapshot_restore(snap);
+            }
+            m_copy_hits.push_back({Gdk::Rectangle(static_cast<int>(ix) - 4, static_cast<int>(iy) - 3, 24, 22),
+                                   d.line});
+        }
+    }
+
+    for (const auto& im : m_images) {
+        if (im.line >= nlines) continue;
+        auto it = buf->get_iter_at_line(im.line);
+        int y = 0, h = 0;
+        m_body.get_line_yrange(it, y, h);
+        const Gdk::Rectangle r = where(it);
+        graphene_rect_t gr = GRAPHENE_RECT_INIT(static_cast<float>(r.get_x()),
+                                                static_cast<float>(y + h - im.h - 6),
+                                                static_cast<float>(im.w), static_cast<float>(im.h));
+        gtk_snapshot_append_texture(snap, im.tex->gobj(), &gr);
+    }
+}
+
+namespace {
+bool hit(const Gdk::Rectangle& r, int x, int y) {
+    return x >= r.get_x() && x < r.get_x() + r.get_width() && y >= r.get_y() &&
+           y < r.get_y() + r.get_height();
+}
+}  // namespace
+
+void EditorPane::on_body_press(int n_press, double x, double y) {
+    if (n_press != 1 || m_id.empty()) return;
+    int bx = 0, by = 0;
+    m_body.window_to_buffer_coords(Gtk::TextWindowType::WIDGET, static_cast<int>(x),
+                                   static_cast<int>(y), bx, by);
+    if (m_live) {
+        for (const auto& h : m_box_hits) {
+            if (!hit(h.r, bx, by)) continue;
+            m_press->set_state(Gtk::EventSequenceState::CLAIMED);
+            if (!m_body.get_editable() || h.line >= static_cast<int>(m_scan.lines.size())) return;
+            const auto& ln = m_scan.lines[static_cast<std::size_t>(h.line)];
+            if (ln.cp_box_begin >= 0) toggle_task_at(h.line, ln.cp_box_begin - ln.cp_begin);
+            return;
+        }
+        for (const auto& h : m_copy_hits) {
+            if (!hit(h.r, bx, by)) continue;
+            m_press->set_state(Gtk::EventSequenceState::CLAIMED);
+            for (const auto& d : m_view.decos)
+                if (d.kind == core::LiveDeco::Kind::Code && d.line == h.line) {
+                    m_body.get_clipboard()->set_text(d.code);
+                    if (auto lg = log::get(log::Area::Editor))
+                        lg->info("live: code copied ({} byte(s))", d.code.size());
+                    m_copied_line = h.line;
+                    m_body.queue_draw();
+                    Glib::signal_timeout().connect_once([this]() {
+                        m_copied_line = -1;
+                        m_body.queue_draw();
+                    }, 1500);
+                    break;
+                }
+            return;
+        }
+    }
+    // Ctrl+click follows a link, in Source and Live Preview alike -- a plain
+    // click is for putting the cursor in the label.
+    const auto state = m_press->get_current_event_state();
+    if ((state & Gdk::ModifierType::CONTROL_MASK) != Gdk::ModifierType::CONTROL_MASK) return;
+    Gtk::TextBuffer::iterator it;
+    int trailing = 0;
+    if (!m_body.get_iter_at_position(it, trailing, bx, by)) return;
+    const int off = it.get_offset();
+    for (const auto& lk : m_scan.links) {
+        if (lk.image || off < lk.cp_begin || off >= lk.cp_end) continue;
+        m_press->set_state(Gtk::EventSequenceState::CLAIMED);
+        if (auto lg = log::get(log::Area::Editor)) lg->info("editor: ctrl+click follow {}", lk.target);
+        m_sig_link.emit(lk.target);
+        return;
+    }
+}
+
+void EditorPane::on_body_motion(double x, double y) {
+    bool hot = false;
+    if (m_live) {
+        int bx = 0, by = 0;
+        m_body.window_to_buffer_coords(Gtk::TextWindowType::WIDGET, static_cast<int>(x),
+                                       static_cast<int>(y), bx, by);
+        for (const auto& h : m_box_hits) hot = hot || hit(h.r, bx, by);
+        for (const auto& h : m_copy_hits) hot = hot || hit(h.r, bx, by);
+    }
+    gtk_widget_set_cursor_from_name(GTK_WIDGET(m_body.gobj()), hot ? "pointer" : "text");
 }
 
 void EditorPane::on_cursor_moved() {
@@ -768,14 +1056,9 @@ void EditorPane::render_reading() {
             sep->set_margin_bottom(8);
             w = sep;
         } else {
-            const std::string path = m_resolve ? m_resolve(a->target) : std::string{};
-            Glib::RefPtr<Gdk::Texture> tex;
-            if (!path.empty()) {
-                try {
-                    tex = Gdk::Texture::create_from_file(Gio::File::create_for_path(path));
-                } catch (const Glib::Error&) {
-                }
-            }
+            // s023: through the cache Live Preview shares -- no re-decode
+            // per re-render any more.
+            Glib::RefPtr<Gdk::Texture> tex = texture_for(a->target);
             if (tex) {
                 // Fit a column, never enlarge: a 4000-px photo becomes 520
                 // wide; an icon stays an icon.

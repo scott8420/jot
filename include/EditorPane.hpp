@@ -2,12 +2,14 @@
 #include "core/Markdown.hpp"
 #include "core/Nodes.hpp"
 #include "core/Render.hpp"
+#include "widgets/DrawTextView.hpp"
 #include "widgets/Widgets.hpp"
 
 #include <gtkmm/droptarget.h>
 #include <gtkmm/eventcontrollermotion.h>
 #include <functional>
 #include <gtkmm/gestureclick.h>
+#include <gdkmm/texture.h>
 #include <gtkmm/texttag.h>
 #include <map>
 #include <string>
@@ -115,8 +117,10 @@ public:
     // ── Live Preview (s022) ─────────────────────────────────────────────────
     // The Source page, with the marks hidden except on the cursor's line (and
     // every line a selection touches). Same buffer, same offsets, same file:
-    // the marks are tagged invisible, never removed (core::live_hidden says
-    // which). Off = plain Source, every mark on screen, as since s004.
+    // the marks are tagged invisible, never removed (core::live_view says
+    // which), and since s023 bullets, boxes, rules, pictures and a code
+    // block's Copy button are DRAWN over the text (DrawTextView). Off = plain
+    // Source, every mark on screen, as since s004.
     void set_live(bool on);
     bool live() const { return m_live; }
 
@@ -139,6 +143,10 @@ private:
     void restyle();                           // rescan the whole body and re-tag it
     void apply_live();                        // s022: re-hide marks off the cursor's lines
     void on_cursor_moved();                   // s022: the reveal follows the cursor
+    void draw_live(GtkSnapshot* snap);        // s023: what Live Preview draws over the text
+    void on_body_press(int n_press, double x, double y);   // s023: drawn boxes, Copy, Ctrl+click
+    void on_body_motion(double x, double y);  // s023: a pointer over what can be clicked
+    Glib::RefPtr<Gdk::Texture> texture_for(const std::string& target);   // s023: cached
     void queue_restyle();                     // coalesce to one restyle per idle
     void on_body_click(int n_press, double x, double y);
     bool toggle_task_at(int line, int cp_offset);
@@ -154,7 +162,7 @@ private:
     // something. A third copy of the same field in the one pane that is
     // supposed to be just the writing surface was the odd one out.
     widgets::ScrolledWindow m_scroll;
-    widgets::TextView       m_body;
+    widgets::DrawTextView   m_body;   // s023: a TextView Live Preview can draw on
     widgets::Label          m_status;
 
     // s021: Source and Reading are two pages of one stack. The SOURCE buffer
@@ -185,6 +193,21 @@ private:
     Glib::RefPtr<Gtk::TextTag> m_hidden_tag;
     bool m_live = false;
     int  m_reveal_first = -1, m_reveal_last = -1;
+
+    // s023: what is drawn, from the last apply_live, and where it landed (the
+    // hit areas are written while drawing, in buffer coordinates).
+    std::string                 m_text;        // the text m_scan was scanned from
+    core::LiveView              m_view;
+    struct LiveImage { int line; Glib::RefPtr<Gdk::Texture> tex; int w, h; };
+    std::vector<LiveImage>      m_images;
+    struct Hit { Gdk::Rectangle r; int line; };   // line: the task's, or a code deco's first line
+    std::vector<Hit>            m_box_hits, m_copy_hits;
+    int                         m_copied_line = -1;   // the Copy just pressed shows a tick
+    Glib::RefPtr<Gtk::TextTag>  m_hang_tag;             // room for a drawn bullet / box
+    std::map<int, Glib::RefPtr<Gtk::TextTag>> m_room_tags;   // room under a picture, by height
+    std::map<std::string, Glib::RefPtr<Gdk::Texture>> m_tex_cache;   // by resolved path
+    Glib::RefPtr<Gtk::GestureClick>          m_press;
+    Glib::RefPtr<Gtk::EventControllerMotion> m_body_motion;
 
     // The last scan of what is currently in the buffer. Kept because the click
     // handler needs the same answer the styling needed -- where the checkboxes

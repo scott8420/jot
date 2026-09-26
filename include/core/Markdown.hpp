@@ -23,7 +23,7 @@
 // on disk. Nothing is hidden, so nothing has to be un-hidden when the cursor
 // arrives, and TextMap stays out of the editor entirely. The Obsidian-style
 // hiding variant is this plus a reveal rule -- built in s022 as Live Preview
-// (core::live_hidden in Render.hpp), exactly that and nothing more.
+// (core::live_view in Render.hpp); s023 added drawing over the text.
 //
 // OFFSETS COME IN PAIRS. Everything carries `begin/end` in BYTES (what a
 // std::string scanner naturally produces) and `cp_begin/cp_end` in CODEPOINTS

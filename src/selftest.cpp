@@ -1289,21 +1289,27 @@ int main() {
                                         core::render("").src_cp.size() == 1);
     }
 
-    // -- Live Preview: which marks hide (s022) -------------------------------
+    // -- Live Preview: which marks hide, what is drawn (s022, s023) ---------
     {
         // What the eye sees: the source minus the hidden runs (ASCII bodies,
         // so a codepoint is a byte).
         auto seen = [](const std::string& src, int rf, int rl) {
-            const auto sc = core::scan(src);
-            const auto hid = core::live_hidden(sc, rf, rl);
+            const auto v = core::live_view(core::scan(src), src, rf, rl);
             std::string out;
             int at = 0;
-            for (const auto& h : hid) {
-                out += src.substr(static_cast<std::size_t>(at),
-                                  static_cast<std::size_t>(h.begin - at));
-                at = h.end;
+            const int n = static_cast<int>(src.size());
+            for (const auto& h : v.hidden) {
+                const int b = std::min(h.begin, n), e = std::min(h.end, n);
+                out += src.substr(static_cast<std::size_t>(at), static_cast<std::size_t>(b - at));
+                at = e;
             }
             return out + src.substr(static_cast<std::size_t>(at));
+        };
+        using K = core::LiveDeco::Kind;
+        auto count = [](const core::LiveView& v, K k) {
+            int c = 0;
+            for (const auto& d : v.decos) c += d.kind == k;
+            return c;
         };
         const std::string src = "## Plan\nsome **bold** and [a link](jot:n1)\n> said\ntail";
         check("live: every mark hidden when the cursor is elsewhere",
@@ -1311,21 +1317,51 @@ int main() {
         check("live: the cursor's line keeps its marks",
               seen(src, 1, 1) == "Plan\nsome **bold** and [a link](jot:n1)\nsaid\ntail",
               seen(src, 1, 1));
-        check("live: a selection's lines all keep theirs",
-              seen(src, 0, 2) == src, seen(src, 0, 2));
-        check("live: list marks and boxes stay, inline marks on them hide",
-              seen("- milk\n  - *eggs*\n1. one\n- [ ] call `bob`\nx", 4, 4) ==
-                  "- milk\n  - eggs\n1. one\n- [ ] call bob\nx",
-              seen("- milk\n  - *eggs*\n1. one\n- [ ] call `bob`\nx", 4, 4));
-        const std::string blk = "```cpp\nint **x**;\n```\n---\n![sun](a.png)\nz";
-        check("live: fences, code, rules and images are left whole",
-              seen(blk, 5, 5) == blk, seen(blk, 5, 5));
-        const auto sc = core::scan("# \xC3\xA9t\xC3\xA9 **\xC3\xA0**\nx");
-        const auto h = core::live_hidden(sc, 1, 1);
+        check("live: a selection's lines all keep theirs", seen(src, 0, 2) == src, seen(src, 0, 2));
+
+        const std::string lst = "- milk\n  - *eggs*\n1. one\n- [ ] call `bob`\n- [x] done\nx";
+        auto lv = core::live_view(core::scan(lst), lst, 5, 5);
+        check("live: bullets and boxes hidden (drawn instead), numbers kept, inline marks hidden",
+              seen(lst, 5, 5) == "milk\n  eggs\n1. one\ncall bob\ndone\nx", seen(lst, 5, 5));
+        check("live: two bullets, two boxes (one ticked), four hanging lines",
+              count(lv, K::Bullet) == 2 && count(lv, K::Box) == 2 && lv.hang_lines.size() == 4 &&
+                  lv.decos[3].kind == K::Box && !lv.decos[2].checked && lv.decos[3].checked);
+        check("live: a bullet's glyph sits where its content starts",
+              lv.decos[1].kind == K::Bullet && lv.decos[1].cp == 11);
+        check("live: the cursor's list line keeps its mark and draws nothing",
+              seen(lst, 0, 0).rfind("- milk\n", 0) == 0 &&
+                  count(core::live_view(core::scan(lst), lst, 0, 0), K::Bullet) == 1);
+
+        const std::string blk = "a\n```cpp\nint **x**;\ny();\n```\n---\n![sun](a.png)\nsee ![i](b.png) here\nz";
+        auto bv = core::live_view(core::scan(blk), blk, 0, 0);
+        check("live: fences take no room, code stays, the rule is drawn, a lone image is the editor's",
+              seen(blk, 0, 0) == "a\nint **x**;\ny();\n\n![sun](a.png)\nsee ![i](b.png) here\nz",
+              seen(blk, 0, 0));
+        bool code_ok = false, img_ok = false;
+        for (const auto& d : bv.decos) {
+            if (d.kind == K::Code) code_ok = d.line == 2 && d.code == "int **x**;\ny();" && d.lang == "cpp";
+            if (d.kind == K::Image) img_ok = d.line == 6 && d.target == "a.png" && d.label == "sun";
+        }
+        check("live: one code deco (text between the fences, the lang), one rule, ONE image (not the inline one)",
+              code_ok && img_ok && count(bv, K::Code) == 1 && count(bv, K::Rule) == 1 &&
+                  count(bv, K::Image) == 1);
+        check("live: the cursor anywhere in a block reveals the WHOLE block",
+              seen(blk, 3, 3).find("```cpp\nint **x**;\ny();\n```\n") != std::string::npos &&
+                  count(core::live_view(core::scan(blk), blk, 3, 3), K::Code) == 0);
+        const std::string tail = "```\ncode\n```";
+        check("live: a block closing on the last line hides the newline before its fence",
+              seen(tail, 99, 99) == "code", seen(tail, 99, 99));
+        const std::string open_only = "```sh\nls\nmore";
+        check("live: an unclosed block still hides its opening fence",
+              seen(open_only, 99, 99) == "ls\nmore", seen(open_only, 99, 99));
+
+        const std::string u = "# \xC3\xA9t\xC3\xA9 **\xC3\xA0**\nx";
+        const auto h = core::live_view(core::scan(u), u, 1, 1).hidden;
         check("live: ranges are codepoints, not bytes",
               h.size() == 3 && h[0].begin == 0 && h[0].end == 2 && h[1].begin == 6 &&
                   h[1].end == 8 && h[2].begin == 9 && h[2].end == 11);
-        check("live: empty body hides nothing", core::live_hidden(core::scan(""), -1, -1).empty());
+        const auto e = core::live_view(core::scan(""), "", -1, -1);
+        check("live: empty body hides and draws nothing", e.hidden.empty() && e.decos.empty());
     }
 
     // -- Import: a markdown file becomes a note (s021b) ----------------------

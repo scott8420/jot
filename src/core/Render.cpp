@@ -202,11 +202,80 @@ int rendered_cp(const Rendered& r, int source_cp) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// live_hidden (s022) -- which Mark runs Live Preview makes invisible.
+// live_view (s022, s023) -- what Live Preview hides, and what it draws.
 // ─────────────────────────────────────────────────────────────────────────────
-std::vector<CpRange> live_hidden(const Scan& sc, int reveal_first, int reveal_last) {
-    std::vector<CpRange> out;
-    if (sc.lines.empty()) return out;
+namespace {
+bool blank_bytes(const std::string& t, int b, int e) {
+    for (int k = b; k < e; ++k)
+        if (!std::isspace(static_cast<unsigned char>(t[static_cast<std::size_t>(k)]))) return false;
+    return true;
+}
+}  // namespace
+
+LiveView live_view(const Scan& sc, const std::string& text, int reveal_first, int reveal_last) {
+    LiveView v;
+    const int nl = static_cast<int>(sc.lines.size());
+    if (nl == 0) return v;
+    auto revealed = [&](int a, int b) { return a <= reveal_last && b >= reveal_first; };
+
+    // ── fenced blocks: pair the fence lines ────────────────────────────────
+    std::vector<int> in_block(static_cast<std::size_t>(nl), -1);   // line -> open fence line
+    for (int l = 0; l < nl; ++l) {
+        if (sc.lines[static_cast<std::size_t>(l)].block != Block::Fence) continue;
+        int close = -1;
+        for (int k = l + 1; k < nl; ++k)
+            if (sc.lines[static_cast<std::size_t>(k)].block == Block::Fence) { close = k; break; }
+        const int end = close >= 0 ? close : nl - 1;
+        for (int k = l; k <= end; ++k) in_block[static_cast<std::size_t>(k)] = l;
+
+        const Line& open = sc.lines[static_cast<std::size_t>(l)];
+        const int first_code = l + 1;
+        const int last_code  = (close >= 0 ? close : nl) - 1;
+        if (!revealed(l, end)) {
+            v.hidden.push_back({open.cp_begin, open.cp_end + 1});   // the fence and its newline
+            if (close >= 0) {
+                const Line& c = sc.lines[static_cast<std::size_t>(close)];
+                if (close < nl - 1) v.hidden.push_back({c.cp_begin, c.cp_end + 1});
+                else v.hidden.push_back({c.cp_begin - 1, c.cp_end});   // last line: the newline BEFORE it
+            }
+            if (last_code >= first_code) {
+                LiveDeco d;
+                d.kind = LiveDeco::Kind::Code;
+                d.line = first_code;
+                const int cb = sc.lines[static_cast<std::size_t>(first_code)].begin;
+                const int ce = sc.lines[static_cast<std::size_t>(last_code)].end;
+                d.code = text.substr(static_cast<std::size_t>(cb), static_cast<std::size_t>(ce - cb));
+                int k = open.begin;
+                while (k < open.end && std::isspace(static_cast<unsigned char>(text[static_cast<std::size_t>(k)]))) ++k;
+                const char f = k < open.end ? text[static_cast<std::size_t>(k)] : '`';
+                while (k < open.end && text[static_cast<std::size_t>(k)] == f) ++k;
+                int e = open.end;
+                while (k < e && std::isspace(static_cast<unsigned char>(text[static_cast<std::size_t>(k)]))) ++k;
+                while (e > k && std::isspace(static_cast<unsigned char>(text[static_cast<std::size_t>(e - 1)]))) --e;
+                d.lang = text.substr(static_cast<std::size_t>(k), static_cast<std::size_t>(e - k));
+                v.decos.push_back(std::move(d));
+            }
+        }
+        l = end;
+    }
+
+    // ── images alone on their line ─────────────────────────────────────────
+    for (const Link& lk : sc.links) {
+        if (!lk.image || lk.line < 0 || lk.line >= nl) continue;
+        if (in_block[static_cast<std::size_t>(lk.line)] >= 0 || revealed(lk.line, lk.line)) continue;
+        const Line& ln = sc.lines[static_cast<std::size_t>(lk.line)];
+        if (!blank_bytes(text, ln.begin, lk.begin) || !blank_bytes(text, lk.end, ln.end)) continue;
+        LiveDeco d;
+        d.kind   = LiveDeco::Kind::Image;
+        d.line   = lk.line;
+        d.cp     = lk.cp_begin;
+        d.cp_end = lk.cp_end;
+        d.target = lk.target;
+        d.label  = lk.label;
+        v.decos.push_back(std::move(d));
+    }
+
+    // ── the marks ──────────────────────────────────────────────────────────
     for (const Span& s : sc.spans) {
         if (s.style != Style::Mark || s.cp_end <= s.cp_begin) continue;
         // The line the mark sits on: the last line starting at or before it.
@@ -215,22 +284,30 @@ std::vector<CpRange> live_hidden(const Scan& sc, int reveal_first, int reveal_la
         if (it == sc.lines.begin()) continue;
         --it;
         const int line = static_cast<int>(it - sc.lines.begin());
-        if (line >= reveal_first && line <= reveal_last) continue;
+        if (in_block[static_cast<std::size_t>(line)] >= 0) continue;   // done above
+        if (revealed(line, line)) continue;
         const Line& ln = *it;
-        switch (ln.block) {
-            case Block::Fence:
-            case Block::Code:
-            case Block::Rule:
-                continue;   // the marks are the drawing
-            case Block::Bullet:
-            case Block::Numbered:
-            case Block::Task:
-                // The LEADING mark stays: it starts at the indent. Inline
-                // marks further along the line hide like anywhere else.
-                if (s.cp_begin == ln.cp_begin + ln.level) continue;
-                break;
-            default:
-                break;
+        const bool leading = s.cp_begin == ln.cp_begin + ln.level;
+        if (ln.block == Block::Rule) {
+            v.hidden.push_back({s.cp_begin, s.cp_end});
+            LiveDeco d;
+            d.kind = LiveDeco::Kind::Rule;
+            d.line = line;
+            d.cp   = ln.cp_begin;
+            v.decos.push_back(d);
+            continue;
+        }
+        if (leading && ln.block == Block::Numbered) continue;   // the number is content
+        if (leading && (ln.block == Block::Bullet || ln.block == Block::Task)) {
+            v.hidden.push_back({s.cp_begin, s.cp_end});
+            LiveDeco d;
+            d.kind    = ln.block == Block::Task ? LiveDeco::Kind::Box : LiveDeco::Kind::Bullet;
+            d.line    = line;
+            d.cp      = s.cp_end;
+            d.checked = ln.checked;
+            v.decos.push_back(d);
+            v.hang_lines.push_back(line);
+            continue;
         }
         bool in_image = false;
         for (const Link& lk : sc.links)
@@ -238,20 +315,25 @@ std::vector<CpRange> live_hidden(const Scan& sc, int reveal_first, int reveal_la
                 in_image = true;
                 break;
             }
-        if (in_image) continue;
-        out.push_back({s.cp_begin, s.cp_end});
+        if (in_image) continue;   // an image is hidden whole or not at all -- the editor's call
+        v.hidden.push_back({s.cp_begin, s.cp_end});
     }
+
     // Sorted and merged, so the editor applies each run once.
-    std::sort(out.begin(), out.end(),
+    std::sort(v.hidden.begin(), v.hidden.end(),
               [](const CpRange& a, const CpRange& b) { return a.begin < b.begin; });
     std::vector<CpRange> merged;
-    for (const CpRange& r : out) {
+    for (const CpRange& r : v.hidden) {
+        if (r.end <= r.begin) continue;
         if (!merged.empty() && r.begin <= merged.back().end)
             merged.back().end = std::max(merged.back().end, r.end);
         else
             merged.push_back(r);
     }
-    return merged;
+    v.hidden = std::move(merged);
+    std::sort(v.decos.begin(), v.decos.end(),
+              [](const LiveDeco& a, const LiveDeco& b) { return a.line < b.line; });
+    return v;
 }
 
 }  // namespace jot::core

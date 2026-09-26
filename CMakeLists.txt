@@ -175,6 +175,7 @@ add_executable(jot
     src/Menus.cpp
     src/TreePane_dnd.cpp
     src/EditorPane.cpp
+    src/DrawTextView.cpp
     # The third pane. Reads the NodeSource and the link index, writes nothing --
     # every row is derived, so there is no state here to fall out of step.
     src/DrawerPane.cpp
