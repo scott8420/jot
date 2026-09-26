@@ -79,4 +79,26 @@ int source_cp(const Rendered& r, int rendered_cp);
 // A position inside a hidden mark lands on what follows the mark.
 int rendered_cp(const Rendered& r, int source_cp);
 
+// ── Live Preview (s022) ─────────────────────────────────────────────────────
+// Obsidian's third view: the note you TYPE into, formatted, a mark showing
+// only on the line the cursor is in. NOT built on the render above, and on
+// purpose: Live Preview is an editor, and an editor over a second buffer is a
+// second coordinate space every keystroke would have to be mapped through.
+// It is the SOURCE buffer, byte for byte, with some Mark runs tagged
+// invisible -- the "visible marks plus a reveal rule" that s004 left room for.
+// This function is the rule; EditorPane only tags what it answers.
+//
+// Which marks hide (first cut):
+//   - heading hashes, a quote's `>`, emphasis, `code` ticks, ~~, escapes,
+//     a link's `[` and `](target)`            -> hidden
+//   - a list's `- ` / `1. ` / `- [ ] `        -> KEPT (dimmed, as in Source):
+//     the bullet IS the list, and the box is what you click to tick
+//   - fence lines, rules, images `![..](..)`  -> KEPT: no bubble, no picture
+//     in this cut, so the marks are the only drawing of them
+// Lines [reveal_first, reveal_last] hide nothing (the cursor's, or every line
+// a selection touches). Returns codepoint ranges into the scanned text,
+// sorted, non-overlapping.
+struct CpRange { int begin = 0, end = 0; };
+std::vector<CpRange> live_hidden(const Scan& sc, int reveal_first, int reveal_last);
+
 }  // namespace jot::core

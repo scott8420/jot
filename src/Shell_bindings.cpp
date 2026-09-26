@@ -52,6 +52,8 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
         "toggle-drawer", sigc::mem_fun(*this, &Shell::on_toggle_drawer), m_prefs.show_drawer);
     m_act_toggle_reading = add_action_bool(
         "toggle-reading", sigc::mem_fun(*this, &Shell::on_toggle_reading), m_prefs.reading);
+    m_act_toggle_live = add_action_bool(
+        "toggle-live", sigc::mem_fun(*this, &Shell::on_toggle_live), m_prefs.live_preview);
     // s009. Stateful for the same reason the two above are: the menu item and
     // the Today footer's check box are TWO CONSUMERS of one piece of state, and
     // the action is the thing they both read. A bool on the Shell with two

@@ -336,6 +336,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     view->append_section(panes);
     auto mode = Gio::Menu::create();
     mode->append("Reading view", "win.toggle-reading");   // s021
+    mode->append("Live preview", "win.toggle-live");      // s022
     view->append_section(mode);
 
     // For finding out what jot thinks is true. Refresh-the-desktop lives here

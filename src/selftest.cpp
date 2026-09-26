@@ -1289,6 +1289,45 @@ int main() {
                                         core::render("").src_cp.size() == 1);
     }
 
+    // -- Live Preview: which marks hide (s022) -------------------------------
+    {
+        // What the eye sees: the source minus the hidden runs (ASCII bodies,
+        // so a codepoint is a byte).
+        auto seen = [](const std::string& src, int rf, int rl) {
+            const auto sc = core::scan(src);
+            const auto hid = core::live_hidden(sc, rf, rl);
+            std::string out;
+            int at = 0;
+            for (const auto& h : hid) {
+                out += src.substr(static_cast<std::size_t>(at),
+                                  static_cast<std::size_t>(h.begin - at));
+                at = h.end;
+            }
+            return out + src.substr(static_cast<std::size_t>(at));
+        };
+        const std::string src = "## Plan\nsome **bold** and [a link](jot:n1)\n> said\ntail";
+        check("live: every mark hidden when the cursor is elsewhere",
+              seen(src, 99, 99) == "Plan\nsome bold and a link\nsaid\ntail", seen(src, 99, 99));
+        check("live: the cursor's line keeps its marks",
+              seen(src, 1, 1) == "Plan\nsome **bold** and [a link](jot:n1)\nsaid\ntail",
+              seen(src, 1, 1));
+        check("live: a selection's lines all keep theirs",
+              seen(src, 0, 2) == src, seen(src, 0, 2));
+        check("live: list marks and boxes stay, inline marks on them hide",
+              seen("- milk\n  - *eggs*\n1. one\n- [ ] call `bob`\nx", 4, 4) ==
+                  "- milk\n  - eggs\n1. one\n- [ ] call bob\nx",
+              seen("- milk\n  - *eggs*\n1. one\n- [ ] call `bob`\nx", 4, 4));
+        const std::string blk = "```cpp\nint **x**;\n```\n---\n![sun](a.png)\nz";
+        check("live: fences, code, rules and images are left whole",
+              seen(blk, 5, 5) == blk, seen(blk, 5, 5));
+        const auto sc = core::scan("# \xC3\xA9t\xC3\xA9 **\xC3\xA0**\nx");
+        const auto h = core::live_hidden(sc, 1, 1);
+        check("live: ranges are codepoints, not bytes",
+              h.size() == 3 && h[0].begin == 0 && h[0].end == 2 && h[1].begin == 6 &&
+                  h[1].end == 8 && h[2].begin == 9 && h[2].end == 11);
+        check("live: empty body hides nothing", core::live_hidden(core::scan(""), -1, -1).empty());
+    }
+
     // -- Import: a markdown file becomes a note (s021b) ----------------------
     {
         namespace fs = std::filesystem;

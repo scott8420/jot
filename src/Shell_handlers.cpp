@@ -483,6 +483,15 @@ void Shell::on_toggle_reading() {  // handler
     apply_layout_state();
 }
 
+// s022 -- Live Preview on/off. Independent of Reading: it says what EDITING
+// looks like, so it can be flipped while Reading shows and takes effect on the
+// way back.
+void Shell::on_toggle_live() {  // handler
+    if (m_applying_layout) return;
+    m_prefs.live_preview = !m_prefs.live_preview;
+    apply_layout_state();
+}
+
 // A double-click in Reading, or a capture, wants to type. Place the cursor
 // first (the editor maps the click back to the source), then let the one
 // writer flip the rest.

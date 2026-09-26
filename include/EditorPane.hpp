@@ -27,7 +27,8 @@
 // cursor-arrives-reveal-it rule, no second coordinate space, and TextMap never
 // enters the editor. Every offset in the buffer is an offset in the note. The
 // Obsidian-style hiding variant is this plus a reveal rule and can be built on
-// top of it later without undoing anything here.
+// top of it later without undoing anything here. (s022 did: Live Preview is an
+// `invisible` tag over the marks off the cursor's line -- see set_live.)
 //
 // D5 is ANSWERED (s004): Folio's markdown editor does not lift, because Folio
 // has no markdown editor. Its Editor is ~13k lines of WYSIWYG over a
@@ -111,6 +112,14 @@ public:
         m_resolve = std::move(f);
     }
 
+    // ── Live Preview (s022) ─────────────────────────────────────────────────
+    // The Source page, with the marks hidden except on the cursor's line (and
+    // every line a selection touches). Same buffer, same offsets, same file:
+    // the marks are tagged invisible, never removed (core::live_hidden says
+    // which). Off = plain Source, every mark on screen, as since s004.
+    void set_live(bool on);
+    bool live() const { return m_live; }
+
 private:
     bool on_drop(const Glib::ValueBase& value, double x, double y);
     void on_paste_clipboard();       // "paste-clipboard", run BEFORE the default
@@ -128,6 +137,8 @@ private:
     int  read_offset_at(double x, double y);  // codepoint in the reading buffer, or -1
     Gtk::Widget* code_bubble(const std::string& code, const std::string& lang);  // s021b
     void restyle();                           // rescan the whole body and re-tag it
+    void apply_live();                        // s022: re-hide marks off the cursor's lines
+    void on_cursor_moved();                   // s022: the reveal follows the cursor
     void queue_restyle();                     // coalesce to one restyle per idle
     void on_body_click(int n_press, double x, double y);
     bool toggle_task_at(int line, int cp_offset);
@@ -168,6 +179,12 @@ private:
     sigc::signal<void(std::string, int)>              m_sig_pasted;
     std::map<core::Style, Glib::RefPtr<Gtk::TextTag>> m_tags;
     Glib::RefPtr<Gtk::TextTag> m_codeblock_tag;   // s021b: Source's full-width tint on fenced lines
+
+    // s022: Live Preview. One `invisible` tag over the hidden marks; the lines
+    // it last left bare, so a cursor move within them costs nothing.
+    Glib::RefPtr<Gtk::TextTag> m_hidden_tag;
+    bool m_live = false;
+    int  m_reveal_first = -1, m_reveal_last = -1;
 
     // The last scan of what is currently in the buffer. Kept because the click
     // handler needs the same answer the styling needed -- where the checkboxes

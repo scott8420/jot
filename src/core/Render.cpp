@@ -201,4 +201,57 @@ int rendered_cp(const Rendered& r, int source_cp) {
     return std::min(static_cast<int>(it - r.src_cp.begin()), last);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// live_hidden (s022) -- which Mark runs Live Preview makes invisible.
+// ─────────────────────────────────────────────────────────────────────────────
+std::vector<CpRange> live_hidden(const Scan& sc, int reveal_first, int reveal_last) {
+    std::vector<CpRange> out;
+    if (sc.lines.empty()) return out;
+    for (const Span& s : sc.spans) {
+        if (s.style != Style::Mark || s.cp_end <= s.cp_begin) continue;
+        // The line the mark sits on: the last line starting at or before it.
+        auto it = std::upper_bound(sc.lines.begin(), sc.lines.end(), s.cp_begin,
+                                   [](int cp, const Line& ln) { return cp < ln.cp_begin; });
+        if (it == sc.lines.begin()) continue;
+        --it;
+        const int line = static_cast<int>(it - sc.lines.begin());
+        if (line >= reveal_first && line <= reveal_last) continue;
+        const Line& ln = *it;
+        switch (ln.block) {
+            case Block::Fence:
+            case Block::Code:
+            case Block::Rule:
+                continue;   // the marks are the drawing
+            case Block::Bullet:
+            case Block::Numbered:
+            case Block::Task:
+                // The LEADING mark stays: it starts at the indent. Inline
+                // marks further along the line hide like anywhere else.
+                if (s.cp_begin == ln.cp_begin + ln.level) continue;
+                break;
+            default:
+                break;
+        }
+        bool in_image = false;
+        for (const Link& lk : sc.links)
+            if (lk.image && s.cp_begin >= lk.cp_begin && s.cp_end <= lk.cp_end) {
+                in_image = true;
+                break;
+            }
+        if (in_image) continue;
+        out.push_back({s.cp_begin, s.cp_end});
+    }
+    // Sorted and merged, so the editor applies each run once.
+    std::sort(out.begin(), out.end(),
+              [](const CpRange& a, const CpRange& b) { return a.begin < b.begin; });
+    std::vector<CpRange> merged;
+    for (const CpRange& r : out) {
+        if (!merged.empty() && r.begin <= merged.back().end)
+            merged.back().end = std::max(merged.back().end, r.end);
+        else
+            merged.push_back(r);
+    }
+    return merged;
+}
+
 }  // namespace jot::core

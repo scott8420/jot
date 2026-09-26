@@ -15,6 +15,8 @@
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/separator.h>
 #include <glibmm/main.h>
+#include <algorithm>
+#include <memory>
 #include <set>
 #include <pango/pango-attributes.h>
 
@@ -143,6 +145,14 @@ EditorPane::EditorPane(std::string_view name)
         write_body();
         queue_restyle();
     });
+    // s022: the reveal follows the cursor. mark-set fires for every mark on
+    // every keystroke; on_cursor_moved looks only at the two that bound the
+    // cursor and the selection, and returns at once if their lines held.
+    m_body.get_buffer()->signal_mark_set().connect(
+        [this](const Gtk::TextBuffer::iterator&, const Glib::RefPtr<Gtk::TextBuffer::Mark>& m) {
+            auto buf = m_body.get_buffer();
+            if (m == buf->get_insert() || m == buf->get_selection_bound()) on_cursor_moved();
+        });
 
     // Click-to-tick. Attached to the TextView and deliberately NOT claiming the
     // event: a click that misses a checkbox must still place the cursor, which
@@ -347,6 +357,10 @@ void EditorPane::build_tags() {
     m_codeblock_tag->property_paragraph_background_rgba() = rgba(0.5, 0.5, 0.5, CODE_A);
     m_codeblock_tag->property_family() = "monospace";
     m_codeblock_tag->property_scale() = 0.92;
+
+    // s022: Live Preview's one tag. Created LAST so nothing outranks it.
+    m_hidden_tag = m_body.get_buffer()->create_tag("md-hidden");
+    m_hidden_tag->property_invisible() = true;
 }
 
 void EditorPane::make_tags(const Glib::RefPtr<Gtk::TextBuffer>& buf,
@@ -449,12 +463,16 @@ void EditorPane::restyle() {
     const auto b = buf->begin(), e = buf->end();
     for (const auto& [style, tag] : m_tags) buf->remove_tag(tag, b, e);
     if (m_codeblock_tag) buf->remove_tag(m_codeblock_tag, b, e);
+    if (m_hidden_tag) buf->remove_tag(m_hidden_tag, b, e);
 
+    // include_hidden_chars=TRUE, and since s022 it matters: Live Preview's
+    // marks are invisible text, and `false` would scan -- and WRITE TO DISK --
+    // the note with its marks missing.
     // .raw() because the scanner works in bytes and Glib::ustring's own
     // iteration is in characters -- taking the bytes here, and taking the
     // codepoint offsets back out of the scan, is the whole of the UTF-8 story
     // on this side of the seam.
-    m_scan = core::scan(buf->get_text(/*include_hidden_chars=*/false).raw());
+    m_scan = core::scan(buf->get_text(/*include_hidden_chars=*/true).raw());
 
     // s021b: a code-block line is styled by md-codeblock below, not by Code.
     std::set<int> block_lines;
@@ -476,6 +494,8 @@ void EditorPane::restyle() {
                 le.forward_line();   // the newline too, so the tint spans the whole line
                 buf->apply_tag(m_codeblock_tag, lb, le);
             }
+    m_reveal_first = m_reveal_last = -1;   // force: the scan is new
+    apply_live();
     m_styling = false;
     if (m_reading) render_reading();   // s021: the view follows the source
 }
@@ -491,6 +511,54 @@ void EditorPane::queue_restyle() {
         m_restyle_queued = false;
         restyle();
     });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live Preview (s022). core::live_hidden decides; this tags. Only ever from a
+// FRESH scan: restyle calls it right after scanning, and a cursor move with a
+// restyle still queued waits for that restyle rather than hide by offsets one
+// keystroke old.
+// ─────────────────────────────────────────────────────────────────────────────
+void EditorPane::set_live(bool on) {
+    if (on == m_live) return;
+    m_live = on;
+    m_reveal_first = m_reveal_last = -1;
+    const bool was = m_styling;
+    m_styling = true;
+    apply_live();
+    m_styling = was;
+    if (auto lg = log::get(log::Area::Editor))
+        lg->info("view: live preview {} (note={})", on ? "on" : "off", m_id);
+}
+
+void EditorPane::apply_live() {
+    auto buf = m_body.get_buffer();
+    if (!buf || !m_hidden_tag) return;
+    int first = -1, last = -1;
+    if (m_live) {
+        const int a = buf->get_insert()->get_iter().get_line();
+        const int b = buf->get_selection_bound()->get_iter().get_line();
+        first = std::min(a, b);
+        last  = std::max(a, b);
+        if (first == m_reveal_first && last == m_reveal_last) return;
+    }
+    m_reveal_first = first;
+    m_reveal_last  = last;
+    buf->remove_tag(m_hidden_tag, buf->begin(), buf->end());
+    if (!m_live) return;
+    const int n = buf->end().get_offset();
+    for (const auto& r : core::live_hidden(m_scan, first, last)) {
+        if (r.begin >= n) break;
+        buf->apply_tag(m_hidden_tag, buf->get_iter_at_offset(r.begin),
+                       buf->get_iter_at_offset(std::min(r.end, n)));
+    }
+}
+
+void EditorPane::on_cursor_moved() {
+    if (!m_live || m_loading || m_styling || m_restyle_queued) return;
+    m_styling = true;
+    apply_live();
+    m_styling = false;
 }
 
 void EditorPane::set_source(core::NodeSource* src) {
@@ -566,7 +634,7 @@ void EditorPane::refresh() {
 void EditorPane::write_body() {
     if (m_loading || m_styling || !m_src || m_id.empty()) return;
     auto buf = m_body.get_buffer();
-    m_src->set_body(m_id, buf->get_text(/*include_hidden_chars=*/false));
+    m_src->set_body(m_id, buf->get_text(/*include_hidden_chars=*/true));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -638,10 +706,21 @@ void EditorPane::set_reading(bool on, int source_cp) {
         m_stack.set_visible_child("reading");
         // Keep your place: the source cursor's line, found in the render.
         const int at = core::rendered_cp(m_rendered, body->get_insert()->get_iter().get_offset());
-        Glib::signal_idle().connect_once([this, at]() {
+        // Keep your place -- but only once the page HAS a size. A stack page
+        // shown this frame is still 0x0 on the next idle, and scroll_to
+        // against a zero-page adjustment lands on junk that then sticks
+        // (s022, Xvfb: scrolled down AND sideways, readw=0 page=0). A tick
+        // callback runs per frame; wait for a real page, at most ~1 s.
+        auto tries = std::make_shared<int>(0);
+        m_read.add_tick_callback([this, at, tries](const Glib::RefPtr<Gdk::FrameClock>&) {
+            auto v = m_read_scroll.get_vadjustment();
+            if ((m_read.get_height() <= 0 || v->get_page_size() <= 0) && ++*tries < 60)
+                return true;   // not laid out yet; next frame
             auto rb = m_read.get_buffer();
             auto it = rb->get_iter_at_offset(at);
             m_read.scroll_to(it, 0.2);
+            m_read_scroll.get_hadjustment()->set_value(0);   // wrapped text never scrolls sideways
+            return false;
         });
     } else {
         m_stack.set_visible_child("source");
@@ -660,7 +739,7 @@ void EditorPane::render_reading() {
     auto rb   = m_read.get_buffer();
     const double keep = m_read_scroll.get_vadjustment()->get_value();
 
-    m_rendered = core::render(body->get_text(false).raw());
+    m_rendered = core::render(body->get_text(true).raw());
     rb->set_text(m_rendered.text);
     for (const auto& sp : m_rendered.spans) {
         const auto it = m_read_tags.find(sp.style);

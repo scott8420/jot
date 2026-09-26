@@ -39,6 +39,10 @@ struct Prefs {
     // default: jot opens into writing, and a scribble pad you cannot scribble
     // on until you find a toggle is not one.
     bool reading     = false;
+    // s022: EDITING shows as Live Preview (marks only on the cursor's line)
+    // rather than plain Source. On by default: it is the Obsidian workflow
+    // Scott named as the target, and View -> Live preview turns it off.
+    bool live_preview = true;
 
     // Pane positions, in pixels. Remembered even while a pane is hidden, which
     // is the whole reason they are stored separately from the flags: a

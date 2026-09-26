@@ -508,6 +508,9 @@ void Shell::apply_layout_state() {  // helper: the one place layout changes
         m_act_toggle_drawer->set_state(Glib::Variant<bool>::create(m_prefs.show_drawer));
     if (m_act_toggle_reading)
         m_act_toggle_reading->set_state(Glib::Variant<bool>::create(m_prefs.reading));
+    if (m_act_toggle_live)
+        m_act_toggle_live->set_state(Glib::Variant<bool>::create(m_prefs.live_preview));
+    if (m_editor) m_editor->set_live(m_prefs.live_preview);   // s022
     if (m_editor) m_editor->set_reading(m_prefs.reading);   // s021
     m_reading_toggle.set_tooltip_text(m_prefs.reading ? "Back to the source (Ctrl+E)"
                                                       : "Reading view (Ctrl+E)");

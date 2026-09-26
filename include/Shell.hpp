@@ -155,6 +155,7 @@ private:
     void on_toggle_tree();                       // category: handler: show/hide the tree
     void on_toggle_drawer();                     // category: handler: show/hide the metadata drawer
     void on_toggle_reading();                    // category: handler: s021 Source <-> Reading
+    void on_toggle_live();                       // category: handler: s022 Live Preview on/off
     void on_import_markdown();                   // category: handler: s021b Notes -> Import Markdown Files...
     void on_import_folder();                     // category: handler: s021c Notes -> Import Markdown Folder...
     core::NodeId import_file(const std::string& path, const core::NodeId& parent,
@@ -427,6 +428,7 @@ private:
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_tree;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_drawer;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_reading;   // s021
+    Glib::RefPtr<Gio::SimpleAction> m_act_toggle_live;      // s022
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_desktop;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_notify;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_background;

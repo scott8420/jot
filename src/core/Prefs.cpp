@@ -42,6 +42,7 @@ Prefs load_prefs(const std::string& file) {
         p.show_tree   = get_or(j, "show_tree", p.show_tree);
         p.show_drawer = get_or(j, "show_drawer", p.show_drawer);
         p.reading     = get_or(j, "reading", p.reading);
+        p.live_preview = get_or(j, "live_preview", p.live_preview);
         p.tree_width  = sane(get_or(j, "tree_width", p.tree_width), 120, 2000, 280);
         p.note_width  = sane(get_or(j, "note_width", p.note_width), 200, 4000, 560);
         p.desktop_tasks = get_or(j, "desktop_tasks", p.desktop_tasks);
@@ -86,6 +87,7 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     j["show_tree"]   = p.show_tree;
     j["show_drawer"] = p.show_drawer;
     j["reading"]     = p.reading;
+    j["live_preview"] = p.live_preview;
     j["tree_width"]  = p.tree_width;
     j["note_width"]  = p.note_width;
     j["desktop_tasks"] = p.desktop_tasks;
