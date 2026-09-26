@@ -329,6 +329,12 @@ std::size_t Project::adopt(const NodeSource& from, const AttachStore* att, bool 
         const auto renames = carry_attachments(*att, m_attach, names, move_files);
         for (const auto& [old_name, new_name] : renames)
             for (auto& n : adopted) rename_references(n.body, old_name, new_name);
+        // Linked files (s019) do not move -- only what jot remembers about
+        // them does, so Modified still has its baseline in the new folder.
+        for (const auto& n : adopted)
+            for (const auto& k : linked_references(n.body))
+                if (auto m = att->metas.find(k); m != att->metas.end())
+                    m_attach.metas.emplace(k, m->second);
     }
 
     const std::size_t n_adopted = adopted.size();

@@ -47,14 +47,17 @@ public:
     void set_desktop_on(bool on);
     void set_notify_on(bool on);
     void set_background_on(bool on);
+    void set_drop_links_on(bool on);
 
     sigc::signal<void(bool)>& signal_desktop_toggled()    { return m_sig_desktop; }
     sigc::signal<void(bool)>& signal_notify_toggled()     { return m_sig_notify; }
     sigc::signal<void(bool)>& signal_background_toggled() { return m_sig_background; }
+    sigc::signal<void(bool)>& signal_drop_links_toggled() { return m_sig_drop_links; }
 
 private:
     int  build_hotkey_section(int row);
     int  build_running_section(int row);
+    int  build_enclosure_section(int row);
 
     // Read GNOME's settings and repaint the row from what is ACTUALLY there.
     void refresh_hotkey();
@@ -85,10 +88,12 @@ private:
     widgets::CheckButton m_notify_check{"prefs.notify_check"};
     widgets::CheckButton m_background_check{"prefs.background_check"};
     widgets::Label       m_desktop_note{"prefs.desktop_note"};
+    widgets::CheckButton m_drop_links_check{"prefs.drop_links_check"};
 
     sigc::signal<void(bool)> m_sig_desktop;
     sigc::signal<void(bool)> m_sig_notify;
     sigc::signal<void(bool)> m_sig_background;
+    sigc::signal<void(bool)> m_sig_drop_links;
 
     Glib::RefPtr<Gtk::EventControllerKey> m_keys;
     bool m_grabbing  = false;   // the window is swallowing keys, waiting for a chord

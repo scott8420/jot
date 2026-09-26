@@ -6,6 +6,7 @@
 #include <gtkmm/cssprovider.h>
 #include <gtkmm/dragsource.h>
 #include <gtkmm/droptarget.h>
+#include <glibmm/main.h>
 
 #include <gtk/gtk.h>
 
@@ -190,6 +191,66 @@ void TreePane::attach_root_drop() {
             Glib::Value<Glib::ustring> v;
             v.init(value.gobj());
             return drop_at(v.get(), "", DropZone::Into);
+        },
+        false);
+    m_list.add_controller(target);
+}
+
+// s021b -- files from OUTSIDE (a .md from Files). ONE target on the list, in
+// the CAPTURE phase: a drag from Files also offers its uri as a STRING, and the
+// rows' own targets take strings (a node id), so heard second, a dropped file
+// would arrive at a row as a "node id" that moves nothing. Heard first, it is
+// a file list. Whatever row is under the pointer is the parent -- Into only;
+// "above / below" between siblings is a refinement nobody has asked for.
+core::NodeId TreePane::row_id_at(double y) const {
+    auto* row = const_cast<widgets::ListBox&>(m_list).get_row_at_y(static_cast<int>(y));
+    if (!row) return {};
+    const int i = row->get_index();
+    if (i < 0 || i >= static_cast<int>(m_row_ids.size())) return {};
+    return m_row_ids[static_cast<std::size_t>(i)];
+}
+
+void TreePane::attach_file_drop() {
+    auto target = Gtk::DropTarget::create(GDK_TYPE_FILE_LIST,
+                                          Gdk::DragAction::COPY | Gdk::DragAction::MOVE);
+    target->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    target->signal_motion().connect(
+        [this](double, double y) -> Gdk::DragAction {
+            Gtk::Widget* row = nullptr;
+            const core::NodeId id = row_id_at(y);
+            if (!id.empty()) row = m_list.get_row_at_y(static_cast<int>(y));
+            if (row) show_drop_feedback(row, DropZone::Into);
+            else     clear_drop_feedback();
+            return Gdk::DragAction::COPY;
+        },
+        false);
+    target->signal_leave().connect([this]() { clear_drop_feedback(); });
+    target->signal_drop().connect(
+        [this, target](const Glib::ValueBase& value, double, double y) {
+            clear_drop_feedback();
+            auto* list = static_cast<GdkFileList*>(g_value_get_boxed(value.gobj()));
+            if (!list) return false;
+            std::vector<std::string> paths;
+            GSList* files = gdk_file_list_get_files(list);
+            for (GSList* l = files; l; l = l->next) {
+                char* p = g_file_get_path(G_FILE(l->data));
+                if (p) paths.emplace_back(p);
+                g_free(p);
+            }
+            g_slist_free(files);
+            if (paths.empty()) return false;
+            // A Shift-drag arrives as MOVE (s019c). Never FINISH it as one:
+            // narrowed to COPY for this drop, so Files deletes nothing.
+            target->set_actions(Gdk::DragAction::COPY);
+            Glib::signal_idle().connect_once([target]() {
+                target->set_actions(Gdk::DragAction::COPY | Gdk::DragAction::MOVE);
+            });
+            const core::NodeId parent = row_id_at(y);
+            if (auto lg = log::get(log::Area::Tree))
+                lg->info("files dropped on the tree: {} under '{}'", paths.size(),
+                         parent.empty() ? "(top level)" : parent);
+            m_sig_files.emit(paths, parent);
+            return true;
         },
         false);
     m_list.add_controller(target);

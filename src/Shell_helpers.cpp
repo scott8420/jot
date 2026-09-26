@@ -506,6 +506,11 @@ void Shell::apply_layout_state() {  // helper: the one place layout changes
         m_act_toggle_tree->set_state(Glib::Variant<bool>::create(m_prefs.show_tree));
     if (m_act_toggle_drawer)
         m_act_toggle_drawer->set_state(Glib::Variant<bool>::create(m_prefs.show_drawer));
+    if (m_act_toggle_reading)
+        m_act_toggle_reading->set_state(Glib::Variant<bool>::create(m_prefs.reading));
+    if (m_editor) m_editor->set_reading(m_prefs.reading);   // s021
+    m_reading_toggle.set_tooltip_text(m_prefs.reading ? "Back to the source (Ctrl+E)"
+                                                      : "Reading view (Ctrl+E)");
 
     m_tree_toggle.set_tooltip_text(m_prefs.show_tree ? "Hide the side pane (Ctrl+[ or F9)"
                                                      : "Show the side pane (Ctrl+[ or F9)");
@@ -1371,6 +1376,60 @@ void Shell::place_enclosures(const std::vector<std::pair<std::string, std::strin
         return;
     }
     queue_drawer_refresh();   // idle: this can run inside the drop event
+}
+
+// Point every reference to `from` at `to`, in EVERY note, not just the one on
+// screen (s019). A relink is a fact about the file -- it moved -- so a second
+// note linking the same PDF should not be left saying Missing. Written through
+// the model; the editor re-reads the current note if it was one of them.
+// Returns how many references were rewritten.
+int Shell::retarget_everywhere(const std::string& from, const std::string& to) {  // helper
+    if (!m_store) return 0;
+    int total = 0;
+    bool current_changed = false;
+    std::vector<core::NodeId> stack = m_store->children("");
+    while (!stack.empty()) {
+        const core::NodeId id = stack.back();
+        stack.pop_back();
+        for (const auto& c : m_store->children(id)) stack.push_back(c);
+        const core::Node* n = m_store->find(id);
+        if (!n) continue;
+        std::string body = n->body;
+        const int k = core::retarget_references(body, from, to);
+        if (k == 0) continue;
+        total += k;
+        m_store->set_body(id, body);
+        if (id == m_editor->current()) current_changed = true;
+    }
+    if (m_project) m_project->enclosures_changed();
+    if (current_changed) m_editor->refresh();
+    queue_drawer_refresh();
+    return total;
+}
+
+// s020 -- the convert verbs edit the note on screen, so a note that cannot be
+// edited (none, or protected) is refused BEFORE anything is copied: an embed
+// copied for a note that then refuses the edit is a file nobody points at.
+bool Shell::current_note_editable() const {  // helper
+    if (!m_store || !m_editor) return false;
+    const core::Node* n = m_store->find(m_editor->current());
+    return n && !n->protect;
+}
+
+// Point THIS note's references to `from` at `to` (s020). Not every note, as
+// Relink does: a relink is a fact about the file (it moved); a convert is a
+// choice about how one note carries it, and another note that links the same
+// PDF made its own choice. Returns how many were rewritten.
+int Shell::retarget_current(const std::string& from, const std::string& to) {  // helper
+    if (!current_note_editable()) return 0;
+    const core::NodeId id = m_editor->current();
+    std::string body = m_store->find(id)->body;
+    const int k = core::retarget_references(body, from, to);
+    if (k > 0) m_store->set_body(id, body);
+    if (m_project) m_project->enclosures_changed();
+    if (k > 0) m_editor->refresh();
+    queue_drawer_refresh();
+    return k;
 }
 
 }  // namespace jot

@@ -106,7 +106,10 @@ void install_section_css() {
     if (!display) return;
     auto css = Gtk::CssProvider::create();
     css->load_from_data(
-        ".drawer-section-head { padding: 3px 4px 3px 0; min-height: 0; }");
+        ".drawer-section-head { padding: 3px 4px 3px 0; min-height: 0; }"
+        // s019: Modified on a linked enclosure. GTK's own theme has no label
+        // .warning (libadwaita does); @warning_color is in both.
+        ".drawer-modified { color: @warning_color; }");
     gtk_style_context_add_provider_for_display(
         display->gobj(), GTK_STYLE_PROVIDER(css->gobj()),
         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -224,7 +227,7 @@ DrawerPane::DrawerPane(std::string_view name)
     // something that exists. The drawer only says what was asked for.
     {
         auto group = Gio::SimpleActionGroup::create();
-        for (const char* verb : {"open", "reveal", "copy", "save"}) {
+        for (const char* verb : {"open", "reveal", "copy", "save", "relink", "accept", "embed", "link"}) {
             const std::string v = verb;
             group->add_action_with_parameter(
                 v, Glib::VARIANT_TYPE_STRING, [this, v](const Glib::VariantBase& p) {
@@ -748,6 +751,7 @@ void DrawerPane::fill_links(const core::Node& n) {
         // thumbnail and a status. Listing it here too would be the same fact
         // twice, in the less useful of the two places.
         if (!core::attachment_name(lk.target).empty()) continue;
+        if (!core::linked_key(lk.target).empty()) continue;   // s019: a linked file is one too
         ++shown;
         const std::string label = lk.label.empty() ? std::string("(no label)") : lk.label;
         const core::NodeId to = core::link_node_id(lk.target);
@@ -932,8 +936,14 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
                                                 Gtk::Orientation::HORIZONTAL, 8);
     row->set_margin_bottom(4);
 
-    const std::string path =
-        m_attach ? (std::filesystem::path(m_attach->dir) / e.name).string() : std::string{};
+    // Where the bytes are: attachments/<name>, or wherever a linked file lives.
+    const std::string path = e.path;
+    const std::string shown = e.display();
+    const bool modified = e.status == core::EnclosureStatus::Modified;
+    // s020: an embed that knows its original can be linked to it instead --
+    // which also rescues a Missing embed whose original is still out there.
+    const std::string original = (!e.linked && m_attach) ? core::original_of(*m_attach, e.name)
+                                                          : std::string{};
 
     // The thumbnail, or a stand-in, in the SAME square either way so every
     // name starts on one edge. A GtkImage at a pixel size fits a paintable
@@ -944,9 +954,9 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
     // s018: only an IMAGE is decoded. Any other file shows its type's icon,
     // looked up from the name (the same guess Files makes), so a PDF looks
     // like a PDF and nothing is ever read to draw the row.
-    const bool picture = core::is_image_filename(e.name);
+    const bool picture = core::is_image_filename(shown);
     bool uncertain = false;
-    const std::string ctype = Gio::content_type_guess(e.name, nullptr, 0, uncertain);
+    const std::string ctype = Gio::content_type_guess(shown, nullptr, 0, uncertain);
     Glib::RefPtr<Gdk::Texture> tex =
         (e.present && picture) ? thumbnail(path) : Glib::RefPtr<Gdk::Texture>{};
     auto* img = Gtk::make_managed<widgets::Image>(widgets::unregistered, "drawer.enclosure_thumb");
@@ -971,7 +981,7 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
     text->set_valign(Gtk::Align::CENTER);
 
     auto* name = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.row_label");
-    name->set_text(e.name);
+    name->set_text(shown);
     name->set_xalign(0.0f);
     name->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
     text->append(*name);
@@ -990,9 +1000,13 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
             if (!kind.empty()) detail = kind + (detail.empty() ? "" : "  \u00b7  " + detail);
         }
         std::string from;
-        if (e.has_meta)
+        if (e.linked)
+            from = "linked";          // s019: says where the file lives, not how it came
+        else if (e.has_meta)
             from = e.meta.source == "clipboard" ? std::string("pasted") : std::string("from Files");
         if (!from.empty()) detail += (detail.empty() ? "" : "  \u00b7  ") + from;
+        // Modified leads: it is the one thing on the line that asks something.
+        if (modified) detail = "Modified  \u00b7  " + detail;
         if (e.refs > 1) detail += "  \u00b7  " + std::to_string(e.refs) + " references";
     }
     auto* d = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.row_detail");
@@ -1001,21 +1015,29 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
     d->set_ellipsize(Pango::EllipsizeMode::END);
     // Missing is the one status that asks for something to be done, so it is
     // the one that is not dimmed.
-    d->add_css_class(e.present ? "dim-label" : "error");
+    d->add_css_class(!e.present ? "error" : modified ? "drawer-modified" : "dim-label");
     d->add_css_class("caption");
     text->append(*d);
     row->append(*text);
 
     // The long form, on hover: where it came from and when. A path is too long
     // for a detail line and exactly what a tooltip is for.
-    std::string tip = std::string(core::kAttachPrefix) + e.name;
-    if (!e.present) tip += "\nThe note points at this file, but it is not in the attachments folder.";
-    if (e.has_meta) {
+    std::string tip = e.linked ? path : std::string(core::kAttachPrefix) + e.name;
+    if (!e.present)
+        tip += e.linked ? "\nThe note points at this file, but it is not there. Relink it from the menu."
+                        : "\nThe note points at this file, but it is not in the attachments folder.";
+    if (modified) tip += "\nChanged since it was linked. Accept Change to call it current.";
+    if (e.linked) {
+        if (e.has_meta)
+            if (const std::string at = when(e.meta.added); !at.empty()) tip += "\nLinked " + at;
+        tip += "\nLinked \u2014 jot points at this file where it lives; nothing is copied";
+    } else if (e.has_meta) {
         if (!e.meta.source.empty())
             tip += "\n" + (e.meta.source == "clipboard" ? std::string("Pasted from the clipboard")
                                                          : "Copied from " + e.meta.source);
         if (const std::string at = when(e.meta.added); !at.empty()) tip += "\nAdded " + at;
         tip += "\nEmbedded \u2014 jot keeps its own copy";
+        if (!original.empty()) tip += ". Link Instead points the note at the original.";
     }
     row->set_tooltip_text(tip);
 
@@ -1023,7 +1045,9 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
     // nothing to open or copy, and a menu of greyed items would be a menu
     // that exists to say no. Double-clicking the thumbnail is Open: the one
     // verb you reach for without reading.
-    if (e.present) {
+    // s019: a LINKED row always has a menu -- a Missing link is the one row
+    // with the most to do (Relink), which is not true of a missing embed.
+    if (e.present || e.linked || !original.empty()) {
         const auto target = Glib::Variant<Glib::ustring>::create(e.name);
         auto menu = Gio::Menu::create();
         auto add = [&](const char* label, const char* action) {
@@ -1031,24 +1055,48 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
             item->set_action_and_target(action, target);
             menu->append_item(item);
         };
-        add("Open", "encl.open");
-        add("Show in Files", "encl.reveal");
-        auto out = Gio::Menu::create();
-        auto add_out = [&](const char* label, const char* action) {
-            auto item = Gio::MenuItem::create(label, "");
-            item->set_action_and_target(action, target);
-            out->append_item(item);
-        };
-        if (picture) add_out("Copy Image", "encl.copy");   // a picture only (s018)
-        add_out("Save a Copy\u2026", "encl.save");
-        menu->append_section(out);
+        if (e.present) {
+            add("Open", "encl.open");
+            add("Show in Files", "encl.reveal");
+            auto out = Gio::Menu::create();
+            auto add_out = [&](const char* label, const char* action) {
+                auto item = Gio::MenuItem::create(label, "");
+                item->set_action_and_target(action, target);
+                out->append_item(item);
+            };
+            if (picture) add_out("Copy Image", "encl.copy");   // a picture only (s018)
+            add_out("Save a Copy\u2026", "encl.save");
+            menu->append_section(out);
+        }
+        if (e.linked) {
+            auto lk = Gio::Menu::create();
+            auto add_lk = [&](const char* label, const char* action) {
+                auto item = Gio::MenuItem::create(label, "");
+                item->set_action_and_target(action, target);
+                lk->append_item(item);
+            };
+            if (modified) add_lk("Accept Change", "encl.accept");
+            add_lk("Relink\u2026", "encl.relink");
+            if (e.present) add_lk("Embed a Copy", "encl.embed");   // s020
+            menu->append_section(lk);
+        } else if (!original.empty()) {
+            // s020: the other direction. Its own section, like the linked
+            // verbs: it changes how the note carries the file, not the file.
+            auto cv = Gio::Menu::create();
+            auto item = Gio::MenuItem::create("Link Instead", "");
+            item->set_action_and_target("encl.link", target);
+            cv->append_item(item);
+            menu->append_section(cv);
+        }
 
         auto* more = Gtk::make_managed<Gtk::MenuButton>();
         more->set_icon_name("view-more-symbolic");
         more->set_has_frame(false);
         more->set_valign(Gtk::Align::CENTER);
-        more->set_tooltip_text(picture ? "Open, show in Files, copy or save this image"
-                                       : "Open, show in Files, or save a copy of this file");
+        more->set_tooltip_text(!e.present ? (e.linked ? "Relink this file"
+                                                      : "Link this file to its original")
+                               : picture  ? "Open, show in Files, copy or save this image"
+                                          : "Open, show in Files, or save a copy of this file");
         more->set_menu_model(menu);
         row->append(*more);
 
@@ -1066,13 +1114,15 @@ Gtk::Widget* DrawerPane::enclosure_row(const core::Enclosure& e) {
             });
         }
 
-        auto dbl = Gtk::GestureClick::create();
-        dbl->set_button(GDK_BUTTON_PRIMARY);
-        const std::string name = e.name;
-        dbl->signal_pressed().connect([this, name](int n, double, double) {
-            if (n == 2) m_sig_enclosure.emit("open", name);
-        });
-        img->add_controller(dbl);
+        if (e.present) {
+            auto dbl = Gtk::GestureClick::create();
+            dbl->set_button(GDK_BUTTON_PRIMARY);
+            const std::string name = e.name;
+            dbl->signal_pressed().connect([this, name](int n, double, double) {
+                if (n == 2) m_sig_enclosure.emit("open", name);
+            });
+            img->add_controller(dbl);
+        }
     }
     return row;
 }

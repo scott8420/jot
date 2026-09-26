@@ -42,7 +42,8 @@ Shell::Shell()
       m_paned_left("shell.paned_left", Gtk::Orientation::HORIZONTAL),
       m_paned_right("shell.paned_right", Gtk::Orientation::HORIZONTAL),
       m_tree_toggle("shell.tree_toggle"),
-      m_drawer_toggle("shell.drawer_toggle") {
+      m_drawer_toggle("shell.drawer_toggle"),
+      m_reading_toggle("shell.reading_toggle") {
     set_name("shell.window");
     m_tree   = std::make_unique<TreePane>("shell.tree");
     m_editor = std::make_unique<EditorPane>("shell.editor");

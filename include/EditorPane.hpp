@@ -1,9 +1,12 @@
 #pragma once
 #include "core/Markdown.hpp"
 #include "core/Nodes.hpp"
+#include "core/Render.hpp"
 #include "widgets/Widgets.hpp"
 
 #include <gtkmm/droptarget.h>
+#include <gtkmm/eventcontrollermotion.h>
+#include <functional>
 #include <gtkmm/gestureclick.h>
 #include <gtkmm/texttag.h>
 #include <map>
@@ -68,7 +71,10 @@ public:
     //
     // Local paths of the dropped files, and where. ANY file since s018 -- the
     // kind (image or not) is decided when the reference is written, not here.
-    sigc::signal<void(std::vector<std::string>, int)>& signal_files_dropped() {
+    // (paths, offset, flip): flip is true when the drop asked for the OTHER
+    // mode than the preference -- Shift held (arrives as MOVE on Wayland), or a source that offered
+    // only LINK (s019).
+    sigc::signal<void(std::vector<std::string>, int, bool)>& signal_files_dropped() {
         return m_sig_dropped;
     }
     // PNG bytes of a pasted picture, and where.
@@ -85,6 +91,26 @@ public:
     // The cursor's offset, for a paste (which lands at the cursor).
     int cursor_offset() const;
 
+    // ── the reading view (s021) ─────────────────────────────────────────────
+    // Obsidian's Reading mode: the same note with its marks gone (core::render).
+    // Read-only, but not inert: a box ticks, a link follows, and a double-
+    // click anywhere else asks to EDIT there (signal_edit_requested, with the
+    // source offset) -- the Shell owns the mode, because a menu item and a
+    // header button both show it. `source_cp` places the source cursor when
+    // leaving Reading; -1 keeps it where it was.
+    void set_reading(bool on, int source_cp = -1);
+    bool reading() const { return m_reading; }
+    sigc::signal<void(int)>& signal_edit_requested() { return m_sig_edit; }
+    // A link's target, clicked in the reading view. The Shell knows what a
+    // jot: link, an attachment and a web address each mean.
+    sigc::signal<void(std::string)>& signal_link_activated() { return m_sig_link; }
+    // Where an image's bytes are, for a target as written (`attachments/p.png`,
+    // `file:///...`). Empty = not ours to draw. Set by the Shell, which knows
+    // the store.
+    void set_image_resolver(std::function<std::string(const std::string&)> f) {
+        m_resolve = std::move(f);
+    }
+
 private:
     bool on_drop(const Glib::ValueBase& value, double x, double y);
     void on_paste_clipboard();       // "paste-clipboard", run BEFORE the default
@@ -94,6 +120,13 @@ private:
     void set_editable(bool on);
 
     void build_tags();                        // the tag table, once
+    static void make_tags(const Glib::RefPtr<Gtk::TextBuffer>& buf,
+                          std::map<core::Style, Glib::RefPtr<Gtk::TextTag>>& out);
+    void render_reading();                    // s021: re-render the reading view from the buffer
+    void on_read_click(int n_press, double x, double y);
+    void on_read_motion(double x, double y);
+    int  read_offset_at(double x, double y);  // codepoint in the reading buffer, or -1
+    Gtk::Widget* code_bubble(const std::string& code, const std::string& lang);  // s021b
     void restyle();                           // rescan the whole body and re-tag it
     void queue_restyle();                     // coalesce to one restyle per idle
     void on_body_click(int n_press, double x, double y);
@@ -113,11 +146,28 @@ private:
     widgets::TextView       m_body;
     widgets::Label          m_status;
 
+    // s021: Source and Reading are two pages of one stack. The SOURCE buffer
+    // stays the truth -- every edit, even a box ticked in Reading, goes
+    // through it -- and Reading is re-rendered from it.
+    widgets::Stack          m_stack;
+    widgets::ScrolledWindow m_read_scroll;
+    widgets::TextView       m_read;
+    std::map<core::Style, Glib::RefPtr<Gtk::TextTag>> m_read_tags;
+    core::Rendered          m_rendered;
+    bool                    m_reading = false;
+    Glib::RefPtr<Gtk::GestureClick>          m_read_click;
+    Glib::RefPtr<Gtk::EventControllerMotion> m_read_motion;
+    sigc::signal<void(int)>         m_sig_edit;
+    sigc::signal<void(std::string)> m_sig_link;
+    std::function<std::string(const std::string&)> m_resolve;
+
     Glib::RefPtr<Gtk::GestureClick> m_click;
     Glib::RefPtr<Gtk::DropTarget>   m_drop;
-    sigc::signal<void(std::vector<std::string>, int)> m_sig_dropped;
+    sigc::signal<void(std::vector<std::string>, int, bool)> m_sig_dropped;
+    static const Gdk::DragAction kAccept;   // every action the drop target takes (s019c)
     sigc::signal<void(std::string, int)>              m_sig_pasted;
     std::map<core::Style, Glib::RefPtr<Gtk::TextTag>> m_tags;
+    Glib::RefPtr<Gtk::TextTag> m_codeblock_tag;   // s021b: Source's full-width tint on fenced lines
 
     // The last scan of what is currently in the buffer. Kept because the click
     // handler needs the same answer the styling needed -- where the checkboxes

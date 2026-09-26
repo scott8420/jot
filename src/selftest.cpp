@@ -26,6 +26,8 @@
 #include "core/Projection.hpp"
 #include "core/Tasks.hpp"
 #include "core/TextMap.hpp"
+#include "core/Render.hpp"
+#include "core/Import.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -592,6 +594,8 @@ int main() {
         // exits when you close its last window.
         check("prefs: jot does NOT stay resident until asked to",
               !d.background && !core::Prefs{}.background);
+        check("prefs: a dropped file is COPIED until asked to link (s019)",
+              !d.drop_links && !core::Prefs{}.drop_links);
         check("prefs: a first run gets a window size, not a zero",
               d.win_width == 940 && d.win_height == 620 && !d.win_maximized);
 
@@ -602,6 +606,7 @@ int main() {
         p.note_width = 777;
         p.desktop_tasks = true;
         p.background = true;
+        p.drop_links = true;
         p.win_width = 1440;
         p.win_height = 900;
         p.win_maximized = true;
@@ -613,7 +618,7 @@ int main() {
               r.show_tree == p.show_tree && r.show_drawer == p.show_drawer &&
                   r.tree_width == p.tree_width && r.note_width == p.note_width &&
                   r.desktop_tasks == p.desktop_tasks &&
-                  r.background == p.background &&
+                  r.background == p.background && r.drop_links == p.drop_links &&
                   r.win_width == p.win_width && r.win_height == p.win_height &&
                   r.win_maximized == p.win_maximized);
         // s016a. Both directions, because a stored false is the case that
@@ -1195,6 +1200,184 @@ int main() {
               loaded.size() == 1 && loaded.front() == live);
         check("recents: missing file -> empty",
               core::load_recents(base + "/nope.json").empty());
+    }
+
+    // -- Render: the reading view (s021) -------------------------------------
+    {
+        auto has = [](const core::Rendered& r, core::Style st, const std::string& txt) {
+            for (const auto& s : r.spans)
+                if (s.style == st && r.text.substr(static_cast<std::size_t>(s.begin),
+                                                   static_cast<std::size_t>(s.end - s.begin)) == txt)
+                    return true;
+            return false;
+        };
+        auto r = core::render("## Plan\nsome **bold** and _it_ and `code`");
+        check("render: marks gone", r.text == "Plan\nsome bold and it and code", r.text);
+        check("render: styles survive onto the right text",
+              has(r, core::Style::H2, "Plan") && has(r, core::Style::Bold, "bold") &&
+                  has(r, core::Style::Italic, "it") && has(r, core::Style::Code, "code"));
+        bool no_mark = true;
+        for (const auto& s : r.spans) no_mark = no_mark && s.style != core::Style::Mark;
+        check("render: no Mark span survives", no_mark);
+
+        r = core::render("- milk\n  - eggs\n1. one\n- [ ] call\n- [x] done");
+        check("render: bullets, nesting, numbers kept, boxes",
+              r.text == "• milk\n  • eggs\n1. one\n☐ call\n☑ done", r.text);
+        check("render: two boxes on the right source lines",
+              r.boxes.size() == 2 && r.boxes[0].line == 3 && !r.boxes[0].checked &&
+                  r.boxes[1].line == 4 && r.boxes[1].checked &&
+                  core::source_cp(r, r.boxes[0].cp) == 23);
+        check("render: a done task's text is struck", has(r, core::Style::TaskDone, "done"));
+
+        r = core::render("see [the site](https://x.org) and [[no]] #inbox");
+        check("render: a link keeps its label and target",
+              r.text == "see the site and [[no]] #inbox" && r.links.size() == 1 &&
+                  r.links[0].target == "https://x.org" &&
+                  r.text.substr(4, 8) == "the site" && r.links[0].cp_begin == 4 &&
+                  r.links[0].cp_end == 12, r.text);
+        check("render: a tag keeps its hash", has(r, core::Style::Tag, "#inbox"));
+
+        r = core::render("a\n```\nint x;\n```\nb\n---\n![Pic](attachments/p.png) after");
+        const std::string fffc = core::kAnchorChar;
+        check("render: a fenced block, a rule and an image are each one anchor",
+              r.text == "a\n" + fffc + "\nb\n" + fffc + "\n" + fffc + " after", r.text);
+        check("render: anchors in order, with kind and target",
+              r.anchors.size() == 3 && r.anchors[0].kind == core::RenderAnchor::Kind::Code &&
+                  r.anchors[1].kind == core::RenderAnchor::Kind::Rule &&
+                  r.anchors[2].kind == core::RenderAnchor::Kind::Image &&
+                  r.anchors[2].target == "attachments/p.png" && r.anchors[2].label == "Pic" &&
+                  r.anchors[0].cp == 2 && r.anchors[1].cp == 6 && r.anchors[2].cp == 8);
+        check("render/code: the bubble carries the code, as written, and no lang",
+              r.anchors[0].code == "int x;" && r.anchors[0].lang.empty(), r.anchors[0].code);
+        r = core::render("```cpp \nint main() {\n    return 0;\n}\n```\ntail");
+        check("render/code: several lines, indentation kept, the lang trimmed",
+              r.anchors.size() == 1 && r.anchors[0].code == "int main() {\n    return 0;\n}" &&
+                  r.anchors[0].lang == "cpp" && r.text == fffc + "\ntail", r.text);
+        r = core::render("x\n```\nnever closed\n**not bold**");
+        check("render/code: an unclosed fence runs to the end, marks and all",
+              r.anchors.size() == 1 && r.anchors[0].code == "never closed\n**not bold**" &&
+                  r.text == "x\n" + fffc, r.text);
+        r = core::render("```\n```\nafter");
+        check("render/code: an empty block is still a bubble",
+              r.anchors.size() == 1 && r.anchors[0].code.empty() && r.text == fffc + "\nafter",
+              r.text);
+
+        // The map: every kept codepoint round-trips; UTF-8 does not drift it.
+        const std::string src = "# Café **naïve** — [x](y)\n- été";
+        r = core::render(src);
+        check("render/map: one entry per codepoint plus the end",
+              static_cast<int>(r.src_cp.size()) == core::cp_len(r.text, 0, static_cast<int>(r.text.size())) + 1);
+        bool mono = true;
+        for (std::size_t i = 1; i < r.src_cp.size(); ++i) mono = mono && r.src_cp[i] >= r.src_cp[i - 1];
+        check("render/map: non-decreasing", mono);
+        // Exact for the first codepoint from each source position; a glyph's
+        // second codepoint shares its source with the first, so it maps back
+        // to the first (never past itself).
+        bool rt = true;
+        for (int i = 0; i + 1 < static_cast<int>(r.src_cp.size()); ++i) {
+            const int back = core::rendered_cp(r, core::source_cp(r, i));
+            const bool first = i == 0 || r.src_cp[static_cast<std::size_t>(i) - 1] !=
+                                             r.src_cp[static_cast<std::size_t>(i)];
+            rt = rt && (first ? back == i : back < i);
+        }
+        check("render/map: rendered -> source -> rendered round-trips", rt);
+        check("render/map: 'naïve' maps into the bold, past the stars",
+              core::source_cp(r, 5) == 9 && core::rendered_cp(r, 7) == 5);
+        check("render/map: the end maps to the end",
+              core::source_cp(r, 1 << 20) == core::cp_len(src, 0, static_cast<int>(src.size())));
+        check("render: empty body", core::render("").text.empty() &&
+                                        core::render("").src_cp.size() == 1);
+    }
+
+    // -- Import: a markdown file becomes a note (s021b) ----------------------
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path root = fs::temp_directory_path() / "jot_selftest_import";
+        fs::remove_all(root, ec);
+        fs::create_directories(root / "img", ec);
+        std::ofstream(root / "img" / "sun.png", std::ios::binary) << "PNG";
+        std::ofstream(root / "img" / "a b.png", std::ios::binary) << "PNG";
+
+        check("import/name: md, markdown, txt; not pdf",
+              core::is_markdown_filename("/x/A.MD") && core::is_markdown_filename("n.markdown") &&
+                  core::is_markdown_filename("t.txt") && !core::is_markdown_filename("r.pdf"));
+        check("import/title: the first H1, closing hashes dropped",
+              core::import_title("intro\n## sub\n# Real Title #\n", "/x/f.md") == "Real Title");
+        check("import/title: no H1 -> the filename's stem",
+              core::import_title("## only h2\ntext", "/x/My Notes.md") == "My Notes");
+
+        const fs::path md = root / "plan.md";
+        std::ofstream(md, std::ios::binary)
+            << "\xEF\xBB\xBF# Plan\r\n![s](img/sun.png) ![sp](img/a%20b.png) ![gone](img/no.png)\r\n"
+               "![w](https://x.org/p.png) [doc](img/sun.png)\r\n";
+        core::ImportedNote note;
+        std::string err;
+        const bool ok = core::import_markdown(md.string(), note, err);
+        check("import/file: read, BOM and CR gone, titled", ok && note.title == "Plan" &&
+                                                                note.body.rfind("# Plan\n", 0) == 0 &&
+                                                                note.body.find('\r') == std::string::npos,
+              err);
+        const std::string sun = core::file_uri((root / "img" / "sun.png").string());
+        const std::string ab  = core::file_uri((root / "img" / "a b.png").string());
+        check("import/pictures: relative images that exist become file:// links",
+              note.pictures == 2 && note.body.find("![s](" + sun + ")") != std::string::npos &&
+                  note.body.find("![sp](" + ab + ")") != std::string::npos, note.body);
+        check("import/pictures: a missing one, a web one, and a plain link are left alone",
+              note.body.find("![gone](img/no.png)") != std::string::npos &&
+                  note.body.find("![w](https://x.org/p.png)") != std::string::npos &&
+                  note.body.find("[doc](img/sun.png)") != std::string::npos, note.body);
+        {
+            auto rr = core::render(note.body);
+            int imgs = 0;
+            for (const auto& a : rr.anchors) imgs += a.kind == core::RenderAnchor::Kind::Image;
+            check("import/pictures: the rewritten body still renders all four images", imgs == 4);
+        }
+        std::ofstream(root / "bad.md", std::ios::binary) << "ok \xC3\x28 bad";
+        check("import/refuse: not UTF-8", !core::import_markdown((root / "bad.md").string(), note, err) &&
+                                              !err.empty());
+        check("import/refuse: a folder", !core::import_markdown(root.string(), note, err) && !err.empty());
+        check("import/refuse: a missing file",
+              !core::import_markdown((root / "nope.md").string(), note, err));
+
+        // s021c: a whole folder.
+        const fs::path vault = root / "My Vault";
+        fs::create_directories(vault / "Recipes" / "Soups", ec);
+        fs::create_directories(vault / "empty" / "deeper", ec);
+        fs::create_directories(vault / ".obsidian", ec);
+        std::ofstream(vault / "b note.md") << "# B";
+        std::ofstream(vault / "A note.MD") << "a";
+        std::ofstream(vault / "photo.png") << "PNG";
+        std::ofstream(vault / ".obsidian" / "hidden.md") << "x";
+        std::ofstream(vault / "Recipes" / "bread.md") << "bread";
+        std::ofstream(vault / "Recipes" / "Soups" / "leek.markdown") << "leek";
+        std::ofstream(vault / "empty" / "deeper" / "notes.pdf") << "%PDF";
+        fs::create_directory_symlink(vault, vault / "loop", ec);
+        core::ImportItem plan;
+        bool trunc = false;
+        const bool planned = core::plan_folder_import((vault / "").string(), plan, 2000, &trunc);
+        check("import/folder: the folder is the parent, named after it",
+              planned && plan.folder && plan.title == "My Vault" && !trunc);
+        check("import/folder: folders first, then files, case-insensitive; hidden, "
+              "non-markdown, empty folders and a symlink loop left out",
+              plan.children.size() == 3 && plan.children[0].folder &&
+                  plan.children[0].title == "Recipes" && plan.children[1].title == "A note" &&
+                  plan.children[2].title == "b note");
+        check("import/folder: nesting kept",
+              plan.children[0].children.size() == 2 && plan.children[0].children[0].folder &&
+                  plan.children[0].children[0].title == "Soups" &&
+                  plan.children[0].children[0].children.size() == 1 &&
+                  plan.children[0].children[1].title == "bread");
+        check("import/folder: four files in all", core::count_files(plan) == 4);
+        core::ImportItem small;
+        check("import/folder: the limit stops it and says so",
+              core::plan_folder_import(vault.string(), small, 2, &trunc) && trunc &&
+                  core::count_files(small) == 2);
+        check("import/folder: a folder with no markdown is refused",
+              !core::plan_folder_import((vault / "empty").string(), small));
+        check("import/folder: a file is not a folder",
+              !core::plan_folder_import((vault / "b note.md").string(), small));
+        fs::remove_all(root, ec);
     }
 
     // -- TextMap: forward/inverse round-trip ----------------------------------
@@ -2558,6 +2741,185 @@ int main() {
                       fs::file_size(fs::path(o.dir) / "a.png", ec) == 4);
             check("enclosure/out: a missing enclosure says so",
                   !core::copy_out(o, "gone.png", dest.string(), e2) && !e2.empty());
+        }
+        {
+            // s019: LINKED enclosures -- a file jot points at where it lives.
+            check("linked/uri: a space and parens are encoded",
+                  core::file_uri("/home/s/My Docs/q3 (final).pdf") ==
+                      "file:///home/s/My%20Docs/q3%20%28final%29.pdf");
+            check("linked/uri: a relative path has no uri", core::file_uri("a/b.pdf").empty());
+            check("linked/path: decodes back",
+                  core::linked_path("file:///home/s/My%20Docs/q3%20%28final%29.pdf") ==
+                      "/home/s/My Docs/q3 (final).pdf");
+            check("linked/path: localhost form accepted",
+                  core::linked_path("file://localhost/tmp/x.txt") == "/tmp/x.txt");
+            check("linked/path: http, attachments, a host, a NUL, a bad escape are refused",
+                  core::linked_path("https://x/y.pdf").empty() &&
+                      core::linked_path("attachments/a.png").empty() &&
+                      core::linked_path("file://server/x").empty() &&
+                      core::linked_path("file:///a%00b").empty() &&
+                      core::linked_path("file:///a%2").empty() &&
+                      core::linked_path("file:///a%zzb").empty());
+            check("linked/key: two spellings of one path are one key",
+                  core::linked_key("file:///tmp/a b.pdf") == core::linked_key("file:///tmp/a%20b.pdf") &&
+                      core::is_linked_key(core::linked_key("file:///tmp/a b.pdf")) &&
+                      !core::is_linked_key("file:///tmp/a b.pdf") && !core::is_linked_key("a.png"));
+            check("linked/markdown: a plain link for a file, a bang for an image",
+                  core::enclosure_markdown("Q3", "file:///d/q3.pdf") == "[Q3](file:///d/q3.pdf)" &&
+                      core::enclosure_markdown("Pic", "file:///d/p.PNG") == "![Pic](file:///d/p.PNG)");
+
+            const fs::path elsewhere = root / "elsewhere dir";
+            fs::create_directories(elsewhere, ec);
+            const fs::path pdf = elsewhere / "q3 report.pdf";
+            std::ofstream(pdf, std::ios::binary) << "%PDF-linked";
+            core::AttachStore st{(root / "lk.jots" / "attachments").string(), {}};
+            std::string e2;
+            check("linked/link: a folder is refused",
+                  core::link_file(st, elsewhere.string(), 1, e2).empty() && !e2.empty());
+            const std::string key = core::link_file(st, pdf.string(), 100, e2);
+            check("linked/link: returns the uri and records size, mtime, mode",
+                  key == core::file_uri(pdf.string()) && st.metas.count(key) &&
+                      st.metas[key].mode == "linked" && st.metas[key].size == 11 &&
+                      st.metas[key].mtime > 0, e2);
+            check("linked/link: nothing is copied, the store dir is not even made",
+                  !fs::exists(st.dir, ec));
+
+            std::string body = "see " + core::enclosure_markdown("Q3 report", key) +
+                               "\nand again [again](" + key + ")\nweb [w](https://x.org/a.pdf)\n";
+            auto list = core::enclosures(body, st);
+            check("linked/list: one row, two refs, linked, OK",
+                  list.size() == 1 && list[0].linked && list[0].refs == 2 &&
+                      list[0].status == core::EnclosureStatus::Ok &&
+                      list[0].path == pdf.string() && list[0].display() == "q3 report.pdf" &&
+                      list[0].has_meta);
+            check("linked/path: enclosure_path resolves a linked key",
+                  core::enclosure_path(st, key) == pdf.string());
+
+            // Modified: size changes.
+            std::ofstream(pdf, std::ios::binary | std::ios::trunc) << "%PDF-linked-v2";
+            list = core::enclosures(body, st);
+            check("linked/status: a changed file reads Modified",
+                  list.size() == 1 && list[0].status == core::EnclosureStatus::Modified);
+            check("linked/accept: accept_change restamps", core::accept_change(st, key, e2), e2);
+            list = core::enclosures(body, st);
+            check("linked/accept: and it reads OK again",
+                  list.size() == 1 && list[0].status == core::EnclosureStatus::Ok);
+
+            // Typed by hand, no record: OK, not Modified.
+            core::AttachStore bare{st.dir, {}};
+            list = core::enclosures("[t](" + key + ")", bare);
+            check("linked/status: a typed link with no record reads OK",
+                  list.size() == 1 && list[0].status == core::EnclosureStatus::Ok && !list[0].has_meta);
+
+            // Missing, then Relink.
+            const fs::path moved = elsewhere / "Q3 moved.pdf";
+            fs::rename(pdf, moved, ec);
+            list = core::enclosures(body, st);
+            check("linked/status: a moved file reads Missing",
+                  list.size() == 1 && list[0].status == core::EnclosureStatus::Missing && !list[0].present);
+            const std::int64_t first_added = st.metas[key].added;
+            const std::string nk = core::relink(st, key, moved.string(), 999, e2);
+            check("linked/relink: a new key, added kept, old meta left alone",
+                  !nk.empty() && nk != key && st.metas.count(nk) &&
+                      st.metas[nk].added == first_added && st.metas.count(key), e2);
+            const int n = core::retarget_references(body, key, nk);
+            check("linked/relink: both references rewritten, web link untouched",
+                  n == 2 && body.find(key) == std::string::npos &&
+                      body.find("[Q3 report](" + nk + ")") != std::string::npos &&
+                      body.find("[again](" + nk + ")") != std::string::npos &&
+                      body.find("https://x.org/a.pdf") != std::string::npos, body);
+            list = core::enclosures(body, st);
+            check("linked/relink: the row reads OK at the new place",
+                  list.size() == 1 && list[0].status == core::EnclosureStatus::Ok &&
+                      list[0].path == moved.string());
+            check("linked/relink: a folder is refused",
+                  core::relink(st, nk, elsewhere.string(), 1, e2).empty());
+
+            // Mixed with embedded; retarget works on an attachment name too.
+            std::string mixed = "![a](attachments/a.png) [b](" + nk + ")";
+            check("linked/list: embedded and linked together, in order",
+                  core::enclosures(mixed, st).size() == 2 &&
+                      !core::enclosures(mixed, st)[0].linked && core::enclosures(mixed, st)[1].linked);
+            check("linked/retarget: an embedded reference can be pointed at a linked key",
+                  core::retarget_references(mixed, "a.png", nk) == 1 &&
+                      mixed.find("![a](" + nk + ")") != std::string::npos, mixed);
+            check("linked/refs: linked_references lists keys once",
+                  core::linked_references(mixed).size() == 1 &&
+                      core::linked_references(mixed)[0] == nk);
+
+            // jot.json round trip carries mode and mtime; a uri key survives decode.
+            const auto back = core::decode_metas(core::encode_metas(st.metas));
+            check("linked/json: a uri key and its mtime survive the round trip",
+                  back.count(nk) && back.at(nk).mode == "linked" &&
+                      back.at(nk).mtime == st.metas[nk].mtime);
+            check("linked/json: a non-canonical uri key is dropped on decode",
+                  core::decode_metas("{\"file:///a b\":{\"mode\":\"linked\"}}").empty());
+
+            // Adopt: the scratch store's linked meta follows the note.
+            core::Project scratch_src;
+            scratch_src.open((root / "lk_src.jots").string());
+            const core::NodeId lid = scratch_src.create("", "linked note");
+            scratch_src.set_body(lid, "[b](" + nk + ")");
+            scratch_src.record_enclosure(nk, st.metas[nk]);
+            scratch_src.flush();
+            core::Project lk_dst;
+            lk_dst.open((root / "lk_dst.jots").string());
+            const int adopted_n = lk_dst.adopt(scratch_src, &scratch_src.attach(), true);
+            check("linked/adopt: the metadata comes along, the file does not move",
+                  adopted_n >= 1 && lk_dst.attach().metas.count(nk) && fs::exists(moved, ec),
+                  "adopted " + std::to_string(adopted_n) + ", meta " +
+                      std::to_string(lk_dst.attach().metas.count(nk)));
+
+            // s020: CONVERT -- Embed a Copy and Link Instead.
+            std::string cb = "x [Q3](" + nk + ") y\n![a](attachments/a.png)\n";
+            const std::string en = core::embed_copy(st, nk, 2000, e2);
+            check("convert/embed: a linked file is copied in under a slug, source recorded",
+                  en == "q3-moved.pdf" && fs::exists(fs::path(st.dir) / en, ec) &&
+                      st.metas.count(en) && st.metas[en].mode == "embedded" &&
+                      st.metas[en].source == moved.string() && st.metas[en].size == 14, e2);
+            check("convert/embed: the linked file is left where it is, its meta too",
+                  fs::exists(moved, ec) && st.metas.count(nk));
+            check("convert/embed: retarget makes the note carry the copy",
+                  core::retarget_references(cb, nk, en) == 1 &&
+                      cb.find("[Q3](attachments/q3-moved.pdf)") != std::string::npos, cb);
+            {
+                auto cl = core::enclosures(cb, st);
+                check("convert/embed: the row is embedded and OK",
+                      cl.size() == 2 && !cl[0].linked && cl[0].present && cl[0].name == en);
+            }
+            check("convert/embed: an attachment name is refused",
+                  core::embed_copy(st, "a.png", 1, e2).empty() && !e2.empty());
+            check("convert/embed: a missing linked file is refused",
+                  core::embed_copy(st, key, 1, e2).empty() && !e2.empty());
+
+            check("convert/original: an embed from Files knows its original",
+                  core::original_of(st, en) == moved.string());
+            st.metas["pasted.png"].source = "clipboard";
+            check("convert/original: a paste, a linked key, an unknown name have none",
+                  core::original_of(st, "pasted.png").empty() && core::original_of(st, nk).empty() &&
+                      core::original_of(st, "nobody.png").empty());
+
+            const std::string back_k = core::link_instead(st, en, moved.string(), 3000, e2);
+            check("convert/link: the embed's original becomes the key",
+                  back_k == nk && st.metas[nk].mode == "linked" && st.metas[nk].size == 14, e2);
+            check("convert/link: the embedded copy stays in attachments/",
+                  fs::exists(fs::path(st.dir) / en, ec) && st.metas.count(en));
+            check("convert/link: retarget makes the note point at the original again",
+                  core::retarget_references(cb, en, back_k) == 1 &&
+                      cb.find("[Q3](" + nk + ")") != std::string::npos &&
+                      cb.find("![a](attachments/a.png)") != std::string::npos, cb);
+            check("convert/link: a linked key is refused, a folder is refused",
+                  core::link_instead(st, nk, moved.string(), 1, e2).empty() &&
+                      core::link_instead(st, en, elsewhere.string(), 1, e2).empty());
+            {
+                // An image keeps its bang both ways.
+                std::string ib = "![Pic](attachments/p.png)";
+                core::retarget_references(ib, "p.png", "file:///d/p.png");
+                check("convert/image: the bang survives a round trip",
+                      ib == "![Pic](file:///d/p.png)" &&
+                          core::retarget_references(ib, "file:///d/p.png", "p.png") == 1 &&
+                          ib == "![Pic](attachments/p.png)", ib);
+            }
         }
         fs::remove_all(root, ec);
     }

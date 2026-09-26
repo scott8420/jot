@@ -35,6 +35,10 @@ struct Prefs {
     // opens into a note, not into metadata about one.
     bool show_tree   = true;
     bool show_drawer = false;
+    // s021: the note shows as Reading (marks gone) rather than Source. Off by
+    // default: jot opens into writing, and a scribble pad you cannot scribble
+    // on until you find a toggle is not one.
+    bool reading     = false;
 
     // Pane positions, in pixels. Remembered even while a pane is hidden, which
     // is the whole reason they are stored separately from the flags: a
@@ -67,6 +71,13 @@ struct Prefs {
     // hides the list. On by default is the thing the Background Apps menu
     // exists to catch people doing.
     bool background = false;
+
+    // s019: what a file dropped on a note becomes. OFF = copied into the
+    // jots folder's attachments/ (an embed, the s016b behaviour); ON = linked
+    // where it lives, `[..](file:///..)`. SHIFT while dropping does the other
+    // one, whichever this says (s019c: Ctrl+Shift never reaches jot on GNOME
+    // Wayland; Shift arrives as the MOVE action).
+    bool drop_links = false;
 
     // ── the second fingerprint, and why it is a LIST ───────────────────────
     // m_desktop_sig remembers what the desktop was last SENT -- one string,

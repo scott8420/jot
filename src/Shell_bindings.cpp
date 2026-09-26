@@ -1,4 +1,5 @@
 #include "Shell.hpp"
+#include "core/Enclosures.hpp"
 #include "DrawerPane.hpp"
 #include "EditorPane.hpp"
 #include "TreePane.hpp"
@@ -34,6 +35,8 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // is a different question from what the X does, and request_quit() is the
     // one place that answers it (Shell_helpers.cpp).
     add_action("quit",          sigc::mem_fun(*this, &Shell::request_quit));
+    add_action("import-md",     sigc::mem_fun(*this, &Shell::on_import_markdown));   // s021b
+    add_action("import-md-folder", sigc::mem_fun(*this, &Shell::on_import_folder));  // s021c
     add_action("copy-link",     [this]() { on_copy_link(m_editor->current()); });
     // Capture has no handler of its own: the accel and the menu item both mean
     // "put the cursor in the box", and Enter in the box is what captures.
@@ -47,6 +50,8 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
         "toggle-tree", sigc::mem_fun(*this, &Shell::on_toggle_tree), m_prefs.show_tree);
     m_act_toggle_drawer = add_action_bool(
         "toggle-drawer", sigc::mem_fun(*this, &Shell::on_toggle_drawer), m_prefs.show_drawer);
+    m_act_toggle_reading = add_action_bool(
+        "toggle-reading", sigc::mem_fun(*this, &Shell::on_toggle_reading), m_prefs.reading);
     // s009. Stateful for the same reason the two above are: the menu item and
     // the Today footer's check box are TWO CONSUMERS of one piece of state, and
     // the action is the thing they both read. A bool on the Shell with two
@@ -144,6 +149,20 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // it goes, because only the Shell knows whether there is a folder yet.
     m_editor->signal_files_dropped().connect(sigc::mem_fun(*this, &Shell::on_files_dropped));
     m_editor->signal_image_pasted().connect(sigc::mem_fun(*this, &Shell::on_image_pasted));
+    // s021: the reading view asks; the Shell owns the mode and knows what a
+    // link means. And it knows the store, so it answers "where is this image".
+    // s021b: the tree says "these files, under here"; what they become is ours.
+    m_tree->signal_files_dropped().connect(
+        [this](std::vector<std::string> paths, core::NodeId parent) { import_files(paths, parent); });
+    m_editor->signal_edit_requested().connect(sigc::mem_fun(*this, &Shell::on_edit_requested));
+    m_editor->signal_link_activated().connect(sigc::mem_fun(*this, &Shell::on_read_link));
+    m_editor->set_image_resolver([this](const std::string& target) -> std::string {
+        const core::AttachStore* st = attach_store();
+        if (!st) return {};
+        std::string key = core::attachment_name(target);
+        if (key.empty()) key = core::linked_key(target);
+        return key.empty() ? std::string{} : core::enclosure_path(*st, key);
+    });
     // s017: the drawer's enclosure rows ask; the Shell has the window and
     // the clipboard those verbs need.
     m_drawer->signal_enclosure_action().connect(sigc::mem_fun(*this, &Shell::on_enclosure_action));

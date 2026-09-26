@@ -66,6 +66,7 @@ TreePane::TreePane(std::string_view name)
 
     build_row_menu();
     attach_root_drop();
+    attach_file_drop();   // s021b
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

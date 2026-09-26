@@ -9,11 +9,15 @@
 #include "Log.hpp"
 #include "Registry.hpp"
 #include "core/Recents.hpp"
+#include "core/Import.hpp"
 
 #include <gtkmm/filedialog.h>
+#include <gtkmm/filefilter.h>
+#include <giomm/liststore.h>
 #include <gdkmm/clipboard.h>
 #include <gdkmm/texture.h>
 #include <gtkmm/filelauncher.h>
+#include <gtkmm/urilauncher.h>
 #include <giomm/appinfo.h>
 #include <giomm/asyncresult.h>
 #include <giomm/file.h>
@@ -400,11 +404,20 @@ void Shell::on_preferences() {  // handler: open the preferences window
             [this](bool) { activate_action("win.toggle-notify"); });
         m_preferences->signal_background_toggled().connect(
             [this](bool) { activate_action("win.toggle-background"); });
+        // s019: no menu item mirrors this one, so no action -- the box is
+        // the only writer, and the Shell just keeps and saves it.
+        m_preferences->signal_drop_links_toggled().connect([this](bool on) {
+            m_prefs.drop_links = on;
+            core::save_prefs(m_prefs_file, m_prefs);
+            if (auto lg = log::get(log::Area::Io))
+                lg->info("dropped files will be {}", on ? "linked" : "copied");
+        });
     }
     m_preferences->set_desktop_available(Desktop::compiled_in());
     m_preferences->set_desktop_on(m_prefs.desktop_tasks);
     m_preferences->set_notify_on(m_prefs.notify_due);
     m_preferences->set_background_on(m_prefs.background);
+    m_preferences->set_drop_links_on(m_prefs.drop_links);
     m_preferences->show(*this);
 }
 
@@ -459,6 +472,59 @@ void Shell::on_toggle_drawer() {  // handler: show/hide the metadata drawer
     if (m_applying_layout) return;
     m_prefs.show_drawer = !m_prefs.show_drawer;
     apply_layout_state();
+}
+
+// s021 -- Source <-> Reading. One flag, one writer (apply_layout_state), the
+// same as the two pane toggles: the header button and the menu item draw from
+// the action, the editor is told.
+void Shell::on_toggle_reading() {  // handler
+    if (m_applying_layout) return;
+    m_prefs.reading = !m_prefs.reading;
+    apply_layout_state();
+}
+
+// A double-click in Reading, or a capture, wants to type. Place the cursor
+// first (the editor maps the click back to the source), then let the one
+// writer flip the rest.
+void Shell::on_edit_requested(int source_cp) {  // handler
+    if (!m_prefs.reading) return;
+    m_prefs.reading = false;
+    m_editor->set_reading(false, source_cp);
+    apply_layout_state();
+}
+
+// A link clicked in Reading. What a target MEANS is the Shell's: a jot: link
+// is a note (revealed in the tree, as a drawer link is), an attachment or a
+// file:// is an enclosure (opened the way its row's Open does), anything with
+// a scheme goes to the desktop.
+void Shell::on_read_link(std::string target) {  // handler
+    if (const std::string id = core::link_node_id(target); !id.empty()) {
+        if (!m_store->find(id)) {
+            report_problem("That note is gone", "The link points at a note that no longer exists.");
+            return;
+        }
+        on_goto_note(id);
+        return;
+    }
+    std::string key = core::attachment_name(target);
+    if (key.empty()) key = core::linked_key(target);
+    if (!key.empty()) {
+        on_enclosure_action("open", key);
+        return;
+    }
+    if (target.find(':') == std::string::npos) {
+        report_problem("jot does not know where this goes", target);
+        return;
+    }
+    auto launcher = Gtk::UriLauncher::create(target);
+    launcher->launch(*this, [this, launcher, target](Glib::RefPtr<Gio::AsyncResult>& r) {
+        try {
+            launcher->launch_finish(r);
+        } catch (const Glib::Error& e) {
+            if (e.matches(GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED)) return;
+            report_problem("Could not open " + target, e.what());
+        }
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -595,14 +661,21 @@ void Shell::on_copy_link(const core::NodeId& id) {  // handler: link -> clipboar
 // the file is already on disk. The other order would
 // leave a window in which the note points at nothing.
 // ─────────────────────────────────────────────────────────────────────────────
-void Shell::on_files_dropped(std::vector<std::string> paths, int offset) {  // handler
+void Shell::on_files_dropped(std::vector<std::string> paths, int offset, bool flip) {  // handler
     auto& store = ingest_store();
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    // s019: the preference says copy or link; Shift on the drop (a MOVE) says
+    // the other one. Decided once for the whole drop.
+    const bool link = m_prefs.drop_links != flip;
+    if (auto lg = log::get(log::Area::Io))
+        lg->info("drop: {} ({}{})", link ? "link" : "copy",
+                 m_prefs.drop_links ? "pref link" : "pref copy", flip ? ", flipped" : "");
     std::vector<std::pair<std::string, std::string>> added;
     std::vector<std::string> failed;
     for (const auto& p : paths) {
         std::string err;
-        const std::string name = core::ingest_file(store, p, now, err);
+        const std::string name = link ? core::link_file(store, p, now, err)
+                                      : core::ingest_file(store, p, now, err);
         if (name.empty()) {
             failed.push_back(p + " (" + err + ")");
             continue;
@@ -648,11 +721,118 @@ void Shell::on_image_pasted(std::string png, int offset) {  // handler
 // -- including back into jot, where it becomes a new enclosure. Save a Copy
 // asks where, then core::copy_out writes it; the enclosure is never touched.
 // ─────────────────────────────────────────────────────────────────────────────
-void Shell::on_enclosure_action(std::string verb, std::string name) {  // handler
+void Shell::on_enclosure_action(std::string verb, std::string key) {  // handler
     const core::AttachStore* store = attach_store();
-    const std::string path = store ? core::enclosure_path(*store, name) : std::string{};
+    const std::string path = store ? core::enclosure_path(*store, key) : std::string{};
+    const bool linked = core::is_linked_key(key);
+    // What a message calls it: the attachment name, or a linked file's own name.
+    const std::string name = linked ? std::filesystem::path(path).filename().string() : key;
+
+    // s019: Relink is the one verb for a file that is NOT there -- that is
+    // what it is for -- so it goes before the presence check.
+    if (verb == "relink") {
+        if (!linked) return;   // a stale menu; embedded files are not relinked
+        auto dialog = Gtk::FileDialog::create();
+        dialog->set_title("Relink \u201c" + name + "\u201d");
+        // Start where it used to be, if that folder is still there.
+        const auto dir = std::filesystem::path(path).parent_path();
+        std::error_code ec;
+        if (std::filesystem::is_directory(dir, ec))
+            dialog->set_initial_folder(Gio::File::create_for_path(dir.string()));
+        dialog->open(*this, [this, dialog, key, name](Glib::RefPtr<Gio::AsyncResult>& r) {
+            Glib::RefPtr<Gio::File> picked;
+            try {
+                picked = dialog->open_finish(r);
+            } catch (const Glib::Error&) {
+                return;   // cancelled
+            }
+            if (!picked || picked->get_path().empty()) return;
+            std::string err;
+            const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+            const std::string nk = core::relink(ingest_store(), key, picked->get_path(), now, err);
+            if (nk.empty()) {
+                report_problem("Could not relink " + name, err);
+                return;
+            }
+            const int n = retarget_everywhere(key, nk);
+            if (auto lg = log::get(log::Area::Io))
+                lg->info("enclosure relinked: {} -> {} ({} reference(s))", key, nk, n);
+        });
+        return;
+    }
+    // s020: CONVERT -- change how this note carries the file.
+    if (verb == "embed" || verb == "link") {
+        if (!current_note_editable()) {
+            report_problem(verb == "embed" ? "Could not embed " + name : "Could not link " + name,
+                           "This note is protected, so its references can\u2019t be changed.");
+            return;
+        }
+    }
+    if (verb == "embed") {
+        if (!linked) return;   // a stale menu
+        std::string err;
+        const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+        const std::string en = core::embed_copy(ingest_store(), key, now, err);
+        if (en.empty()) {
+            report_problem("Could not embed a copy of " + name, err);
+            return;
+        }
+        const int n = retarget_current(key, en);
+        if (auto lg = log::get(log::Area::Io))
+            lg->info("enclosure embedded: {} -> {}/{} ({} reference(s))", key, ingest_store().dir,
+                     en, n);
+        return;
+    }
+    if (verb == "link") {
+        if (linked) return;   // a stale menu
+        const std::string original = store ? core::original_of(*store, key) : std::string{};
+        if (original.empty()) {
+            report_problem("Could not link " + name, "jot does not know where this file came from.");
+            return;
+        }
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(original, ec)) {
+            convert_to_link(key, original);
+            return;
+        }
+        // The original moved or went: choose it, starting where it used to be
+        // -- Relink's dialog, for the same reason.
+        auto dialog = Gtk::FileDialog::create();
+        dialog->set_title("Link \u201c" + name + "\u201d to\u2026");
+        const auto dir = std::filesystem::path(original).parent_path();
+        if (std::filesystem::is_directory(dir, ec))
+            dialog->set_initial_folder(Gio::File::create_for_path(dir.string()));
+        const core::NodeId note = m_editor->current();
+        dialog->open(*this, [this, dialog, key, note](Glib::RefPtr<Gio::AsyncResult>& r) {
+            Glib::RefPtr<Gio::File> picked;
+            try {
+                picked = dialog->open_finish(r);
+            } catch (const Glib::Error&) {
+                return;   // cancelled
+            }
+            // The choice was for THAT note; if another is on screen now, the
+            // edit would land somewhere nobody asked for.
+            if (m_editor->current() != note) return;
+            if (picked && !picked->get_path().empty()) convert_to_link(key, picked->get_path());
+        });
+        return;
+    }
+    if (verb == "accept") {
+        std::string err;
+        if (!linked || !core::accept_change(ingest_store(), key, err)) {
+            report_problem("Could not accept the change to " + name, err);
+            return;
+        }
+        if (m_project) m_project->enclosures_changed();
+        if (auto lg = log::get(log::Area::Io)) lg->info("enclosure change accepted: {}", key);
+        queue_drawer_refresh();
+        return;
+    }
+
     if (path.empty() || !std::filesystem::is_regular_file(path)) {
-        report_problem("That file is not there", name + " is not in the attachments folder.");
+        report_problem("That file is not there",
+                       linked ? path + " is not there any more. Relink it from the row\u2019s menu."
+                              : name + " is not in the attachments folder.");
         return;
     }
     auto file = Gio::File::create_for_path(path);
@@ -697,7 +877,7 @@ void Shell::on_enclosure_action(std::string verb, std::string name) {  // handle
         auto dialog = Gtk::FileDialog::create();
         dialog->set_title("Save a Copy");
         dialog->set_initial_name(name);
-        dialog->save(*this, [this, dialog, name](Glib::RefPtr<Gio::AsyncResult>& r) {
+        dialog->save(*this, [this, dialog, key, name](Glib::RefPtr<Gio::AsyncResult>& r) {
             Glib::RefPtr<Gio::File> dest;
             try {
                 dest = dialog->save_finish(r);
@@ -710,7 +890,7 @@ void Shell::on_enclosure_action(std::string verb, std::string name) {  // handle
             // user chose, not the path it had a minute ago.
             const core::AttachStore* now = attach_store();
             std::string err;
-            if (!now || !core::copy_out(*now, name, dest->get_path(), err)) {
+            if (!now || !core::copy_out(*now, key, dest->get_path(), err)) {
                 report_problem("Could not save a copy of " + name, err);
                 return;
             }
@@ -718,6 +898,155 @@ void Shell::on_enclosure_action(std::string verb, std::string name) {  // handle
                 lg->info("enclosure saved: {} -> {}", name, dest->get_path());
         });
         return;
+    }
+}
+
+// Link Instead's second half (s020): record the link, point this note at it.
+// The embedded copy stays in attachments/ -- nothing in the store is deleted,
+// and another note may still carry it.
+void Shell::convert_to_link(const std::string& name, const std::string& abs_path) {  // helper
+    if (!current_note_editable()) return;   // the note changed under an open dialog
+    std::string err;
+    const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    const std::string lk = core::link_instead(ingest_store(), name, abs_path, now, err);
+    if (lk.empty()) {
+        report_problem("Could not link " + name, err);
+        return;
+    }
+    const int n = retarget_current(name, lk);
+    if (auto lg = log::get(log::Area::Io))
+        lg->info("enclosure linked instead: {} -> {} ({} reference(s))", name, lk, n);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Import (s021b). Two roads -- this dialog and a drop on the tree -- and one
+// helper, so they cannot disagree about what a file becomes. core::Import
+// reads it, titles it and points its pictures home; this makes the notes.
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::on_import_markdown() {  // handler
+    auto dialog = Gtk::FileDialog::create();
+    dialog->set_title("Import Markdown");
+    auto filters = Gio::ListStore<Gtk::FileFilter>::create();
+    auto md = Gtk::FileFilter::create();
+    md->set_name("Markdown and text");
+    for (const char* g : {"*.md", "*.MD", "*.markdown", "*.txt"}) md->add_pattern(g);
+    filters->append(md);
+    auto all = Gtk::FileFilter::create();
+    all->set_name("All files");
+    all->add_pattern("*");
+    filters->append(all);
+    dialog->set_filters(filters);
+    dialog->open_multiple(*this, [this, dialog](Glib::RefPtr<Gio::AsyncResult>& r) {
+        std::vector<Glib::RefPtr<Gio::File>> picked;
+        try {
+            picked = dialog->open_multiple_finish(r);
+        } catch (const Glib::Error&) {
+            return;   // cancelled
+        }
+        std::vector<std::string> paths;
+        for (const auto& f : picked)
+            if (f && !f->get_path().empty()) paths.push_back(f->get_path());
+        import_files(paths, "");   // top level, like New note
+    });
+}
+
+void Shell::on_import_folder() {  // handler
+    auto dialog = Gtk::FileDialog::create();
+    dialog->set_title("Import Markdown Folder");
+    dialog->select_folder(*this, [this, dialog](Glib::RefPtr<Gio::AsyncResult>& r) {
+        Glib::RefPtr<Gio::File> dir;
+        try {
+            dir = dialog->select_folder_finish(r);
+        } catch (const Glib::Error&) {
+            return;   // cancelled
+        }
+        if (dir && !dir->get_path().empty()) import_files({dir->get_path()}, "");
+    });
+}
+
+// One file -> one note under `parent`. Empty id (and a line in `failed`) if not.
+core::NodeId Shell::import_file(const std::string& p, const core::NodeId& parent,
+                                std::vector<std::string>& failed) {  // helper
+    const std::string name = std::filesystem::path(p).filename().string();
+    if (!core::is_markdown_filename(p)) {
+        failed.push_back(name + " (not markdown -- drop it on a note to attach it)");
+        return {};
+    }
+    core::ImportedNote n;
+    std::string err;
+    if (!core::import_markdown(p, n, err)) {
+        failed.push_back(name + " (" + err + ")");
+        return {};
+    }
+    const core::NodeId id = m_store->create(parent, n.title);
+    if (id.empty()) {
+        failed.push_back(name + " (the note could not be made here)");
+        return {};
+    }
+    m_store->set_body(id, n.body);
+    if (auto lg = log::get(log::Area::Io))
+        lg->info("imported '{}' -> {} '{}' ({} byte(s), {} picture(s) linked)", p, id, n.title,
+                 n.body.size(), n.pictures);
+    return id;
+}
+
+// A plan -> notes, depth first, in the plan's order. A folder is a parent note
+// with an empty body, named after the folder. Returns the item's own note.
+core::NodeId Shell::import_item(const core::ImportItem& item, const core::NodeId& parent,
+                                std::vector<std::string>& failed, int& made) {  // helper
+    if (!item.folder) {
+        const core::NodeId id = import_file(item.path, parent, failed);
+        if (!id.empty()) ++made;
+        return id;
+    }
+    const core::NodeId id = m_store->create(parent, item.title);
+    if (id.empty()) {
+        failed.push_back(item.title + "/ (the note could not be made here)");
+        return {};
+    }
+    for (const auto& c : item.children) import_item(c, id, failed, made);
+    return id;
+}
+
+// Every road in ends here (s021b, s021c): the Files dialog, the Folder dialog,
+// and a drop on the tree -- which may hold files AND folders at once.
+void Shell::import_files(const std::vector<std::string>& paths, const core::NodeId& parent) {  // helper
+    if (paths.empty() || !m_store) return;
+    std::vector<std::string> failed;
+    core::NodeId last;
+    int made = 0;
+    for (const auto& p : paths) {
+        std::error_code ec;
+        if (std::filesystem::is_directory(p, ec)) {
+            core::ImportItem plan;
+            bool truncated = false;
+            if (!core::plan_folder_import(p, plan, 2000, &truncated)) {
+                failed.push_back(std::filesystem::path(p).filename().string() +
+                                 "/ (no markdown files in it)");
+                continue;
+            }
+            const int before = made;
+            const core::NodeId id = import_item(plan, parent, failed, made);
+            if (!id.empty()) last = id;
+            if (truncated)
+                failed.push_back(plan.title + "/ (stopped at 2000 files -- import the rest "
+                                 "folder by folder)");
+            if (auto lg = log::get(log::Area::Io))
+                lg->info("imported folder '{}' -> {} ({} note(s))", p, id, made - before);
+            continue;
+        }
+        const core::NodeId id = import_file(p, parent, failed);
+        if (!id.empty()) { last = id; ++made; }
+    }
+    // The last thing imported is what you are looking at -- for a folder, its
+    // parent note, so the whole import is on screen under it.
+    if (!last.empty()) on_goto_note(last);
+    if (!failed.empty()) {
+        std::string detail;
+        for (const auto& f : failed) detail += f + "\n";
+        report_problem(failed.size() == 1 ? "Something was not imported"
+                                          : "Some things were not imported",
+                       detail);
     }
 }
 

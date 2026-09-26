@@ -80,6 +80,13 @@ public:
     // rebuild -- the surface above should not reload the editor on every drag).
     sigc::signal<void(core::NodeId)>& signal_selected() { return m_sig_selected; }
 
+    // s021b: files dragged in from Files -- (paths, parent). The parent is the
+    // row they landed on, or empty for the list's background (top level). The
+    // tree only says where; what a file becomes is the Shell's call.
+    sigc::signal<void(std::vector<std::string>, core::NodeId)>& signal_files_dropped() {
+        return m_sig_files;
+    }
+
 private:
     // ── zones ──────────────────────────────────────────────────────────────
     void append_rows(const core::NodeId& parent, int depth);   // category: zone: recursive emit
@@ -99,6 +106,8 @@ private:
     void clear_drop_feedback();                                             // category: dnd: the indicator
     void attach_row_dnd(Gtk::Widget& row, const core::NodeId& id);  // category: dnd: source + target
     void attach_root_drop();                                        // category: dnd: empty space => top level
+    void attach_file_drop();                                        // category: dnd: s021b files from outside
+    core::NodeId row_id_at(double y) const;                         // category: dnd: list y -> the row's node
     bool drop_at(const core::NodeId& dragged, const core::NodeId& target,
                  DropZone z);                                    // category: dnd: the one model call
 
@@ -135,6 +144,7 @@ private:
     bool m_rebuilding = false;
 
     sigc::signal<void(core::NodeId)> m_sig_selected;
+    sigc::signal<void(std::vector<std::string>, core::NodeId)> m_sig_files;   // s021b
 };
 
 }  // namespace jot

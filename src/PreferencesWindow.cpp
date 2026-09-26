@@ -58,6 +58,7 @@ PreferencesWindow::PreferencesWindow() {
     // their own labels; here each gets the room to say what it does, which is
     // what the footer's tooltips were quietly doing instead.
     r = build_running_section(r);
+    r = build_enclosure_section(r);
 
     m_btn_close.set_halign(Gtk::Align::END);
     m_btn_close.set_margin(8);
@@ -198,6 +199,29 @@ int PreferencesWindow::build_running_section(int row) {
                    "dates are still announced. Quit from the menu, or Ctrl+Q, "
                    "really quits.", row);
     return row;
+}
+
+// s019: what a dropped file becomes. One box, because the other choice is
+// the modifier, not a second setting.
+int PreferencesWindow::build_enclosure_section(int row) {
+    m_drop_links_check.set_label("Link dropped files instead of copying them");
+    m_drop_links_check.signal_toggled().connect([this]() {
+        if (!m_setting) m_sig_drop_links.emit(m_drop_links_check.get_active());
+    });
+    row = add_heading("Dropped files", row);
+    m_grid.attach(m_drop_links_check, 1, row++, 1, 1);
+    row = add_note("Off: a file dropped on a note is copied into the jots "
+                   "folder, so the note keeps it even if the original moves. "
+                   "On: the note links to the file where it is, and the drawer "
+                   "says when it has changed or gone missing. Hold Shift "
+                   "while dropping to do the other one.", row);
+    return row;
+}
+
+void PreferencesWindow::set_drop_links_on(bool on) {
+    m_setting = true;
+    m_drop_links_check.set_active(on);
+    m_setting = false;
 }
 
 void PreferencesWindow::set_desktop_available(bool can) {

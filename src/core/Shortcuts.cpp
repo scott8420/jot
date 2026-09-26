@@ -145,6 +145,10 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         {"Notes", "win.new-note",       {"<Ctrl>n"}, "", "New note at the top level"},
         {"Notes", "win.copy-link",      {"<Ctrl><Shift>c"}, "",
          "Copy a link to this note, ready to paste into another"},
+        {"Notes", "win.import-md",      {"<Ctrl><Shift>m"}, "",
+         "Import markdown files as new notes"},
+        {"Notes", "win.import-md-folder", {}, "",
+         "Import a folder of markdown as notes (Notes menu)"},
         {"Notes", "win.new-child",      {"<Ctrl><Shift>n"}, "",
          "New note under the selected one"},
         // Doc-only: Delete is bound by the TREE, not the application, so it
@@ -181,6 +185,9 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
          "Show or hide the side pane (Notes and Today)"},
         {"View", "win.toggle-drawer",   {"<Ctrl>bracketright", "F10"}, "",
          "Show or hide note details"},
+        // s021: Obsidian's key for the same flip. No F-key twin needed.
+        {"View", "win.toggle-reading",  {"<Ctrl>e"}, "",
+         "Switch the note between Source and Reading"},
     };
     return kReg;
 }

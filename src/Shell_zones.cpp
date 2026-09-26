@@ -235,6 +235,13 @@ void Shell::build_pane_toggles(Gtk::HeaderBar& header) {  // zone: the focus-mod
     m_drawer_toggle.set_tooltip_text("Show note details (Ctrl+] or F10)");
     m_drawer_toggle.set_action_name("win.toggle-drawer");
     header.pack_end(m_drawer_toggle);
+
+    // s021: Source / Reading. The eye is "look, don't touch"; pressed means
+    // Reading. Next to the drawer toggle because both are about the note.
+    m_reading_toggle.set_icon_name("view-reveal-symbolic");
+    m_reading_toggle.set_tooltip_text("Reading view (Ctrl+E)");
+    m_reading_toggle.set_action_name("win.toggle-reading");
+    header.pack_end(m_reading_toggle);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -299,6 +306,13 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     file->append("Open jots\u2026", "win.open-jots");
     m_recents_menu = Gio::Menu::create();
     file->append_submenu("Recent jots", m_recents_menu);
+    // s021c: import is a jots-level verb -- it fills the folder you are in --
+    // so it sits with Open, not only in the note menu (where the tree's
+    // right-click still offers it).
+    auto imp = Gio::Menu::create();
+    imp->append("Import Markdown Files\u2026", "win.import-md");
+    imp->append("Import Markdown Folder\u2026", "win.import-md-folder");
+    file->append_section(imp);
     menu->append_section(file);
 
     // Save exists although nothing is unsaved for long (structure writes at
@@ -320,6 +334,9 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     panes->append("Side pane", "win.toggle-tree");
     panes->append("Note details", "win.toggle-drawer");
     view->append_section(panes);
+    auto mode = Gio::Menu::create();
+    mode->append("Reading view", "win.toggle-reading");   // s021
+    view->append_section(mode);
 
     // For finding out what jot thinks is true. Refresh-the-desktop lives here
     // now: it is a nudge for when the calendar looks stale, which is a

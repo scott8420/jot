@@ -55,6 +55,11 @@ add_library(jot_core STATIC
     # "what is this line and which bytes are syntax" question is answered under
     # test, leaving the editor only "apply a tag where the scan says to".
     src/core/Markdown.cpp
+    # The READING view (s021): the source minus its marks, with a codepoint map
+    # back -- the ground Live Preview will stand on.
+    src/core/Render.cpp
+    # A markdown file from anywhere becomes a note (s021b).
+    src/core/Import.cpp
     src/core/Recents.cpp
     # The cold-capture spool. In core because the question it answers -- what is
     # a thought that was written down while the app was not running -- is a data
@@ -202,6 +207,13 @@ add_executable(jot
 )
 target_include_directories(jot PRIVATE include ${GTKMM_INCLUDE_DIRS})
 target_link_libraries(jot     PRIVATE ${GTKMM_LIBRARIES} jot_core spdlog::spdlog)
+
+# s019: a one-file drag source, so a real drop can be tested under Xvfb
+# without a file manager. A test instrument, never installed.
+add_executable(jot_drag_source tools/drag_source.cpp)
+target_include_directories(jot_drag_source PRIVATE ${GTKMM_INCLUDE_DIRS})
+target_link_libraries(jot_drag_source PRIVATE ${GTKMM_LIBRARIES})
+target_link_directories(jot_drag_source PRIVATE ${GTKMM_LIBRARY_DIRS})
 target_link_directories(jot   PRIVATE ${GTKMM_LIBRARY_DIRS})
 target_compile_options(jot    PRIVATE ${GTKMM_CFLAGS_OTHER})
 

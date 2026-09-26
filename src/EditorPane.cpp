@@ -4,9 +4,18 @@
 #include "core/Enclosures.hpp"
 
 #include <gdkmm/clipboard.h>
+#include <gdkmm/device.h>
+#include <gdkmm/seat.h>
 #include <gdkmm/contentformats.h>
 #include <gdkmm/texture.h>
+#include <gtkmm/button.h>
+#include <gtkmm/cssprovider.h>
+#include <gtkmm/label.h>
+#include <gtkmm/picture.h>
+#include <gtkmm/scrolledwindow.h>
+#include <gtkmm/separator.h>
 #include <glibmm/main.h>
+#include <set>
 #include <pango/pango-attributes.h>
 
 // EditorPane.cpp -- the note surface. Reads and writes through NodeSource only,
@@ -23,10 +32,33 @@ namespace {
 // dim-label, not a second tag table.
 constexpr double MARK_R = 0.55, MARK_G = 0.55, MARK_B = 0.58;
 
-Gdk::RGBA rgba(double r, double g, double b) {
+Gdk::RGBA rgba(double r, double g, double b, double a = 1.0) {
     Gdk::RGBA c;
-    c.set_rgba(r, g, b, 1.0);
+    c.set_rgba(r, g, b, a);
     return c;
+}
+
+// s021b: code's tint. A mid-grey at low alpha, for the same reason MARK is a
+// mid-grey: it reads against a light AND a dark theme without knowing which.
+constexpr double CODE_A = 0.13;
+
+// The bubble's look, installed once per display. `alpha(currentColor, ..)`
+// follows the theme's text colour, so the bubble is a shade darker than the
+// page in light mode and a shade lighter in dark mode.
+void install_code_css() {
+    static bool done = false;
+    if (done) return;
+    auto display = Gdk::Display::get_default();
+    if (!display) return;
+    auto css = Gtk::CssProvider::create();
+    css->load_from_data(
+        ".jot-codeblock { background-color: alpha(currentColor, 0.07);"
+        "                 border-radius: 8px; padding: 4px 6px 10px 12px; }"
+        ".jot-codeblock .jot-code { font-family: monospace; }"
+        ".jot-codeblock .jot-code-lang { font-size: smaller; opacity: 0.6; }");
+    gtk_style_context_add_provider_for_display(display->gobj(), GTK_STYLE_PROVIDER(css->gobj()),
+                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    done = true;
 }
 
 }  // namespace
@@ -35,7 +67,10 @@ EditorPane::EditorPane(std::string_view name)
     : widgets::Box(name, Gtk::Orientation::VERTICAL, 6),
       m_scroll("editor.scroll"),
       m_body("editor.body"),
-      m_status("editor.status") {
+      m_status("editor.status"),
+      m_stack("editor.stack"),
+      m_read_scroll("editor.read_scroll"),
+      m_read("editor.read") {
     set_margin(12);
 
     m_body.set_wrap_mode(Gtk::WrapMode::WORD_CHAR);
@@ -52,7 +87,40 @@ EditorPane::EditorPane(std::string_view name)
     m_scroll.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
     m_scroll.set_vexpand(true);
     m_scroll.set_has_frame(true);
-    append(m_scroll);
+
+    // ── the reading view (s021) ─────────────────────────────────────────────
+    // A second TextView, never editable, with the same margins and the same
+    // tag table, so a heading is the same size in both and flipping between
+    // them does not make the note jump. Selectable: copying from a note you
+    // are reading is the most ordinary thing to want.
+    m_read.set_wrap_mode(Gtk::WrapMode::WORD_CHAR);
+    m_read.set_left_margin(10);
+    m_read.set_right_margin(10);
+    m_read.set_top_margin(8);
+    m_read.set_bottom_margin(8);
+    m_read.set_pixels_below_lines(4);
+    m_read.set_editable(false);
+    m_read.set_cursor_visible(false);
+    m_read_scroll.set_child(m_read);
+    m_read_scroll.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
+    m_read_scroll.set_vexpand(true);
+    m_read_scroll.set_has_frame(true);
+
+    m_stack.add(m_scroll, "source");
+    m_stack.add(m_read_scroll, "reading");
+    m_stack.set_transition_type(Gtk::StackTransitionType::CROSSFADE);
+    m_stack.set_transition_duration(120);
+    m_stack.set_vexpand(true);
+    append(m_stack);
+
+    m_read_click = Gtk::GestureClick::create();
+    m_read_click->set_button(GDK_BUTTON_PRIMARY);
+    m_read_click->signal_released().connect(
+        [this](int n, double x, double y) { on_read_click(n, x, y); });
+    m_read.add_controller(m_read_click);
+    m_read_motion = Gtk::EventControllerMotion::create();
+    m_read_motion->signal_motion().connect([this](double x, double y) { on_read_motion(x, y); });
+    m_read.add_controller(m_read_motion);
 
     // ── the status line, RETIRED ────────────────────────────────────────────
     // It existed to prove by looking that a drag preserved identity instead of
@@ -92,7 +160,13 @@ EditorPane::EditorPane(std::string_view name)
     // arrive as the string "file:///home/..." typed into the note. Heard
     // first, it arrives as a file. A drop that holds no image is refused and
     // nothing is inserted -- non-image enclosures are a later milestone.
-    m_drop = Gtk::DropTarget::create(GDK_TYPE_FILE_LIST, Gdk::DragAction::COPY);
+    // s019: every action, so a modified drag is not refused and we can SEE
+    // which one arrived. Scott's log: on GNOME Wayland a held Ctrl+Shift never
+    // reaches jot -- Wayland has no LINK action, and Files holds the keyboard.
+    // What the compositor does pass is the drag ACTION (Shift -> MOVE). A
+    // MOVE or ASK is read as "the other mode", and is never FINISHED as a
+    // move: see kAccept and on_drop.
+    m_drop = Gtk::DropTarget::create(GDK_TYPE_FILE_LIST, kAccept);
     m_drop->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
     m_drop->signal_drop().connect(
         [this](const Glib::ValueBase& v, double x, double y) { return on_drop(v, x, y); },
@@ -113,6 +187,9 @@ EditorPane::EditorPane(std::string_view name)
 // ─────────────────────────────────────────────────────────────────────────────
 // Enclosures in. Recognise, locate, emit -- nothing here writes a file.
 // ─────────────────────────────────────────────────────────────────────────────
+const Gdk::DragAction EditorPane::kAccept = Gdk::DragAction::COPY | Gdk::DragAction::MOVE |
+                                             Gdk::DragAction::LINK | Gdk::DragAction::ASK;
+
 bool EditorPane::on_drop(const Glib::ValueBase& value, double x, double y) {
     if (!m_body.get_editable() || m_id.empty()) return false;
     auto* list = static_cast<GdkFileList*>(g_value_get_boxed(value.gobj()));
@@ -139,9 +216,53 @@ bool EditorPane::on_drop(const Glib::ValueBase& value, double x, double y) {
     Gtk::TextIter it;
     m_body.get_iter_at_location(it, bx, by);
     const int offset = it.get_offset();
+
+    // s019: did the drop ask for the OTHER mode? Scott's log (s019c) settled
+    // it for GNOME Wayland: only the ACTION witness below (a Shift-drag
+    // arrives as MOVE, raw=2) ever fires. The first three are kept for X11,
+    // where GTK's own Ctrl+Shift = LINK convention does reach us:
+    //   the drop event's modifiers, the keyboard's modifiers right now, and
+    //   the action the source settled on (LINK and not COPY).
+    const auto kBoth = Gdk::ModifierType::CONTROL_MASK | Gdk::ModifierType::SHIFT_MASK;
+    const auto ev_state = m_drop->get_current_event_state();
+    const bool by_event = (ev_state & kBoth) == kBoth;
+    bool by_keyboard = false;
+    if (auto display = m_body.get_display())
+        if (auto seat = display->get_default_seat())
+            if (auto kb = seat->get_keyboard())
+                by_keyboard = (kb->get_modifier_state() & kBoth) == kBoth;
+    bool by_action = false;
+    if (auto drop = m_drop->get_current_drop()) {
+        const auto a = drop->get_actions();
+        by_action = (a & Gdk::DragAction::LINK) == Gdk::DragAction::LINK &&
+                    (a & Gdk::DragAction::COPY) != Gdk::DragAction::COPY;
+    }
+    // s019c: a MOVE or an ASK is a modified drag too. The raw action is
+    // logged as bits (1 copy, 2 move, 4 link, 8 ask) so a drag nobody here
+    // can make still says what it was.
+    int raw = -1;
+    bool by_move = false;
+    if (auto drop = m_drop->get_current_drop()) {
+        const auto a = drop->get_actions();
+        raw = static_cast<int>(a);
+        by_move = (a & Gdk::DragAction::COPY) != Gdk::DragAction::COPY &&
+                  ((a & Gdk::DragAction::MOVE) == Gdk::DragAction::MOVE ||
+                   (a & Gdk::DragAction::ASK) == Gdk::DragAction::ASK);
+        // NEVER let the source believe it was moved: GTK finishes the drop
+        // with (our actions & its actions), so narrowing ours to COPY makes a
+        // MOVE finish as "nothing" and Files deletes nothing. Restored on an
+        // idle, after GTK has finished this drop.
+        if (by_move) {
+            m_drop->set_actions(Gdk::DragAction::COPY);
+            Glib::signal_idle().connect_once([this]() { m_drop->set_actions(kAccept); });
+        }
+    }
+    const bool flip = by_event || by_keyboard || by_action || by_move;
     if (auto lg = log::get(log::Area::Editor))
-        lg->info("drop: {} file(s) at offset {}", paths.size(), offset);
-    m_sig_dropped.emit(paths, offset);
+        lg->info("drop: {} file(s) at offset {}; flip={} (event={} keyboard={} action={} "
+                 "move={} raw={})",
+                 paths.size(), offset, flip, by_event, by_keyboard, by_action, by_move, raw);
+    m_sig_dropped.emit(paths, offset, flip);
     return true;
 }
 
@@ -214,7 +335,22 @@ bool EditorPane::insert_block(int cp_offset, const std::string& text) {
 // added to the enum without a case below fails to compile.
 // ─────────────────────────────────────────────────────────────────────────────
 void EditorPane::build_tags() {
-    auto buf = m_body.get_buffer();
+    make_tags(m_body.get_buffer(), m_tags);
+    make_tags(m_read.get_buffer(), m_read_tags);   // s021: one table, two buffers
+    // s021b: in SOURCE, a fenced block's lines -- fences included -- sit on
+    // one full-width tint, so the block is a block while you edit it. The
+    // lines INSIDE get this tag INSTEAD of Code (see restyle): Code carries
+    // the inline tint, and stacked on the paragraph tint it doubled every
+    // glyph's shade. (A "transparent" text background to cancel it drew
+    // BLACK under GTK 4.14 -- seen under Xvfb, s021b.)
+    m_codeblock_tag = m_body.get_buffer()->create_tag("md-codeblock");
+    m_codeblock_tag->property_paragraph_background_rgba() = rgba(0.5, 0.5, 0.5, CODE_A);
+    m_codeblock_tag->property_family() = "monospace";
+    m_codeblock_tag->property_scale() = 0.92;
+}
+
+void EditorPane::make_tags(const Glib::RefPtr<Gtk::TextBuffer>& buf,
+                           std::map<core::Style, Glib::RefPtr<Gtk::TextTag>>& out) {
     for (const core::Style s : core::all_styles()) {
         auto tag = buf->create_tag(core::tag_name(s));
         switch (s) {
@@ -253,6 +389,9 @@ void EditorPane::build_tags() {
             case core::Style::Code:
                 tag->property_family() = "monospace";
                 tag->property_scale() = 0.92;
+                // s021b: inline `code` sits on a faint tint, like everywhere
+                // else markdown is read.
+                tag->property_background_rgba() = rgba(0.5, 0.5, 0.5, CODE_A);
                 break;
             case core::Style::Strike:
                 tag->property_strikethrough() = true;
@@ -289,7 +428,7 @@ void EditorPane::build_tags() {
                 tag->property_strikethrough() = true;
                 break;
         }
-        m_tags.emplace(s, tag);
+        out.emplace(s, tag);
     }
 }
 
@@ -309,6 +448,7 @@ void EditorPane::restyle() {
     m_styling = true;
     const auto b = buf->begin(), e = buf->end();
     for (const auto& [style, tag] : m_tags) buf->remove_tag(tag, b, e);
+    if (m_codeblock_tag) buf->remove_tag(m_codeblock_tag, b, e);
 
     // .raw() because the scanner works in bytes and Glib::ustring's own
     // iteration is in characters -- taking the bytes here, and taking the
@@ -316,14 +456,28 @@ void EditorPane::restyle() {
     // on this side of the seam.
     m_scan = core::scan(buf->get_text(/*include_hidden_chars=*/false).raw());
 
+    // s021b: a code-block line is styled by md-codeblock below, not by Code.
+    std::set<int> block_lines;
+    for (const auto& ln : m_scan.lines)
+        if (ln.block == core::Block::Code) block_lines.insert(ln.cp_begin);
     for (const auto& sp : m_scan.spans) {
+        if (sp.style == core::Style::Code && block_lines.count(sp.cp_begin)) continue;
         const auto it = m_tags.find(sp.style);
         if (it == m_tags.end()) continue;
         buf->apply_tag(it->second,
                        buf->get_iter_at_offset(sp.cp_begin),
                        buf->get_iter_at_offset(sp.cp_end));
     }
+    if (m_codeblock_tag)
+        for (const auto& ln : m_scan.lines)
+            if (ln.block == core::Block::Fence || ln.block == core::Block::Code) {
+                auto lb = buf->get_iter_at_offset(ln.cp_begin);
+                auto le = lb;
+                le.forward_line();   // the newline too, so the tint spans the whole line
+                buf->apply_tag(m_codeblock_tag, lb, le);
+            }
     m_styling = false;
+    if (m_reading) render_reading();   // s021: the view follows the source
 }
 
 // Coalesce to one restyle per idle. Typing fires `changed` per keystroke, and
@@ -395,6 +549,9 @@ void EditorPane::show_node(const core::NodeId& id) {
 // A new note exists to be typed into. Anything that makes the user click before
 // they can write is a longer capture path than a paper scrap has.
 void EditorPane::focus_capture() {
+    // s021: a capture means typing, and Reading cannot be typed into. Ask
+    // for Source first -- the Shell owns the mode.
+    if (m_reading) m_sig_edit.emit(-1);
     if (m_body.get_editable()) m_body.grab_focus();
 }
 
@@ -465,6 +622,221 @@ bool EditorPane::toggle_task_at(int line, int cp_offset) {
     // rather than act on stale offsets.
     m_scan.lines[static_cast<std::size_t>(line)].cp_box_begin = -1;
     return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The reading view (s021). core::render decides what it says; this only puts
+// it in a buffer, swaps each U+FFFC for a real child anchor (one codepoint for
+// one codepoint, so no offset moves), and answers clicks.
+// ─────────────────────────────────────────────────────────────────────────────
+void EditorPane::set_reading(bool on, int source_cp) {
+    if (on == m_reading && source_cp < 0) return;
+    m_reading = on;
+    auto body = m_body.get_buffer();
+    if (on) {
+        render_reading();
+        m_stack.set_visible_child("reading");
+        // Keep your place: the source cursor's line, found in the render.
+        const int at = core::rendered_cp(m_rendered, body->get_insert()->get_iter().get_offset());
+        Glib::signal_idle().connect_once([this, at]() {
+            auto rb = m_read.get_buffer();
+            auto it = rb->get_iter_at_offset(at);
+            m_read.scroll_to(it, 0.2);
+        });
+    } else {
+        m_stack.set_visible_child("source");
+        if (source_cp >= 0) body->place_cursor(body->get_iter_at_offset(source_cp));
+        Glib::signal_idle().connect_once([this]() {
+            m_body.scroll_to(m_body.get_buffer()->get_insert(), 0.2);
+            if (m_body.get_editable()) m_body.grab_focus();
+        });
+    }
+    if (auto lg = log::get(log::Area::Editor))
+        lg->info("view: {} (note={})", on ? "reading" : "source", m_id);
+}
+
+void EditorPane::render_reading() {
+    auto body = m_body.get_buffer();
+    auto rb   = m_read.get_buffer();
+    const double keep = m_read_scroll.get_vadjustment()->get_value();
+
+    m_rendered = core::render(body->get_text(false).raw());
+    rb->set_text(m_rendered.text);
+    for (const auto& sp : m_rendered.spans) {
+        const auto it = m_read_tags.find(sp.style);
+        if (it == m_read_tags.end()) continue;
+        rb->apply_tag(it->second, rb->get_iter_at_offset(sp.cp_begin),
+                      rb->get_iter_at_offset(sp.cp_end));
+    }
+
+    // Anchors from the END, so replacing one never disturbs the next. Each
+    // is a placeholder deleted and an anchor created in the same place.
+    for (auto a = m_rendered.anchors.rbegin(); a != m_rendered.anchors.rend(); ++a) {
+        auto it = rb->get_iter_at_offset(a->cp);
+        if (it.get_char() != 0xFFFC) continue;   // a mismatch: leave it, never guess
+        auto next = it;
+        next.forward_char();
+        it = rb->erase(it, next);
+        auto anchor = rb->create_child_anchor(it);
+
+        Gtk::Widget* w = nullptr;
+        if (a->kind == core::RenderAnchor::Kind::Code) {
+            w = code_bubble(a->code, a->lang);
+        } else if (a->kind == core::RenderAnchor::Kind::Rule) {
+            auto* sep = Gtk::make_managed<Gtk::Separator>(Gtk::Orientation::HORIZONTAL);
+            sep->set_size_request(420, -1);
+            sep->set_margin_top(8);
+            sep->set_margin_bottom(8);
+            w = sep;
+        } else {
+            const std::string path = m_resolve ? m_resolve(a->target) : std::string{};
+            Glib::RefPtr<Gdk::Texture> tex;
+            if (!path.empty()) {
+                try {
+                    tex = Gdk::Texture::create_from_file(Gio::File::create_for_path(path));
+                } catch (const Glib::Error&) {
+                }
+            }
+            if (tex) {
+                // Fit a column, never enlarge: a 4000-px photo becomes 520
+                // wide; an icon stays an icon.
+                constexpr int kMaxW = 520;
+                const int tw = tex->get_width(), th = tex->get_height();
+                const int w0 = std::min(tw, kMaxW);
+                const int h0 = tw > 0 ? th * w0 / tw : th;
+                auto* pic = Gtk::make_managed<Gtk::Picture>(tex);
+                pic->set_can_shrink(true);
+                pic->set_content_fit(Gtk::ContentFit::CONTAIN);
+                pic->set_size_request(w0, h0);
+                pic->set_tooltip_text(a->label.empty() ? a->target : a->label);
+                w = pic;
+            } else {
+                // Said, not dropped: a picture the note names and jot cannot
+                // show is a fact about the note.
+                auto* lab = Gtk::make_managed<Gtk::Label>(
+                    "\U0001F5BC " + (a->label.empty() ? a->target : a->label) + " (not found)");
+                lab->add_css_class("dim-label");
+                w = lab;
+            }
+        }
+        m_read.add_child_at_anchor(*w, anchor);
+    }
+
+    Glib::signal_idle().connect_once(
+        [this, keep]() { m_read_scroll.get_vadjustment()->set_value(keep); });
+}
+
+int EditorPane::read_offset_at(double x, double y) {
+    int bx = 0, by = 0;
+    m_read.window_to_buffer_coords(Gtk::TextWindowType::WIDGET, static_cast<int>(x),
+                                   static_cast<int>(y), bx, by);
+    Gtk::TextBuffer::iterator it;
+    int trailing = 0;
+    if (!m_read.get_iter_at_position(it, trailing, bx, by)) return -1;
+    return it.get_offset();
+}
+
+void EditorPane::on_read_click(int n_press, double x, double y) {
+    const int off = read_offset_at(x, y);
+    if (off < 0) return;
+    // A double-click is "edit here" -- asked BEFORE the selection test,
+    // because the view's own double-click has just selected the word.
+    if (n_press == 2) {
+        auto rb = m_read.get_buffer();
+        rb->place_cursor(rb->get_iter_at_offset(off));   // drop the word selection
+        m_sig_edit.emit(core::source_cp(m_rendered, off));
+        return;
+    }
+    // A selection made by dragging is not a click on what it ended over.
+    if (m_read.get_buffer()->get_has_selection()) return;
+
+    if (n_press == 1) {
+        for (const auto& bx : m_rendered.boxes) {
+            if (off != bx.cp) continue;
+            if (!m_body.get_editable()) return;   // protected: the box is a picture of a box
+            if (bx.line >= static_cast<int>(m_scan.lines.size())) return;
+            const auto& ln = m_scan.lines[static_cast<std::size_t>(bx.line)];
+            if (ln.cp_box_begin >= 0) toggle_task_at(bx.line, ln.cp_box_begin - ln.cp_begin);
+            return;
+        }
+        for (const auto& lk : m_rendered.links)
+            if (off >= lk.cp_begin && off < lk.cp_end) {
+                if (auto lg = log::get(log::Area::Editor)) lg->info("reading: follow {}", lk.target);
+                m_sig_link.emit(lk.target);
+                return;
+            }
+        return;
+    }
+}
+
+void EditorPane::on_read_motion(double x, double y) {
+    const int off = read_offset_at(x, y);
+    bool hot = false;
+    if (off >= 0) {
+        for (const auto& bx : m_rendered.boxes) hot = hot || off == bx.cp;
+        for (const auto& lk : m_rendered.links) hot = hot || (off >= lk.cp_begin && off < lk.cp_end);
+    }
+    // The C call: gtkmm 4.10 does not wrap set_cursor_from_name.
+    gtk_widget_set_cursor_from_name(GTK_WIDGET(m_read.gobj()), hot ? "pointer" : "text");
+}
+
+// s021b -- a fenced block in Reading: a rounded tint, the language (if the
+// fence named one) and a Copy button top-right, then the code, monospace,
+// selectable, never wrapped (a wrapped line of code is a different line of
+// code), scrolling sideways if it is wide. Copy puts EXACTLY the text between
+// the fences on the clipboard -- no backticks, no trailing newline.
+Gtk::Widget* EditorPane::code_bubble(const std::string& code, const std::string& lang) {
+    install_code_css();
+    auto* box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::VERTICAL, 2);
+    box->add_css_class("jot-codeblock");
+    box->set_name("editor.code_bubble");
+    // As wide as the page, so every bubble has the same right edge.
+    const int page = m_read.get_width();
+    box->set_size_request(page > 200 ? page - 40 : 560, -1);
+
+    auto* head = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 4);
+    auto* lang_l = Gtk::make_managed<Gtk::Label>(lang);
+    lang_l->add_css_class("jot-code-lang");
+    lang_l->set_xalign(0.0f);
+    lang_l->set_hexpand(true);
+    head->append(*lang_l);
+
+    auto* copy = Gtk::make_managed<Gtk::Button>();
+    copy->set_name("editor.code_copy");
+    copy->set_icon_name("edit-copy-symbolic");
+    copy->set_has_frame(false);
+    copy->set_tooltip_text("Copy code");
+    copy->signal_clicked().connect([this, copy, code]() {
+        m_read.get_clipboard()->set_text(code);
+        if (auto lg = log::get(log::Area::Editor))
+            lg->info("reading: code copied ({} byte(s))", code.size());
+        // Say it worked, then go back. The button is held for the timeout:
+        // a re-render in the meantime would otherwise free it under us.
+        copy->set_icon_name("object-select-symbolic");
+        copy->set_tooltip_text("Copied");
+        copy->reference();
+        Glib::signal_timeout().connect_once(
+            [copy]() {
+                copy->set_icon_name("edit-copy-symbolic");
+                copy->set_tooltip_text("Copy code");
+                copy->unreference();
+            },
+            1500);
+    });
+    head->append(*copy);
+    box->append(*head);
+
+    auto* text = Gtk::make_managed<Gtk::Label>(code);
+    text->add_css_class("jot-code");
+    text->set_xalign(0.0f);
+    text->set_selectable(true);
+    text->set_wrap(false);
+    auto* sc = Gtk::make_managed<Gtk::ScrolledWindow>();
+    sc->set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::NEVER);
+    sc->set_propagate_natural_height(true);
+    sc->set_child(*text);
+    box->append(*sc);
+    return box;
 }
 
 }  // namespace jot

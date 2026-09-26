@@ -1,4 +1,5 @@
 #pragma once
+#include "core/Import.hpp"
 #include "JotsFolderDialog.hpp"
 #include "core/Nodes.hpp"
 #include "core/Links.hpp"
@@ -153,13 +154,24 @@ private:
     void on_shortcuts();                         // category: handler: keyboard reference (renders from core::shortcut_registry)
     void on_toggle_tree();                       // category: handler: show/hide the tree
     void on_toggle_drawer();                     // category: handler: show/hide the metadata drawer
+    void on_toggle_reading();                    // category: handler: s021 Source <-> Reading
+    void on_import_markdown();                   // category: handler: s021b Notes -> Import Markdown Files...
+    void on_import_folder();                     // category: handler: s021c Notes -> Import Markdown Folder...
+    core::NodeId import_file(const std::string& path, const core::NodeId& parent,
+                             std::vector<std::string>& failed);  // category: helper: s021c one file -> one note
+    core::NodeId import_item(const core::ImportItem& item, const core::NodeId& parent,
+                             std::vector<std::string>& failed, int& made);  // category: helper: s021c a plan -> notes
+    void import_files(const std::vector<std::string>& paths,
+                      const core::NodeId& parent);  // category: helper: s021b each .md becomes a note
+    void on_edit_requested(int source_cp);       // category: handler: s021 the reading view asked to edit here
+    void on_read_link(std::string target);       // category: handler: s021 a link clicked in Reading
     void on_toggle_desktop();                    // category: handler: turn the desktop projection on/off
     void on_toggle_notify();                     // category: handler: turn due notifications on/off
     void on_toggle_background();                 // category: handler: stay running with no window, or don't
     void on_desktop_sync_now();                  // category: handler: rewrite the desktop list now
     void on_goto_note(const core::NodeId& id);   // category: handler: a drawer link row -> reveal + select
     void on_copy_link(const core::NodeId& id);   // category: handler: [Title](jot:<id>) -> clipboard
-    void on_files_dropped(std::vector<std::string> paths, int offset);  // category: handler: files dropped on the body -> enclosures
+    void on_files_dropped(std::vector<std::string> paths, int offset, bool flip);  // category: handler: files dropped on the body -> enclosures
     void on_image_pasted(std::string png, int offset);  // category: handler: a clipboard picture -> an enclosure
     void on_enclosure_action(std::string verb, std::string name);  // category: handler: open / reveal / copy / save one enclosure
 
@@ -184,6 +196,10 @@ private:
     std::string prefs_file() const;              // category: helper: the XDG path for the layout pump
     core::AttachStore& ingest_store();           // category: helper: where a new enclosure goes (folder or scratch)
     const core::AttachStore* attach_store() const;  // category: helper: the same, read-only, for the drawer
+    int retarget_everywhere(const std::string& from, const std::string& to);  // category: helper: relink rewrites every note
+    bool current_note_editable() const;          // category: helper: s020 -- a convert edits the note; refuse before copying
+    int retarget_current(const std::string& from, const std::string& to);  // category: helper: s020 convert rewrites THIS note
+    void convert_to_link(const std::string& name, const std::string& abs_path);  // category: helper: s020 Link Instead's second half
     void place_enclosures(const std::vector<std::pair<std::string, std::string>>& added,
                           int offset);           // category: helper: record metadata, write the references in
     std::string pending_dir() const;             // category: helper: the XDG path for the capture spool
@@ -262,6 +278,7 @@ private:
     // apply_layout_state() can set them without re-entering their own handlers.
     widgets::ToggleButton m_tree_toggle;
     widgets::ToggleButton m_drawer_toggle;
+    widgets::ToggleButton m_reading_toggle;      // s021
     bool m_applying_layout = false;
 
     // Layout state, persisted. A pane you can hide has to come back the way you
@@ -409,6 +426,7 @@ private:
     // menu item draw from one place and cannot disagree about what is showing.
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_tree;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_drawer;
+    Glib::RefPtr<Gio::SimpleAction> m_act_toggle_reading;   // s021
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_desktop;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_notify;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_background;
