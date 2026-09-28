@@ -1,4 +1,5 @@
 #pragma once
+#include "core/Format.hpp"
 #include "core/Markdown.hpp"
 #include "core/Nodes.hpp"
 #include "core/Render.hpp"
@@ -6,6 +7,7 @@
 #include "widgets/Widgets.hpp"
 
 #include <gtkmm/droptarget.h>
+#include <gtkmm/eventcontrollerkey.h>
 #include <gtkmm/eventcontrollermotion.h>
 #include <functional>
 #include <gtkmm/gestureclick.h>
@@ -124,7 +126,14 @@ public:
     void set_live(bool on);
     bool live() const { return m_live; }
 
+    // ── the format bar (s024) ───────────────────────────────────────────────
+    // Buttons above the note that WRITE markdown -- wrap, prefix, fence, and
+    // take it away again (core::format decides the edit). Also Ctrl+B / I / K
+    // while the note has focus. Public so a menu or a test can drive it.
+    void apply_format(core::Fmt f);
+
 private:
+    void build_format_bar();
     bool on_drop(const Glib::ValueBase& value, double x, double y);
     void on_paste_clipboard();       // "paste-clipboard", run BEFORE the default
     static void paste_trampoline(GtkTextView*, gpointer self);
@@ -161,6 +170,12 @@ private:
     // the tree is where you are already pointing when you want to rename
     // something. A third copy of the same field in the one pane that is
     // supposed to be just the writing surface was the odd one out.
+    // s024: above the stack; hidden in Reading (nothing there to write into),
+    // insensitive on a protected note or no note.
+    widgets::Box            m_fmt_bar;
+    widgets::MenuButton     m_fmt_heading;
+    Glib::RefPtr<Gtk::EventControllerKey> m_fmt_keys;
+
     widgets::ScrolledWindow m_scroll;
     widgets::DrawTextView   m_body;   // s023: a TextView Live Preview can draw on
     widgets::Label          m_status;

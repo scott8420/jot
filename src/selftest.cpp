@@ -11,6 +11,7 @@
 //
 //   cmake --build build --target jot_selftest && ./build/jot_selftest
 
+#include "core/Format.hpp"
 #include "core/Links.hpp"
 #include "core/Markdown.hpp"
 #include "core/Nodes.hpp"
@@ -1362,6 +1363,116 @@ int main() {
                   h[1].end == 8 && h[2].begin == 9 && h[2].end == 11);
         const auto e = core::live_view(core::scan(""), "", -1, -1);
         check("live: empty body hides and draws nothing", e.hidden.empty() && e.decos.empty());
+    }
+
+    // -- Format: the format bar's verbs (s024) --------------------------------
+    // Written as marked-up strings: `|` is the cursor, `{..}` the selection,
+    // before and after. The markers are read out, the verb runs, and the
+    // result is written back with the new selection marked the same way.
+    {
+        auto cp2b = [](const std::string& s, int cp) {
+            std::size_t i = 0;
+            for (int k = 0; k < cp && i < s.size(); ++k) {
+                const auto c = static_cast<unsigned char>(s[i]);
+                i += c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+            }
+            return i;
+        };
+        auto run = [&](std::string in, core::Fmt f) {
+            int a = -1, b = -1;
+            if (auto p = in.find('|'); p != std::string::npos) {
+                in.erase(p, 1);
+                a = b = core::cp_len(in, 0, static_cast<int>(p));
+            } else {
+                auto p0 = in.find('{');
+                in.erase(p0, 1);
+                auto p1 = in.find('}');
+                in.erase(p1, 1);
+                a = core::cp_len(in, 0, static_cast<int>(p0));
+                b = core::cp_len(in, 0, static_cast<int>(p1));
+            }
+            const auto e = core::format(in, a, b, f);
+            if (!e.ok) return std::string("(no edit)");
+            std::string out = core::apply(in, e);
+            if (e.sel_begin == e.sel_end) {
+                out.insert(cp2b(out, e.sel_begin), "|");
+            } else {
+                out.insert(cp2b(out, e.sel_end), "}");
+                out.insert(cp2b(out, e.sel_begin), "{");
+            }
+            return out;
+        };
+        auto is = [&](const std::string& what, const std::string& in, core::Fmt f,
+                      const std::string& want) {
+            const std::string got = run(in, f);
+            check("format: " + what, got == want, got);
+        };
+        using F = core::Fmt;
+        // inline
+        is("bold wraps a selection, the words stay selected",
+           "a {big} dog", F::Bold, "a **{big}** dog");
+        is("bold again unwraps it", "a **{big}** dog", F::Bold, "a {big} dog");
+        is("bold unwraps when the marks were selected too", "a {**big**} dog", F::Bold, "a {big} dog");
+        is("the cursor in a word bolds the word and stays put", "a bi|g dog", F::Bold, "a **bi|g** dog");
+        is("the cursor at a word's end stays inside the close mark", "a big| dog", F::Bold, "a **big|** dog");
+        is("the cursor in a bold word unbolds it", "a **bi|g** dog", F::Bold, "a bi|g dog");
+        is("the cursor on nothing inserts a pair", "a | dog", F::Bold, "a **|** dog");
+        is("a second press takes the empty pair away", "a **|** dog", F::Bold, "a | dog");
+        is("italic is one star", "a {big} dog", F::Italic, "a *{big}* dog");
+        is("italic does NOT unwrap bold", "a **{big}** dog", F::Italic, "a ***{big}*** dog");
+        is("italic unwraps bold-italic to bold", "a ***{big}*** dog", F::Italic, "a **{big}** dog");
+        is("bold unwraps bold-italic to italic", "a ***{big}*** dog", F::Bold, "a *{big}* dog");
+        is("bold does NOT unwrap italic", "a *{big}* dog", F::Bold, "a ***{big}*** dog");
+        is("strike and code", "{x}", F::Strike, "~~{x}~~");
+        is("code wraps", "run {ls -l} now", F::Code, "run `{ls -l}` now");
+        is("spaces stay outside the marks", "a{ big }dog", F::Bold, "a **{big}** dog");
+        is("a selection over two lines wraps each line",
+           "{one\ntwo} three", F::Bold, "**{one**\n**two}** three");
+        is("and unwraps each line", "**{one**\n**two}** three", F::Bold, "{one\ntwo} three");
+        is("a mixed selection wraps only what is bare",
+           "{**one**\ntwo}", F::Bold, "**{one**\n**two}**");
+        is("codepoints, not bytes", "caf\xC3\xA9 {na\xC3\xAFve}", F::Italic,
+           "caf\xC3\xA9 *{na\xC3\xAFve}*");
+        is("an em dash is not part of the word", "one\xE2\x80\x94tw|o", F::Bold,
+           "one\xE2\x80\x94**tw|o**");
+        // link
+        is("link: nothing selected -> []() with the cursor in the label", "see |", F::Link, "see [|]()");
+        is("link: words become the label, the cursor waits for the address",
+           "see {the docs}", F::Link, "see [the docs](|)");
+        is("link: an address becomes the target, the cursor waits for a label",
+           "see {https://x.org}", F::Link, "see [|](https://x.org)");
+        is("link: not across lines", "{a\nb}", F::Link, "(no edit)");
+        // lines
+        is("bullet on a line", "bu|y milk", F::Bullet, "- bu|y milk");
+        is("bullet again makes it plain", "- bu|y milk", F::Bullet, "bu|y milk");
+        is("bullet on a blank line starts a list", "|", F::Bullet, "- |");
+        is("bullet over lines, the blank one skipped",
+           "{a\n\nb}", F::Bullet, "{- a\n\n- b}");
+        is("bullet keeps nesting", "  |x", F::Bullet, "  - |x");
+        is("task on a bullet converts it", "- bu|y", F::Task, "- [ ] bu|y");
+        is("task on tasks makes them plain, ticked or not",
+           "{- [ ] a\n- [x] b}", F::Task, "{a\nb}");
+        is("task on a mix keeps a tick", "{- [x] a\nb}", F::Task, "{- [x] a\n- [ ] b}");
+        is("numbered numbers the lines", "{a\nb\nc}", F::Numbered, "{1. a\n2. b\n3. c}");
+        is("numbered again makes them plain", "{1. a\n2. b}", F::Numbered, "{a\nb}");
+        is("H2 on a paragraph", "Ti|tle", F::H2, "## Ti|tle");
+        is("H1 on an H2 changes the level", "## Ti|tle", F::H1, "# Ti|tle");
+        is("H2 on an H2 makes it plain", "## Ti|tle", F::H2, "Ti|tle");
+        is("a heading drops a list mark", "- Ti|tle", F::H3, "### Ti|tle");
+        is("plain strips everything", "{## A\n- [ ] b\n> c}", F::Plain, "{A\nb\nc}");
+        is("quote adds and removes", "{a\nb}", F::Quote, "{> a\n> b}");
+        is("quote off", "{> a\n> b}", F::Quote, "{a\nb}");
+        is("a bullet inside a quote keeps the quote", "> |x", F::Bullet, "> - |x");
+        is("a cursor inside the old mark lands at the words", "#|# A", F::H1, "# |A");
+        is("a selection ending at the next line's start leaves that line alone",
+           "{a\n}b", F::Bullet, "{- a\n}b");
+        // blocks
+        is("code block fences the lines", "x\n{a\nb}\ny", F::CodeBlock, "x\n```\n{a\nb}\n```\ny");
+        is("code block on a blank line opens an empty block", "|", F::CodeBlock, "```\n|\n```");
+        is("code block inside a fence removes it", "x\n```\na|\n```\ny", F::CodeBlock, "x\n{a}\ny");
+        is("code block from the fence line removes it too", "```|\na\n```", F::CodeBlock, "{a}");
+        is("code block outside any fence adds one", "```\na\n```\n|b", F::CodeBlock,
+           "```\na\n```\n```\n{b}\n```");
     }
 
     // -- Import: a markdown file becomes a note (s021b) ----------------------

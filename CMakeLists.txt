@@ -58,6 +58,9 @@ add_library(jot_core STATIC
     # The READING view (s021): the source minus its marks, with a codepoint map
     # back -- the ground Live Preview will stand on.
     src/core/Render.cpp
+    # The format bar's verbs as text edits (s024): wrap, prefix, fence -- and
+    # the toggle back. GTK-free so every edit is checked before a buffer sees it.
+    src/core/Format.cpp
     # A markdown file from anywhere becomes a note (s021b).
     src/core/Import.cpp
     src/core/Recents.cpp

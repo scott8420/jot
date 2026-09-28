@@ -13,6 +13,7 @@
 #include <gtkmm/icontheme.h>
 #include <gtkmm/label.h>
 #include <gtkmm/picture.h>
+#include <gtkmm/popover.h>
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/separator.h>
 #include <glibmm/main.h>
@@ -68,6 +69,8 @@ void install_code_css() {
 
 EditorPane::EditorPane(std::string_view name)
     : widgets::Box(name, Gtk::Orientation::VERTICAL, 6),
+      m_fmt_bar("editor.fmt", Gtk::Orientation::HORIZONTAL, 2),
+      m_fmt_heading("editor.fmt.heading"),
       m_scroll("editor.scroll"),
       m_body("editor.body"),
       m_status("editor.status"),
@@ -114,6 +117,8 @@ EditorPane::EditorPane(std::string_view name)
     m_stack.set_transition_type(Gtk::StackTransitionType::CROSSFADE);
     m_stack.set_transition_duration(120);
     m_stack.set_vexpand(true);
+    build_format_bar();
+    append(m_fmt_bar);
     append(m_stack);
 
     m_read_click = Gtk::GestureClick::create();
@@ -849,6 +854,130 @@ void EditorPane::on_cursor_moved() {
     m_styling = false;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The format bar (s024). Every button is one core::Fmt; core::format says what
+// the edit is and this applies it as ONE user action, so a single Ctrl+Z takes
+// it back. The source stays the truth: nothing here is a style, it is text.
+//
+// Text glyphs, all of them, for now. Icons were tried first: under Xvfb the
+// theme said it HAD view-list-bullet-symbolic and drew a broken-image square,
+// so has_icon() is no guard. Scott is drawing jot's icons (Curvz); these are
+// placeholders that cannot go blank in the meantime.
+// ─────────────────────────────────────────────────────────────────────────────
+void EditorPane::build_format_bar() {
+    using F = core::Fmt;
+    m_fmt_bar.add_css_class("toolbar");
+    m_fmt_bar.set_margin_start(2);
+
+    auto make = [this](const char* wname, F f, const char* markup, const char* tip) {
+        auto* b = Gtk::make_managed<widgets::Button>(wname);
+        auto* l = Gtk::make_managed<Gtk::Label>();
+        l->set_markup(markup);
+        b->set_child(*l);
+        b->set_tooltip_text(tip);
+        b->add_css_class("flat");
+        // A click must not take focus from the note: the selection it acts on
+        // lives there, and the next keystroke should land there too.
+        b->set_focus_on_click(false);
+        b->signal_clicked().connect([this, f]() { apply_format(f); });
+        return b;
+    };
+    auto sep = [this](const char* wname) {
+        auto* s = Gtk::make_managed<widgets::Separator>(wname, Gtk::Orientation::VERTICAL);
+        s->set_margin_start(4);
+        s->set_margin_end(4);
+        m_fmt_bar.append(*s);
+    };
+
+    // Heading: one button, a short menu -- three levels and back to plain.
+    m_fmt_heading.set_label("H");
+    m_fmt_heading.set_tooltip_text("Heading");
+    m_fmt_heading.set_always_show_arrow(true);
+    m_fmt_heading.add_css_class("flat");
+    m_fmt_heading.set_focus_on_click(false);
+    auto* pop  = Gtk::make_managed<Gtk::Popover>();
+    auto* list = Gtk::make_managed<widgets::Box>("editor.fmt.heading.list",
+                                                 Gtk::Orientation::VERTICAL, 0);
+    struct H { const char* wname; F f; const char* markup; };
+    for (const H& h : {H{"editor.fmt.h1", F::H1, "<span size='x-large' weight='bold'>Heading 1</span>"},
+                       H{"editor.fmt.h2", F::H2, "<span size='large' weight='bold'>Heading 2</span>"},
+                       H{"editor.fmt.h3", F::H3, "<b>Heading 3</b>"},
+                       H{"editor.fmt.plain", F::Plain, "Plain text"}}) {
+        auto* b = Gtk::make_managed<widgets::Button>(h.wname);
+        auto* l = Gtk::make_managed<Gtk::Label>();
+        l->set_markup(h.markup);
+        l->set_xalign(0.0f);
+        b->set_child(*l);
+        b->add_css_class("flat");
+        b->set_focus_on_click(false);
+        const F f = h.f;
+        b->signal_clicked().connect([this, pop, f]() {
+            pop->popdown();
+            apply_format(f);
+        });
+        list->append(*b);
+    }
+    pop->set_child(*list);
+    m_fmt_heading.set_popover(*pop);
+    m_fmt_bar.append(m_fmt_heading);
+
+    sep("editor.fmt.sep1");
+    m_fmt_bar.append(*make("editor.fmt.bold",   F::Bold,   "<b>B</b>", "Bold (Ctrl+B)"));
+    m_fmt_bar.append(*make("editor.fmt.italic", F::Italic, "<i>I</i>", "Italic (Ctrl+I)"));
+    m_fmt_bar.append(*make("editor.fmt.strike", F::Strike, "<s>S</s>", "Strikethrough"));
+    m_fmt_bar.append(*make("editor.fmt.code",   F::Code,   "<tt>&lt;/&gt;</tt>", "Inline code"));
+    m_fmt_bar.append(*make("editor.fmt.link",   F::Link,   "<u>Link</u>",
+                           "Link (Ctrl+K)"));
+    sep("editor.fmt.sep2");
+    m_fmt_bar.append(*make("editor.fmt.bullet",   F::Bullet,   "<b>•</b>", "Bulleted list"));
+    m_fmt_bar.append(*make("editor.fmt.numbered", F::Numbered, "1.", "Numbered list"));
+    m_fmt_bar.append(*make("editor.fmt.task",     F::Task,     "☐", "Task"));
+    m_fmt_bar.append(*make("editor.fmt.quote",    F::Quote,    "<b>“</b>", "Quote"));
+    m_fmt_bar.append(*make("editor.fmt.codeblock", F::CodeBlock, "<tt>{ }</tt>",
+                           "Code block"));
+
+    // The keys: on the NOTE, not the application -- an app accel would fire
+    // from the tree or a rename field too, and Ctrl+B in a name field is not
+    // a request to bold the note (the s016c lesson, TreePane's Delete).
+    m_fmt_keys = Gtk::EventControllerKey::create();
+    m_fmt_keys->signal_key_pressed().connect(
+        [this](guint keyval, guint, Gdk::ModifierType state) {
+            const auto mods = state & (Gdk::ModifierType::CONTROL_MASK |
+                                       Gdk::ModifierType::SHIFT_MASK |
+                                       Gdk::ModifierType::ALT_MASK);
+            if (mods != Gdk::ModifierType::CONTROL_MASK) return false;
+            switch (gdk_keyval_to_lower(keyval)) {
+                case GDK_KEY_b: apply_format(core::Fmt::Bold);   return true;
+                case GDK_KEY_i: apply_format(core::Fmt::Italic); return true;
+                case GDK_KEY_k: apply_format(core::Fmt::Link);   return true;
+                default: return false;
+            }
+        }, false);
+    m_body.add_controller(m_fmt_keys);
+}
+
+void EditorPane::apply_format(core::Fmt f) {
+    if (m_id.empty() || m_reading || !m_body.get_editable()) return;
+    auto buf = m_body.get_buffer();
+    Gtk::TextBuffer::iterator s, e;
+    buf->get_selection_bounds(s, e);
+    // include_hidden_chars: Live Preview's marks are tagged invisible, and an
+    // edit computed without them would land in the wrong place (s022).
+    const std::string text = buf->get_text(/*include_hidden_chars=*/true);
+    const core::FmtEdit ed = core::format(text, s.get_offset(), e.get_offset(), f);
+    if (ed.ok) {
+        buf->begin_user_action();
+        auto it = buf->erase(buf->get_iter_at_offset(ed.cp_begin), buf->get_iter_at_offset(ed.cp_end));
+        if (!ed.text.empty()) buf->insert(it, ed.text);
+        buf->end_user_action();
+        buf->select_range(buf->get_iter_at_offset(ed.sel_begin), buf->get_iter_at_offset(ed.sel_end));
+    }
+    if (auto lg = log::get(log::Area::Editor))
+        lg->debug("format {}: note={} [{},{}) -> {}", static_cast<int>(f), m_id, ed.cp_begin,
+                  ed.cp_end, ed.ok ? "edit" : "nothing");
+    m_body.grab_focus();
+}
+
 void EditorPane::set_source(core::NodeSource* src) {
     m_src = src;
     show_node("");
@@ -857,6 +986,7 @@ void EditorPane::set_source(core::NodeSource* src) {
 void EditorPane::set_editable(bool on) {
     m_body.set_editable(on);
     m_body.set_cursor_visible(on);
+    m_fmt_bar.set_sensitive(on);   // s024: a protected note is not written into
 }
 
 void EditorPane::show_node(const core::NodeId& id) {
@@ -988,6 +1118,7 @@ bool EditorPane::toggle_task_at(int line, int cp_offset) {
 void EditorPane::set_reading(bool on, int source_cp) {
     if (on == m_reading && source_cp < 0) return;
     m_reading = on;
+    m_fmt_bar.set_visible(!on);   // s024: Reading has nothing to write into
     auto body = m_body.get_buffer();
     if (on) {
         render_reading();

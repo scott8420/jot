@@ -192,6 +192,14 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         // or every mark on screen.
         {"View", "win.toggle-live",     {"<Ctrl><Shift>e"}, "",
          "Live preview: hide the marks except on the line you are on"},
+
+        // ── Writing ───────────────────────────────────────────
+        // s024: doc-only rows. These are bound on the NOTE, not the app, so
+        // they cannot fire from the tree or a rename field; the format bar
+        // above the note has the rest (headings, lists, quote, code block).
+        {"Writing", "", {}, "Ctrl+B", "Bold -- or unbold (in the note)"},
+        {"Writing", "", {}, "Ctrl+I", "Italic -- or not (in the note)"},
+        {"Writing", "", {}, "Ctrl+K", "Link: the selection becomes its label (in the note)"},
     };
     return kReg;
 }
