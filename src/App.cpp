@@ -49,19 +49,33 @@ App::App()
     add_main_option_entry(Gtk::Application::OptionType::BOOL, "capture", 'c',
                           "Capture a thought. With words after it, file them without "
                           "opening jot; with nothing, open the capture line.");
+    // s025c. BOOL for the same reason as --capture: GLib takes the flag, and
+    // the NAME and items are what is left in argv.
+    add_main_option_entry(Gtk::Application::OptionType::BOOL, "list", 'l',
+                          "Add tasks to a list: jot --list NAME item [item...]. Grows the "
+                          "note called NAME, or makes it. Quote an item of several words.");
+    // s025d (Scott): the name is the first plain word; the flag says what to
+    // add. `jot Groceries -a check the pantry first`.
+    add_main_option_entry(Gtk::Application::OptionType::BOOL, "append", 'a',
+                          "Add a line of text to a note: jot NAME -a words... Grows the note "
+                          "called NAME, or makes it.");
 }
 
 // The parse, kept away from the plumbing. `capture_flag` comes from the options
 // dict because GLib has already taken the flag out of argv. Several words are
 // joined, so an unquoted `jot --capture ring the vet` does what it looks like it
 // does rather than filing the word "ring".
-App::Request App::parse(const std::vector<std::string>& argv, bool capture_flag) {
+App::Request App::parse(const std::vector<std::string>& argv, bool capture_flag,
+                        bool list_flag, bool append_flag) {
     Request r;
     r.capture = capture_flag;
+    r.list = list_flag;
+    r.append = append_flag;
     for (std::size_t i = 1; i < argv.size(); ++i) {
         if (argv[i].empty() || argv[i][0] == '-') continue;   // an option we do not own
         if (!r.text.empty()) r.text += " ";
         r.text += argv[i];
+        r.words.push_back(argv[i]);
     }
     return r;
 }
@@ -100,8 +114,92 @@ int App::on_command_line(const Glib::RefPtr<Gio::ApplicationCommandLine>& cmd) {
         gboolean on = FALSE;
         if (g_variant_dict_lookup(opts, "capture", "b", &on)) capture_flag = on;
     }
+    bool list_flag = false, append_flag = false;
+    if (GVariantDict* opts = g_application_command_line_get_options_dict(cmd->gobj())) {
+        gboolean on = FALSE;
+        if (g_variant_dict_lookup(opts, "list", "b", &on)) list_flag = on;
+        on = FALSE;
+        if (g_variant_dict_lookup(opts, "append", "b", &on)) append_flag = on;
+    }
 
-    const Request r = parse(argv, capture_flag);
+    const Request r = parse(argv, capture_flag, list_flag, append_flag);
+
+    // ── jot NAME -a words (s025d) ──────────────────────────────────────────
+    // Same shape as --list below: never a window, answered in the terminal,
+    // spooled when jot is closed.
+    if (r.append && r.list) {
+        cmd->printerr("jot: -l or -a, not both.\n");
+        return 1;
+    }
+    if (r.append) {
+        if (r.words.size() < 2) {
+            cmd->printerr("usage: jot NAME -a words...\n"
+                          "  e.g. jot Groceries -a check the pantry first\n");
+            return 1;
+        }
+        const std::string name = r.words.front();
+        std::string text;
+        for (std::size_t i = 1; i < r.words.size(); ++i) {
+            if (!text.empty()) text += ' ';
+            text += r.words[i];
+        }
+        for (auto& c : text) if (c == '\n' || c == '\r') c = ' ';
+        if (!cmd->is_remote()) {
+            if (file_pending(text, {}, name)) {
+                cmd->print("Filed a line for \"" + name + "\". jot will add it next time it opens.\n");
+                return 0;
+            }
+            cmd->printerr("jot: could not write to the pending folder; opening jot instead.\n");
+        }
+        ensure_shell(false);
+        if (!m_shell) return 1;
+        const std::string said = m_shell->capture_append(name, text);
+        if (said.empty()) {
+            cmd->printerr("jot: nothing to add.\n");
+            return 1;
+        }
+        cmd->print(said + "\n");
+        return 0;
+    }
+
+    // ── jot --list NAME item... (s025c) ────────────────────────────────────
+    // Never a window: it comes from a terminal or a script, and the terminal
+    // is where it answers. Running -> filed now; not running -> spooled, and
+    // the next launch files it through the same core::capture_list.
+    if (r.list) {
+        if (r.words.size() < 2) {
+            cmd->printerr("usage: jot NAME -l item [item...]\n"
+                          "  e.g. jot Groceries -l milk eggs \"sourdough bread\"\n");
+            return 1;
+        }
+        const std::string name = r.words.front();
+        const std::vector<std::string> items(r.words.begin() + 1, r.words.end());
+        if (!cmd->is_remote()) {
+            std::string joined;
+            for (const auto& it : items) {
+                if (!joined.empty()) joined += '\n';
+                std::string one = it;
+                for (auto& c : one) if (c == '\n' || c == '\r') c = ' ';
+                joined += one;
+            }
+            if (file_pending(joined, name)) {
+                cmd->print("Filed " + std::to_string(items.size()) +
+                           (items.size() == 1 ? " item" : " items") + " for \"" + name +
+                           "\". jot will add them next time it opens.\n");
+                return 0;
+            }
+            cmd->printerr("jot: could not write to the pending folder; opening jot instead.\n");
+        }
+        ensure_shell(false);
+        if (!m_shell) return 1;
+        const std::string said = m_shell->capture_list(name, items);
+        if (said.empty()) {
+            cmd->printerr("jot: nothing to add.\n");
+            return 1;
+        }
+        cmd->print(said + "\n");
+        return 0;
+    }
     // A capture with words in it is the one request that does NOT want to be
     // looked at: it comes from a script or a keybinding, and a window thrown in
     // front of whatever you were doing is the reason you would stop using it.
@@ -152,7 +250,8 @@ std::string App::pending_dir() const {
     return core::pending_dir(Glib::get_user_data_dir());
 }
 
-bool App::file_pending(const std::string& text) const {
+bool App::file_pending(const std::string& text, const std::string& list,
+                       const std::string& append) const {
     // The uniquifier only has to separate two captures taken in the same second.
     // A pid does that for separate invocations, which is what a cold capture
     // always is -- this process is about to exit.
@@ -161,7 +260,7 @@ bool App::file_pending(const std::string& text) const {
                          .count();
     std::string wrote;
     if (!core::write_pending(pending_dir(), text, static_cast<std::int64_t>(now),
-                             std::to_string(getpid()), &wrote))
+                             std::to_string(getpid()), &wrote, list, append))
         return false;
     if (auto lg = log::get(log::Area::Io)) lg->info("spooled a capture into {}", wrote);
     return true;

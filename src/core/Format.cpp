@@ -1,4 +1,5 @@
 #include "core/Format.hpp"
+#include "core/Markdown.hpp"
 
 #include <algorithm>
 #include <vector>
@@ -283,6 +284,9 @@ struct Pre {
     bool checked = false;
     int  body = 0;           // first cp of the text proper
     bool blank = false;
+    char32_t bullet = U'-';  // the list mark as written: - * +
+    long     num = 0;        // a numbered item's number
+    char32_t delim = U'.';   // and its . or )
 };
 
 Pre parse(const U& s) {
@@ -311,7 +315,8 @@ Pre parse(const U& s) {
             p.level = k - i;
             p.body = std::min(n, k + 1);
         }
-    } else if ((c == U'-' || c == U'*' || c == U'+') && at(i + 1) == U' ') {
+    } else if ((c == U'-' || c == U'*' || c == U'+') && (at(i + 1) == U' ' || i + 1 >= n)) {
+        p.bullet = c;
         const char32_t st = at(i + 3);
         if (at(i + 2) == U'[' && (st == U' ' || st == U'x' || st == U'X') && at(i + 4) == U']' &&
             sp_or_end(i + 5)) {
@@ -320,13 +325,15 @@ Pre parse(const U& s) {
             p.body = std::min(n, i + 6);
         } else {
             p.kind = Kind::Bullet;
-            p.body = i + 2;
+            p.body = std::min(n, i + 2);
         }
     } else if (is_digit(c)) {
         int k = i;
         while (is_digit(at(k))) ++k;
-        if ((at(k) == U'.' || at(k) == U')') && sp_or_end(k + 1)) {
+        if (k - i <= 9 && (at(k) == U'.' || at(k) == U')') && sp_or_end(k + 1)) {
             p.kind = Kind::Numbered;
+            p.delim = at(k);
+            for (int d = i; d < k; ++d) p.num = p.num * 10 + (s[static_cast<std::size_t>(d)] - U'0');
             p.body = std::min(n, k + 2);
         }
     }
@@ -489,7 +496,154 @@ FmtEdit code_block(const U& t, int a, int b) {
     return finish(t, r0, r1, {{r0, r1 - r0, out}}, c0, c0 + static_cast<int>(inner.size()));
 }
 
+// ── typing in a list (s025) ──────────────────────────────────────────────────
+bool is_list(const Pre& p) {
+    return p.kind == Kind::Bullet || p.kind == Kind::Task || p.kind == Kind::Numbered;
+}
+
+// Lines a fence owns are code: a `- x` there is text, never a list.
+std::vector<bool> code_lines(const std::string& body) {
+    const Scan sc = scan(body);
+    std::vector<bool> out;
+    out.reserve(sc.lines.size());
+    for (const auto& ln : sc.lines) out.push_back(ln.block == Block::Code || ln.block == Block::Fence);
+    return out;
+}
+
+U line_text(const U& t, const Lines& L, int i) {
+    const int s = L.start[static_cast<std::size_t>(i)];
+    return t.substr(static_cast<std::size_t>(s), static_cast<std::size_t>(L.end(i) - s));
+}
+
+int indent_of(const Pre& p) { return p.ind_end - p.qe; }
+
+// Where a list line's indent should go. In: under the nearest item above at
+// the SAME level, lined up with its words (so `1. ` nests by three, `- ` by
+// two -- what markdown itself asks for). Out: to the level of the nearest item
+// above that is LESS indented -- its parent. Blank lines are passed over; any
+// other line ends the list and the search.
+int target_indent(const U& t, const Lines& L, int line, const Pre& p, bool outdent) {
+    const int cur = indent_of(p);
+    for (int j = line - 1; j >= 0; --j) {
+        const Pre q = parse(line_text(t, L, j));
+        if (q.blank) continue;
+        if (!is_list(q) || q.quote != p.quote) break;
+        const int qi = indent_of(q);
+        if (!outdent && qi == cur) {
+            // A task's words start after `- [ ] `, but its children line up
+            // under the `[`, as they would under a plain bullet's words.
+            const int w = q.kind == Kind::Task ? 2 : q.body - q.ind_end;
+            return cur + std::max(2, w);
+        }
+        if (!outdent && qi < cur) return cur;           // already this item's first child
+        if (outdent && qi < cur) return qi;
+    }
+    return outdent ? 0 : cur + 2;
+}
+
 }  // namespace
+
+FmtEdit indent(const std::string& body, int sel_begin, int sel_end, bool outdent) {
+    const U t = decode(body);
+    const int n = static_cast<int>(t.size());
+    const int a = std::clamp(std::min(sel_begin, sel_end), 0, n);
+    const int b = std::clamp(std::max(sel_begin, sel_end), 0, n);
+    const Lines L = lines_of(t);
+    const auto code = code_lines(body);
+    int la = 0, lb = 0;
+    touched(L, a, b, la, lb);
+
+    // The first list line decides how far; every list line moves that far,
+    // so a selected sub-list keeps its shape.
+    int delta = 0;
+    bool any = false;
+    for (int i = la; i <= lb && !any; ++i) {
+        if (static_cast<std::size_t>(i) < code.size() && code[static_cast<std::size_t>(i)]) continue;
+        const Pre p = parse(line_text(t, L, i));
+        if (!is_list(p)) continue;
+        any = true;
+        delta = target_indent(t, L, i, p, outdent) - indent_of(p);
+    }
+    if (!any) return {};
+
+    std::vector<Ed> eds;
+    for (int i = la; i <= lb; ++i) {
+        if (static_cast<std::size_t>(i) < code.size() && code[static_cast<std::size_t>(i)]) continue;
+        const Pre p = parse(line_text(t, L, i));
+        if (!is_list(p)) continue;
+        const int s = L.start[static_cast<std::size_t>(i)];
+        const int now = indent_of(p), want = std::max(0, now + delta);
+        if (want == now) continue;
+        eds.push_back({s + p.qe, now, U(static_cast<std::size_t>(want), U' ')});   // tabs become spaces
+    }
+    const int r0 = L.start[static_cast<std::size_t>(la)], r1 = L.end(lb);
+    // A position in the moved indent stays at the line's mark -- except the
+    // start of a selection at a line's start, which keeps the whole line.
+    auto carry = [&](int pos) {
+        int d = 0;
+        for (const auto& e : eds) {
+            if (a != b && pos == a && pos == e.pos && e.pos == L.start[static_cast<std::size_t>(L.of(pos))])
+                return pos + d;
+            if (pos >= e.pos + e.del) d += static_cast<int>(e.ins.size()) - e.del;
+            else if (pos > e.pos) return e.pos + d + static_cast<int>(e.ins.size());
+        }
+        return pos + d;
+    };
+    return finish(t, r0, r1, eds, carry(a), carry(b));
+}
+
+FmtEdit enter(const std::string& body, int sel_begin, int sel_end) {
+    if (sel_begin != sel_end) return {};
+    const U t = decode(body);
+    const int a = std::clamp(sel_begin, 0, static_cast<int>(t.size()));
+    const Lines L = lines_of(t);
+    const int ln = L.of(a);
+    const auto code = code_lines(body);
+    if (static_cast<std::size_t>(ln) < code.size() && code[static_cast<std::size_t>(ln)]) return {};
+
+    const U s = line_text(t, L, ln);
+    const Pre p = parse(s);
+    if (!is_list(p) && !p.quote) return {};
+    if (p.kind == Kind::Heading) return {};
+    const int ls = L.start[static_cast<std::size_t>(ln)];
+    const int col = a - ls;
+    const int mark_end = is_list(p) ? p.body : p.qe;
+    if (col < mark_end) return {};      // inside the mark: an ordinary newline
+
+    bool empty = true;
+    for (int k = mark_end; k < static_cast<int>(s.size()); ++k)
+        if (!is_space(s[static_cast<std::size_t>(k)])) { empty = false; break; }
+
+    if (empty) {
+        // Enter on an empty item. Nested: step out a level (and the cursor
+        // stays on the item, ready to type). Top level: the mark goes, and
+        // with it the list; a quote's `> ` goes last.
+        if (is_list(p) && indent_of(p) > 0) {
+            FmtEdit e = indent(body, a, a, true);
+            if (e.ok) return e;
+        }
+        const U keep = is_list(p) ? s.substr(0, static_cast<std::size_t>(p.qe)) : U();
+        const int r1 = L.end(ln);
+        return {true, ls, r1, encode(keep), ls + static_cast<int>(keep.size()),
+                ls + static_cast<int>(keep.size())};
+    }
+
+    U mark = s.substr(0, static_cast<std::size_t>(p.ind_end));   // `> ` and the indent, as written
+    switch (p.kind) {
+        case Kind::Bullet:   mark += U(1, p.bullet) + U(U" "); break;
+        case Kind::Task:     mark += U(1, p.bullet) + U(U" [ ] "); break;
+        case Kind::Numbered: mark += decode(std::to_string(p.num + 1)) + U(1, p.delim) + U(U" "); break;
+        default: break;
+    }
+    // The words after the cursor go down with it; spaces left at the break
+    // on either side are not worth keeping.
+    int cut = a, rest = a;
+    while (cut > ls + mark_end && is_space(t[static_cast<std::size_t>(cut - 1)])) --cut;
+    while (rest < L.end(ln) && is_space(t[static_cast<std::size_t>(rest)])) ++rest;
+    const U ins = U(U"\n") + mark;
+    const int c = cut + static_cast<int>(ins.size());
+    return {true, cut, rest, encode(ins), c, c};
+}
 
 FmtEdit format(const std::string& body, int sel_begin, int sel_end, Fmt f) {
     const U t = decode(body);

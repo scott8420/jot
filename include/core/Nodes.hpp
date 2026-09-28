@@ -196,6 +196,36 @@ void capture_split(const std::string& text, std::string& title, std::string& bod
 // purpose: two capture paths that split text differently would be two apps.
 NodeId capture(NodeSource& src, const std::string& text);
 
+// ── a list from the command line (s025c) ────────────────────────────────────
+// `jot --list Groceries milk eggs "sourdough bread"` (Scott): a name and a set
+// of items. Each item becomes a TASK line (`- [ ] milk`) -- a list you can
+// tick off in jot. If a note with that title already exists it GROWS; else a
+// new top-level note, the same place a capture lands.
+//
+// "That title": trimmed, case-insensitive (ASCII), the first match in tree
+// order. A protected note is not a match -- it is read-only, so a second
+// note is made rather than writing into it.
+//
+// Items are cleaned: trimmed, a newline inside one becomes a space, an empty
+// one is dropped. No name or no items -> nothing done, empty id.
+// `appended` says which of the two happened.
+NodeId capture_list(NodeSource& src, const std::string& name,
+                    const std::vector<std::string>& items, bool* appended = nullptr);
+
+// s025d: `jot Groceries -a check the pantry` -- one line of plain text on the
+// end of the note NAME, grown or made exactly as capture_list does. The line
+// never joins a list above it: after a list line a blank line comes first
+// (markdown would otherwise read it as that item's continuation).
+NodeId capture_append(NodeSource& src, const std::string& name, const std::string& text,
+                      bool* appended = nullptr);
+std::string append_text(const std::string& body, const std::string& text);
+
+// The pure half: `body` with the items added as task lines, on a fresh line.
+std::string append_tasks(const std::string& body, const std::vector<std::string>& items);
+
+// The note titled `title` as capture_list means it, or empty.
+NodeId find_list_note(const NodeSource& src, const std::string& title);
+
 // Model-side dump -- the sibling of registry::dump(), other layer. Ids and
 // parents, indented by depth. This is what you want the first time a link
 // resolves to nothing.

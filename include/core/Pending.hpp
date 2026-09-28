@@ -55,6 +55,12 @@ struct Pending {
     std::string  path;          // the file it came out of -- what remove_pending takes
     std::string  text;          // exactly what was typed, newlines and all
     std::int64_t captured = 0;  // epoch seconds; 0 when the file carried no date
+    // s025c: `jot --list NAME items...` while jot was closed. Non-empty = the
+    // note to add to, and `text` holds one item per line.
+    std::string  list;
+    // s025d: `jot NAME -a words` while closed. Non-empty = the note to add
+    // `text` to, as one line.
+    std::string  append;
 };
 
 // The spool, given the XDG data dir. One definition of the subpath, so App and
@@ -63,7 +69,8 @@ std::string pending_dir(const std::string& data_dir);
 
 // The pump. `when` is epoch seconds; `uniq` distinguishes two captures taken in
 // the same second (the caller passes something per-process -- a pid).
-std::string encode_pending(const std::string& text, std::int64_t when);
+std::string encode_pending(const std::string& text, std::int64_t when,
+                           const std::string& list = {}, const std::string& append = {});
 bool        decode_pending(const std::string& raw, Pending& out);
 std::string pending_name(std::int64_t when, const std::string& uniq);
 
@@ -74,7 +81,8 @@ std::string pending_name(std::int64_t when, const std::string& uniq);
 // `wrote` takes the path actually used. Returns false if nothing reached disk.
 bool write_pending(const std::string& dir, const std::string& text,
                    std::int64_t when, const std::string& uniq,
-                   std::string* wrote = nullptr);
+                   std::string* wrote = nullptr, const std::string& list = {},
+                   const std::string& append = {});
 
 // Everything waiting, OLDEST FIRST, so the drained notes land in the order they
 // were thought of. Removes nothing. A file with no front matter is read as a

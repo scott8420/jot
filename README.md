@@ -51,7 +51,22 @@ kept in the body.
 ```sh
 jot --capture "ring the vet about the booster"   # files it, silently
 jot --capture                                    # opens the capture line
+jot Groceries -l milk eggs "sourdough bread"     # tasks on the note "Groceries"
+jot Groceries -a check the pantry first          # a line of text on it
 ```
+
+The first plain word is the note's NAME; the flag says what to add.
+`-l` (`--list`) adds one task per argument (`- [ ] milk`; quote an item
+of several words). `-a` (`--append`) joins the words into one line of
+text. If a note of that name exists (any case, anywhere in the tree, not
+protected) it grows; otherwise a new note is made at the top level. It
+answers in the terminal -- `Made "Groceries" with 3 items.`, `Added a
+line to "Groceries".` -- so a mistyped name shows as "Made". With jot
+closed it is filed the next time jot opens.
+
+`jot` is not put on your PATH by the build. To run it by name:
+`ln -s "$PWD/build/jot" ~/.local/bin/jot` (a link, so every rebuild is
+picked up).
 
 jot is a **single instance**: with jot running, the second command
 forwards its arguments to the running one over the session bus and

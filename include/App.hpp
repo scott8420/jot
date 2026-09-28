@@ -58,8 +58,17 @@ protected:
 private:
     // argv -> what to do. Pure, so the parsing is a thing the selftest could
     // reach if it ever needs to, and so on_command_line stays about plumbing.
-    struct Request { bool capture = false; std::string text; };
-    static Request parse(const std::vector<std::string>& argv, bool capture_flag);
+    // s025c: `list` -- `jot --list NAME item...`; `words` keeps each argument
+    // whole (an item may be several words in quotes), `text` joins them.
+    struct Request {
+        bool capture = false;
+        bool list = false;
+        bool append = false;   // s025d
+        std::string text;
+        std::vector<std::string> words;
+    };
+    static Request parse(const std::vector<std::string>& argv, bool capture_flag,
+                         bool list_flag = false, bool append_flag = false);
 
     // ── ensure_shell -- activation, with the presenting made a DECISION ─────
     // on_activate() presented unconditionally, which was invisible until s012:
@@ -81,7 +90,8 @@ private:
     // subpath itself is core::pending_dir so this and the Shell's drain cannot
     // disagree about the folder.
     std::string pending_dir() const;
-    bool        file_pending(const std::string& text) const;
+    bool        file_pending(const std::string& text, const std::string& list = {},
+                             const std::string& append = {}) const;
 
     Shell* m_shell = nullptr;   // owned by the application via add_window
 };

@@ -12,6 +12,7 @@
 //   cmake --build build --target jot_selftest && ./build/jot_selftest
 
 #include "core/Format.hpp"
+#include <functional>
 #include "core/Links.hpp"
 #include "core/Markdown.hpp"
 #include "core/Nodes.hpp"
@@ -1378,7 +1379,7 @@ int main() {
             }
             return i;
         };
-        auto run = [&](std::string in, core::Fmt f) {
+        auto run_with = [&](std::string in, const std::function<core::FmtEdit(const std::string&, int, int)>& verb) {
             int a = -1, b = -1;
             if (auto p = in.find('|'); p != std::string::npos) {
                 in.erase(p, 1);
@@ -1391,7 +1392,7 @@ int main() {
                 a = core::cp_len(in, 0, static_cast<int>(p0));
                 b = core::cp_len(in, 0, static_cast<int>(p1));
             }
-            const auto e = core::format(in, a, b, f);
+            const auto e = verb(in, a, b);
             if (!e.ok) return std::string("(no edit)");
             std::string out = core::apply(in, e);
             if (e.sel_begin == e.sel_end) {
@@ -1401,6 +1402,9 @@ int main() {
                 out.insert(cp2b(out, e.sel_begin), "{");
             }
             return out;
+        };
+        auto run = [&](const std::string& in, core::Fmt f) {
+            return run_with(in, [f](const std::string& t, int a, int b) { return core::format(t, a, b, f); });
         };
         auto is = [&](const std::string& what, const std::string& in, core::Fmt f,
                       const std::string& want) {
@@ -1473,6 +1477,49 @@ int main() {
         is("code block from the fence line removes it too", "```|\na\n```", F::CodeBlock, "{a}");
         is("code block outside any fence adds one", "```\na\n```\n|b", F::CodeBlock,
            "```\na\n```\n```\n{b}\n```");
+
+        // -- s025: Enter and Tab in a list ------------------------------------
+        auto en = [&](const std::string& what, const std::string& in, const std::string& want) {
+            const std::string got = run_with(in, [](const std::string& t, int a, int b) {
+                return core::enter(t, a, b);
+            });
+            check("enter: " + what, got == want, got);
+        };
+        auto tab = [&](const std::string& what, const std::string& in, bool out, const std::string& want) {
+            const std::string got = run_with(in, [out](const std::string& t, int a, int b) {
+                return core::indent(t, a, b, out);
+            });
+            check(std::string(out ? "shift+tab: " : "tab: ") + what, got == want, got);
+        };
+        en("a bullet continues", "- milk|", "- milk\n- |");
+        en("the bullet's own mark is kept", "* milk|", "* milk\n* |");
+        en("a task continues unticked", "- [x] milk|", "- [x] milk\n- [ ] |");
+        en("a number counts on, keeping its )", "9) nine|", "9) nine\n10) |");
+        en("nesting is kept", "  - kid|", "  - kid\n  - |");
+        en("mid-item, the rest goes down with it", "- buy |milk", "- buy\n- |milk");
+        en("a quote continues", "> said|", "> said\n> |");
+        en("a list in a quote continues both", "> - a|", "> - a\n> - |");
+        en("an empty top-level item ends the list", "- a\n- |", "- a\n|");
+        en("an empty task too", "- a\n- [ ] |", "- a\n|");
+        en("an empty nested item steps out a level", "- a\n  - |", "- a\n- |");
+        en("an empty item in a quote keeps the quote", "> - |", "> |");
+        en("an empty quote line ends the quote", "> a\n> |", "> a\n|");
+        en("a plain line is the text view's", "plain|", "(no edit)");
+        en("a heading is the text view's", "# Head|", "(no edit)");
+        en("the cursor inside the mark is the text view's", "-| a", "(no edit)");
+        en("a selection is the text view's", "- {a}", "(no edit)");
+        en("inside a code block is the text view's", "```\n- a|\n```", "(no edit)");
+        tab("nests under the item above, lined up with its words", "- a\n- |b", false, "- a\n  - |b");
+        tab("under a number, by the number's width", "1. a\n2. |b", false, "1. a\n   2. |b");
+        tab("under a task, as under its bullet", "- [ ] a\n- [ ] |b", false, "- [ ] a\n  - [ ] |b");
+        tab("the first child can't go deeper (nothing changes)", "- a\n  - |b", false, "- a\n  - |b");
+        tab("the first item with nothing above still nests", "- |a", false, "  - |a");
+        tab("a selected sub-list moves together", "- a\n{- b\n  - c}", false, "- a\n{  - b\n    - c}");
+        tab("a plain line is the text view's", "pla|in", false, "(no edit)");
+        tab("out to the parent's level", "- a\n  - |b", true, "- a\n- |b");
+        tab("out from deep", "- a\n  - b\n    - |c", true, "- a\n  - b\n  - |c");
+        tab("out at the top does nothing, but is ours", "- |a", true, "- |a");
+        tab("the cursor in the indent lands at the mark", "- a\n | - b", true, "- a\n|- b");
     }
 
     // -- Import: a markdown file becomes a note (s021b) ----------------------
@@ -2547,6 +2594,67 @@ int main() {
                   m.find(existing) && m.find(existing)->title == "a note I am reading");
             check("capture: an empty capture creates nothing",
                   core::capture(m, "   ").empty() && m.count() == 2);
+        }
+
+        // s025c: jot --list NAME item...
+        {
+            core::MemoryNodes m;
+            const auto proj = m.create("", "Projects");
+            bool grew = true;
+            const auto g = core::capture_list(m, "Groceries", {"milk", " eggs ", "sourdough bread"}, &grew);
+            check("list: a new name makes a top-level note of tasks",
+                  !g.empty() && !grew && m.find(g)->parent_id.empty() && m.find(g)->title == "Groceries" &&
+                      m.find(g)->body == "- [ ] milk\n- [ ] eggs\n- [ ] sourdough bread\n",
+                  m.find(g) ? m.find(g)->body : "(none)");
+            const auto g2 = core::capture_list(m, "  groceries ", {"butter"}, &grew);
+            check("list: the same name, any case, GROWS that note", g2 == g && grew &&
+                      m.find(g)->body == "- [ ] milk\n- [ ] eggs\n- [ ] sourdough bread\n- [ ] butter\n");
+            m.set_body(g, "Shop list");   // no trailing newline
+            core::capture_list(m, "Groceries", {"jam"});
+            check("list: added on a fresh line after text with no newline",
+                  m.find(g)->body == "Shop list\n- [ ] jam\n", m.find(g)->body);
+            const auto kid = m.create(proj, "Hardware");
+            check("list: a note deep in the tree is found", core::capture_list(m, "hardware", {"nails"}) == kid);
+            m.set_protect(kid, true);
+            const auto k2 = core::capture_list(m, "Hardware", {"screws"}, &grew);
+            check("list: a protected note is not written into -- a new one is made",
+                  !k2.empty() && k2 != kid && !grew && m.find(kid)->body == "- [ ] nails\n");
+            const std::size_t before = m.count();
+            check("list: no items, blank items, or no name do nothing",
+                  core::capture_list(m, "Groceries", {}).empty() &&
+                      core::capture_list(m, "Groceries", {"  ", ""}).empty() &&
+                      core::capture_list(m, "  ", {"x"}).empty() && m.count() == before);
+            core::capture_list(m, "Two", {"line\nbreak"});
+            check("list: a newline inside an item is a space",
+                  m.find(core::find_list_note(m, "two"))->body == "- [ ] line break\n");
+            core::Pending lp;
+            check("list: the spool carries the list name and its items",
+                  core::decode_pending(core::encode_pending("milk\neggs", 9, "Groceries"), lp) &&
+                      lp.list == "Groceries" && lp.text == "milk\neggs" && lp.captured == 9);
+            core::Pending cp;
+            check("list: a plain capture has no list name",
+                  core::decode_pending(core::encode_pending("milk", 9), cp) && cp.list.empty());
+
+            // s025d: jot NAME -a words
+            check("append: a line on a fresh line", core::append_text("Hello", "world") == "Hello\nworld\n");
+            check("append: to an empty body", core::append_text("", " hi ") == "hi\n");
+            check("append: after a task list, a blank line so it does not join the list",
+                  core::append_text("- [ ] milk\n", "check the pantry") ==
+                      "- [ ] milk\n\ncheck the pantry\n");
+            check("append: after a numbered item too", core::append_text("1. a", "b") == "1. a\n\nb\n");
+            check("append: after prose, no blank line", core::append_text("text\n", "more") == "text\nmore\n");
+            check("append: nothing to add changes nothing", core::append_text("x\n", "   ") == "x\n");
+            const auto ga = core::capture_append(m, "GROCERIES", "check the pantry first", &grew);
+            check("append: grows the note of that name, any case",
+                  ga == g && grew && m.find(g)->body == "Shop list\n- [ ] jam\n\ncheck the pantry first\n",
+                  m.find(g)->body);
+            const auto na = core::capture_append(m, "Vet", "they open at 8", &grew);
+            check("append: a new name makes the note", !na.empty() && !grew &&
+                      m.find(na)->title == "Vet" && m.find(na)->body == "they open at 8\n");
+            core::Pending ap;
+            check("append: the spool carries the note name",
+                  core::decode_pending(core::encode_pending("they open at 8", 3, {}, "Vet"), ap) &&
+                      ap.append == "Vet" && ap.list.empty() && ap.text == "they open at 8");
         }
     }
 

@@ -683,6 +683,54 @@ void Shell::capture(const std::string& text) {  // helper: text -> an unfiled no
         lg->info("capture: '{}' -> {}", text.size() > 40 ? text.substr(0, 40) + "..." : text, id);
 }
 
+std::string Shell::capture_list(const std::string& name,
+                                const std::vector<std::string>& items) {  // helper: jot --list
+    if (!m_store) return {};
+    bool grew = false;
+    const core::NodeId id = core::capture_list(*m_store, name, items, &grew);
+    if (id.empty()) return {};
+    const core::Node* n = m_store->find(id);
+    const std::string title = n ? n->title : name;
+    std::size_t count = 0;
+    for (const auto& it : items)
+        if (it.find_first_not_of(" \t\r\n") != std::string::npos) ++count;
+
+    std::string tell = title;
+    if (tell.size() > 24) tell = tell.substr(0, 22) + "\u2026";
+    m_capture_tell = true;
+    m_capture.set_placeholder_text("Listed " + std::to_string(count) + " in \u201c" + tell + "\u201d");
+    if (m_editor && id == m_editor->current()) m_editor->refresh();   // the open note just grew
+    if (m_project) m_project->flush();
+
+    if (auto lg = log::get(log::Area::Model))
+        lg->info("list: {} item(s) -> '{}' ({}) {}", count, title, id, grew ? "appended" : "new note");
+    // Straight quotes: GLib prints in the locale's charset, and a terminal in
+    // a C locale turned curly ones into "?" (seen in the sandbox).
+    const std::string n_items = std::to_string(count) + (count == 1 ? " item" : " items");
+    return grew ? "Added " + n_items + " to \"" + title + "\"."
+                : "Made \"" + title + "\" with " + n_items + ".";
+}
+
+std::string Shell::capture_append(const std::string& name, const std::string& text) {  // helper: jot -a
+    if (!m_store) return {};
+    bool grew = false;
+    const core::NodeId id = core::capture_append(*m_store, name, text, &grew);
+    if (id.empty()) return {};
+    const core::Node* n = m_store->find(id);
+    const std::string title = n ? n->title : name;
+
+    std::string tell = title;
+    if (tell.size() > 24) tell = tell.substr(0, 22) + "\u2026";
+    m_capture_tell = true;
+    m_capture.set_placeholder_text("Added to \u201c" + tell + "\u201d");
+    if (m_editor && id == m_editor->current()) m_editor->refresh();
+    if (m_project) m_project->flush();
+
+    if (auto lg = log::get(log::Area::Model))
+        lg->info("append: -> '{}' ({}) {}", title, id, grew ? "appended" : "new note");
+    return grew ? "Added a line to \"" + title + "\"." : "Made \"" + title + "\" with that line.";
+}
+
 std::string Shell::pending_dir() const {  // helper: XDG path for the capture spool
     // Same shape as recents_file() and prefs_file(): the UI resolves XDG, the
     // core owns the subpath, and App resolves the identical path the same way.
@@ -720,6 +768,27 @@ void Shell::drain_pending() {  // helper: file what was captured while jot was c
     filed.reserve(waiting.size());
     for (const auto& p : waiting) {
         if (p.text.empty()) { core::remove_pending(p); continue; }   // nothing was said
+        if (!p.append.empty()) {
+            // s025d: a `jot NAME -a words` taken while jot was closed.
+            if (core::capture_append(*m_store, p.append, p.text).empty()) continue;   // keep the file
+            filed.push_back(p);
+            continue;
+        }
+        if (!p.list.empty()) {
+            // s025c: a `jot --list` taken while jot was closed -- one item
+            // per line, filed exactly as a live one would be.
+            std::vector<std::string> items;
+            std::size_t a = 0;
+            while (a <= p.text.size()) {
+                const auto e = p.text.find('\n', a);
+                items.push_back(p.text.substr(a, e == std::string::npos ? std::string::npos : e - a));
+                if (e == std::string::npos) break;
+                a = e + 1;
+            }
+            if (core::capture_list(*m_store, p.list, items).empty()) continue;   // keep the file
+            filed.push_back(p);
+            continue;
+        }
         // core::capture, the same function the header box uses, so a spooled
         // thought and a typed one become the same kind of note.
         if (core::capture(*m_store, p.text).empty()) continue;        // keep the file

@@ -1,3 +1,4 @@
+#include <cctype>
 #include "core/Nodes.hpp"
 
 #include <algorithm>
@@ -340,6 +341,107 @@ NodeId capture(NodeSource& src, const std::string& text) {
     if (title.empty()) return {};          // nothing typed is not a note
     const NodeId id = src.create("", title);
     if (!id.empty() && !body.empty()) src.set_body(id, body);
+    return id;
+}
+
+namespace {
+std::string trimmed(std::string s) {
+    for (auto& c : s) if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+    const auto a = s.find_first_not_of(' ');
+    if (a == std::string::npos) return {};
+    return s.substr(a, s.find_last_not_of(' ') - a + 1);
+}
+std::string folded(const std::string& s) {
+    std::string o = trimmed(s);
+    for (auto& c : o) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return o;
+}
+}  // namespace
+
+std::string append_tasks(const std::string& body, const std::vector<std::string>& items) {
+    std::string out = body;
+    for (const auto& raw : items) {
+        const std::string it = trimmed(raw);
+        if (it.empty()) continue;
+        if (!out.empty() && out.back() != '\n') out += '\n';
+        out += "- [ ] " + it + "\n";
+    }
+    return out;
+}
+
+std::string append_text(const std::string& body, const std::string& text) {
+    const std::string t = trimmed(text);
+    if (t.empty()) return body;
+    std::string out = body;
+    if (!out.empty() && out.back() != '\n') out += '\n';
+    // The last line: a list item (- * + or 1. 1)) would swallow the new line.
+    if (!out.empty()) {
+        const auto start = out.size() >= 2 ? out.find_last_of('\n', out.size() - 2) : std::string::npos;
+        std::string last = out.substr(start == std::string::npos ? 0 : start + 1);
+        const auto a = last.find_first_not_of(" \t");
+        last = a == std::string::npos ? std::string{} : last.substr(a);
+        bool item = last.size() >= 2 && (last[0] == '-' || last[0] == '*' || last[0] == '+') && last[1] == ' ';
+        std::size_t d = 0;
+        while (d < last.size() && std::isdigit(static_cast<unsigned char>(last[d]))) ++d;
+        if (d > 0 && d + 1 < last.size() && (last[d] == '.' || last[d] == ')') && last[d + 1] == ' ') item = true;
+        if (item) out += '\n';
+    }
+    return out + t + "\n";
+}
+
+NodeId capture_append(NodeSource& src, const std::string& name, const std::string& text,
+                      bool* appended) {
+    if (appended) *appended = false;
+    const std::string title = trimmed(name);
+    if (title.empty() || trimmed(text).empty()) return {};
+    NodeId id = find_list_note(src, title);
+    if (!id.empty()) {
+        const Node* n = src.find(id);
+        if (!n || !src.set_body(id, append_text(n->body, text))) return {};
+        if (appended) *appended = true;
+        return id;
+    }
+    id = src.create("", title);
+    if (!id.empty()) src.set_body(id, append_text("", text));
+    return id;
+}
+
+NodeId find_list_note(const NodeSource& src, const std::string& title) {
+    const std::string want = folded(title);
+    if (want.empty()) return {};
+    // Tree order, depth first -- the order the user sees the rows in, so
+    // "the first one" is the one nearest the top of the tree.
+    std::vector<NodeId> stack;
+    auto push_kids = [&](const NodeId& parent) {
+        auto kids = src.children(parent);
+        for (auto it = kids.rbegin(); it != kids.rend(); ++it) stack.push_back(*it);
+    };
+    push_kids("");
+    while (!stack.empty()) {
+        const NodeId id = stack.back();
+        stack.pop_back();
+        if (const Node* n = src.find(id))
+            if (!n->protect && folded(n->title) == want) return id;
+        push_kids(id);
+    }
+    return {};
+}
+
+NodeId capture_list(NodeSource& src, const std::string& name,
+                    const std::vector<std::string>& items, bool* appended) {
+    if (appended) *appended = false;
+    const std::string title = trimmed(name);
+    const std::string add = append_tasks("", items);
+    if (title.empty() || add.empty()) return {};
+    NodeId id = find_list_note(src, title);
+    if (!id.empty()) {
+        const Node* n = src.find(id);
+        if (!n || !src.set_body(id, append_tasks(n->body, items))) return {};
+        if (appended) *appended = true;
+        return id;
+    }
+    id = src.create("", title);
+    if (!id.empty()) src.set_body(id, add);
     return id;
 }
 

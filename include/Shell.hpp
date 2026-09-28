@@ -90,6 +90,14 @@ public:
     // place you were working in is capture you stop using mid-thought, which is
     // the only time it matters.
     void capture(const std::string& text);       // category: helper: text -> an unfiled note
+    // s025c: `jot --list NAME items...` -- task lines on the note NAME, grown if
+    // it exists, made if not (core::capture_list). Returns the tell the
+    // terminal prints: "Added 3 items to Groceries." / empty if nothing done.
+    std::string capture_list(const std::string& name,
+                             const std::vector<std::string>& items);  // category: helper
+    // s025d: `jot NAME -a words` -- one line of text on the note NAME
+    // (core::capture_append). Same return shape as capture_list.
+    std::string capture_append(const std::string& name, const std::string& text);  // category: helper
     void focus_capture_bar();                    // category: helper: put the cursor in the box
 
     // Reveal and select a node from OUTSIDE the window -- what App dispatches a

@@ -44,6 +44,22 @@ struct FmtEdit {
 // selection is sel_begin == sel_end.
 FmtEdit format(const std::string& body, int sel_begin, int sel_end, Fmt f);
 
+// ── typing in a list (s025) ─────────────────────────────────────────────────
+// Enter at the cursor. On a list, task, numbered or quote line: the next line
+// starts with the same mark (a task unticked, a number plus one), the words
+// after the cursor going with it. On an EMPTY item: a nested one steps out a
+// level, a top-level one loses its mark -- Enter twice ends a list. ok ==
+// false means "not ours": a plain line, a selection, a code block, the cursor
+// inside the mark -- let the text view insert its own newline.
+FmtEdit enter(const std::string& body, int sel_begin, int sel_end);
+
+// Tab (outdent = false) or Shift+Tab on the list lines a selection touches.
+// In: the item nests under the one above, its mark lining up with that item's
+// words. Out: back to its parent's level. ok == false when no touched line is
+// a list line -- a Tab there is the text view's. ok with an unchanged text
+// means the key was ours and there was nothing to do (a top-level Shift+Tab).
+FmtEdit indent(const std::string& body, int sel_begin, int sel_end, bool outdent);
+
 // The edit applied to the string -- what the editor's buffer ends up holding.
 // For the selftest, and for anyone who wants the answer without a buffer.
 std::string apply(const std::string& body, const FmtEdit& e);

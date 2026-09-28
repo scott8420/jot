@@ -30,11 +30,19 @@ std::string pending_dir(const std::string& data_dir) {
     return (fs::path(data_dir) / "jot" / "pending").string();
 }
 
-std::string encode_pending(const std::string& text, std::int64_t when) {
+std::string encode_pending(const std::string& text, std::int64_t when, const std::string& list,
+                           const std::string& append) {
     std::ostringstream o;
-    o << kFence << "\n"
-      << "jot: capture\n"
-      << "captured: " << when << "\n"
+    o << kFence << "\n";
+    // One line of header: a newline in the name would end it early.
+    auto one_line = [](std::string n) {
+        for (auto& c : n) if (c == '\n' || c == '\r') c = ' ';
+        return n;
+    };
+    if (!list.empty())        o << "jot: list\n" << "list: " << one_line(list) << "\n";
+    else if (!append.empty()) o << "jot: append\n" << "append: " << one_line(append) << "\n";
+    else                      o << "jot: capture\n";
+    o << "captured: " << when << "\n"
       << kFence << "\n"
       << text << "\n";
     return o.str();
@@ -47,6 +55,8 @@ std::string encode_pending(const std::string& text, std::int64_t when) {
 bool decode_pending(const std::string& raw, Pending& out) {
     out.text.clear();
     out.captured = 0;
+    out.list.clear();
+    out.append.clear();
     if (raw.empty()) return false;
 
     const std::string open = std::string(kFence) + "\n";
@@ -65,6 +75,16 @@ bool decode_pending(const std::string& raw, Pending& out) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line == kFence) { close = (eol == std::string::npos ? raw.size() : eol + 1); break; }
 
+        if (line.rfind("append:", 0) == 0) {
+            out.append = line.substr(7);
+            const auto a = out.append.find_first_not_of(' ');
+            out.append = a == std::string::npos ? std::string{} : out.append.substr(a);
+        }
+        if (line.rfind("list:", 0) == 0) {
+            out.list = line.substr(5);
+            const auto a = out.list.find_first_not_of(' ');
+            out.list = a == std::string::npos ? std::string{} : out.list.substr(a);
+        }
         if (line.rfind("captured:", 0) == 0) {
             const std::string v = line.substr(9);
             try { out.captured = std::stoll(v); } catch (const std::exception&) { out.captured = 0; }
@@ -92,7 +112,8 @@ std::string pending_name(std::int64_t when, const std::string& uniq) {
 }
 
 bool write_pending(const std::string& dir, const std::string& text,
-                   std::int64_t when, const std::string& uniq, std::string* wrote) {
+                   std::int64_t when, const std::string& uniq, std::string* wrote,
+                   const std::string& list, const std::string& append) {
     if (text.empty()) return false;
     std::error_code ec;
     fs::create_directories(dir, ec);
@@ -114,7 +135,7 @@ bool write_pending(const std::string& dir, const std::string& text,
     {
         std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
         if (!f) return false;
-        f << encode_pending(text, when);
+        f << encode_pending(text, when, list, append);
         if (!f) { fs::remove(tmp, ec); return false; }
     }
     fs::rename(tmp, target, ec);

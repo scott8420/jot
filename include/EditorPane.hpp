@@ -8,6 +8,7 @@
 
 #include <gtkmm/droptarget.h>
 #include <gtkmm/eventcontrollerkey.h>
+#include <gtkmm/eventcontrollerlegacy.h>
 #include <gtkmm/eventcontrollermotion.h>
 #include <functional>
 #include <gtkmm/gestureclick.h>
@@ -134,6 +135,8 @@ public:
 
 private:
     void build_format_bar();
+    bool apply_edit(const core::FmtEdit& ed);     // one user action; false if !ed.ok
+    bool on_list_key(guint keyval, Gdk::ModifierType state);   // s025: Enter / Tab in a list
     bool on_drop(const Glib::ValueBase& value, double x, double y);
     void on_paste_clipboard();       // "paste-clipboard", run BEFORE the default
     static void paste_trampoline(GtkTextView*, gpointer self);
@@ -175,6 +178,8 @@ private:
     widgets::Box            m_fmt_bar;
     widgets::MenuButton     m_fmt_heading;
     Glib::RefPtr<Gtk::EventControllerKey> m_fmt_keys;
+    Glib::RefPtr<Gtk::EventControllerKey> m_list_keys;   // s025, CAPTURE
+    bool m_preedit = false;   // an input method is composing: Enter is its
 
     widgets::ScrolledWindow m_scroll;
     widgets::DrawTextView   m_body;   // s023: a TextView Live Preview can draw on
@@ -208,6 +213,15 @@ private:
     Glib::RefPtr<Gtk::TextTag> m_hidden_tag;
     bool m_live = false;
     int  m_reveal_first = -1, m_reveal_last = -1;
+
+    // s025b: NEVER change what is hidden while a mouse button is down. The
+    // reveal re-lays the line out, and GTK is still mid-click on the old
+    // layout -- Scott's crash on GTK 4.22, "Byte index 65 is off the end of
+    // the line", clicking past a picture. The reveal waits for the release.
+    Glib::RefPtr<Gtk::EventControllerLegacy> m_button_watch;
+    bool m_button_down = false;
+    bool m_reveal_pending = false;
+    void flush_reveal();
 
     // s023: what is drawn, from the last apply_live, and where it landed (the
     // hit areas are written while drawing, in buffer coordinates).

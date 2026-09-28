@@ -180,6 +180,46 @@ EditorPane::EditorPane(std::string_view name)
     m_press->signal_pressed().connect(
         [this](int n, double x, double y) { on_body_press(n, x, y); });
     m_body.add_controller(m_press);
+    // s025b: which mouse button state the text view is in. A legacy
+    // controller sees raw presses and releases -- a click gesture does not
+    // report a release once the pointer has dragged -- and claims nothing.
+    // The reveal runs on idle AFTER the release, so every release handler
+    // (the text view's, on_body_click's) has finished on the old layout.
+    m_button_watch = Gtk::EventControllerLegacy::create();
+    m_button_watch->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    m_button_watch->signal_event().connect([this](const Glib::RefPtr<const Gdk::Event>& ev) {
+        const auto t = ev->get_event_type();
+        if (t == Gdk::Event::Type::BUTTON_PRESS) {
+            m_button_down = true;
+        } else if (t == Gdk::Event::Type::BUTTON_RELEASE) {
+            m_button_down = false;
+            if (m_reveal_pending) Glib::signal_idle().connect_once([this]() { flush_reveal(); });
+        }
+        return false;
+    }, false);
+    m_body.add_controller(m_button_watch);
+    // A release the note never hears (a text drag that became a drop
+    // somewhere else) must not leave the reveal stuck. The next pointer
+    // motion over the note with no button in ITS state, or any key, says the
+    // button is up. Event state, not a device query: under Xvfb the device
+    // reported no button mid-drag and the reveal fired under the drag.
+    auto unstick = [this](const char* why) {
+        if (!m_button_down) return;
+        m_button_down = false;
+        if (auto lg = log::get(log::Area::Editor)) lg->debug("live: release missed ({})", why);
+        if (m_reveal_pending) Glib::signal_idle().connect_once([this]() { flush_reveal(); });
+    };
+    m_button_watch->signal_event().connect([unstick](const Glib::RefPtr<const Gdk::Event>& ev) {
+        const auto t = ev->get_event_type();
+        const auto held = Gdk::ModifierType::BUTTON1_MASK | Gdk::ModifierType::BUTTON2_MASK |
+                          Gdk::ModifierType::BUTTON3_MASK;
+        if (t == Gdk::Event::Type::MOTION_NOTIFY && (ev->get_modifier_state() & held) == Gdk::ModifierType{})
+            unstick("motion, no button");
+        else if (t == Gdk::Event::Type::KEY_PRESS)
+            unstick("key");
+        return false;
+    }, false);
+
     m_body_motion = Gtk::EventControllerMotion::create();
     m_body_motion->signal_motion().connect([this](double x, double y) { on_body_motion(x, y); });
     m_body.add_controller(m_body_motion);
@@ -849,6 +889,25 @@ void EditorPane::on_body_motion(double x, double y) {
 
 void EditorPane::on_cursor_moved() {
     if (!m_live || m_loading || m_styling || m_restyle_queued) return;
+    if (m_button_down) {
+        // Mid-click (or mid-drag): the text view is hit-testing the layout
+        // as it stands. Changing the invisible tags now swaps the line's
+        // layout under it -- see m_button_watch. Wait for the release.
+        if (!m_reveal_pending)
+            if (auto lg = log::get(log::Area::Editor)) lg->debug("live: reveal deferred (button down)");
+        m_reveal_pending = true;
+        return;
+    }
+    m_styling = true;
+    apply_live();
+    m_styling = false;
+}
+
+void EditorPane::flush_reveal() {
+    if (!m_reveal_pending || m_button_down) return;
+    m_reveal_pending = false;
+    if (!m_live || m_loading || m_styling || m_restyle_queued) return;
+    if (auto lg = log::get(log::Area::Editor)) lg->debug("live: reveal after release");
     m_styling = true;
     apply_live();
     m_styling = false;
@@ -954,6 +1013,70 @@ void EditorPane::build_format_bar() {
             }
         }, false);
     m_body.add_controller(m_fmt_keys);
+
+    // s025: Enter and Tab in a list. CAPTURE, because the text view claims
+    // both keys itself (a newline, a tab character) in its own handler; heard
+    // first, a list line gets its mark carried or its indent moved, and
+    // anything that is not ours (core says ok == false) falls through to the
+    // text view untouched. While an input method is composing, Enter belongs
+    // to it -- committing a word must not also start a list item.
+    g_signal_connect(m_body.gobj(), "preedit-changed",
+                     G_CALLBACK(+[](GtkTextView*, const char* pre, gpointer self) {
+                         static_cast<EditorPane*>(self)->m_preedit = pre && *pre;
+                     }), this);
+    m_list_keys = Gtk::EventControllerKey::create();
+    m_list_keys->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    m_list_keys->signal_key_pressed().connect(
+        [this](guint keyval, guint, Gdk::ModifierType state) { return on_list_key(keyval, state); },
+        false);
+    m_body.add_controller(m_list_keys);
+}
+
+bool EditorPane::on_list_key(guint keyval, Gdk::ModifierType state) {
+    if (m_preedit || m_id.empty() || m_reading || !m_body.get_editable()) return false;
+    const auto mods = state & (Gdk::ModifierType::CONTROL_MASK | Gdk::ModifierType::SHIFT_MASK |
+                               Gdk::ModifierType::ALT_MASK | Gdk::ModifierType::SUPER_MASK);
+    const bool shift = mods == Gdk::ModifierType::SHIFT_MASK;
+    const bool plain = mods == Gdk::ModifierType{};
+
+    enum { None, Enter, In, Out } what = None;
+    if ((keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter) && plain) what = Enter;
+    else if (keyval == GDK_KEY_Tab && plain) what = In;
+    else if ((keyval == GDK_KEY_ISO_Left_Tab || keyval == GDK_KEY_Tab) && shift) what = Out;
+    if (what == None) return false;
+
+    auto buf = m_body.get_buffer();
+    Gtk::TextBuffer::iterator s, e;
+    buf->get_selection_bounds(s, e);
+    const std::string text = buf->get_text(/*include_hidden_chars=*/true);
+    const core::FmtEdit ed = what == Enter ? core::enter(text, s.get_offset(), e.get_offset())
+                                           : core::indent(text, s.get_offset(), e.get_offset(), what == Out);
+    if (!ed.ok) return false;          // not a list line: the text view's key
+    apply_edit(ed);
+    m_body.scroll_to(buf->get_insert());
+    if (auto lg = log::get(log::Area::Editor))
+        lg->debug("list key {}: note={} [{},{})", what == Enter ? "enter" : what == In ? "tab" : "shift+tab",
+                  m_id, ed.cp_begin, ed.cp_end);
+    return true;
+}
+
+bool EditorPane::apply_edit(const core::FmtEdit& ed) {
+    if (!ed.ok) return false;
+    auto buf = m_body.get_buffer();
+    // A verb that was ours but changed nothing (Shift+Tab at the top level)
+    // must not touch the buffer: an erase-and-reinsert of the same text is
+    // still a modification, and the store would hear about it.
+    const auto a = buf->get_iter_at_offset(ed.cp_begin), b = buf->get_iter_at_offset(ed.cp_end);
+    if (buf->get_text(a, b, /*include_hidden_chars=*/true).raw() == ed.text) {
+        buf->select_range(buf->get_iter_at_offset(ed.sel_begin), buf->get_iter_at_offset(ed.sel_end));
+        return true;
+    }
+    buf->begin_user_action();
+    auto it = buf->erase(buf->get_iter_at_offset(ed.cp_begin), buf->get_iter_at_offset(ed.cp_end));
+    if (!ed.text.empty()) buf->insert(it, ed.text);
+    buf->end_user_action();
+    buf->select_range(buf->get_iter_at_offset(ed.sel_begin), buf->get_iter_at_offset(ed.sel_end));
+    return true;
 }
 
 void EditorPane::apply_format(core::Fmt f) {
@@ -965,13 +1088,7 @@ void EditorPane::apply_format(core::Fmt f) {
     // edit computed without them would land in the wrong place (s022).
     const std::string text = buf->get_text(/*include_hidden_chars=*/true);
     const core::FmtEdit ed = core::format(text, s.get_offset(), e.get_offset(), f);
-    if (ed.ok) {
-        buf->begin_user_action();
-        auto it = buf->erase(buf->get_iter_at_offset(ed.cp_begin), buf->get_iter_at_offset(ed.cp_end));
-        if (!ed.text.empty()) buf->insert(it, ed.text);
-        buf->end_user_action();
-        buf->select_range(buf->get_iter_at_offset(ed.sel_begin), buf->get_iter_at_offset(ed.sel_end));
-    }
+    apply_edit(ed);
     if (auto lg = log::get(log::Area::Editor))
         lg->debug("format {}: note={} [{},{}) -> {}", static_cast<int>(f), m_id, ed.cp_begin,
                   ed.cp_end, ed.ok ? "edit" : "nothing");
