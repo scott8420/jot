@@ -1415,8 +1415,42 @@ int main() {
                           if (ms.runs[k].cp_begin < ms.runs[k - 1].cp_end) return false;
                       return true;
                   }());
-        check("live/run: a list line's bullet follows the line, its runs follow the cursor",
-              seen_at(mix, 8, 8) == "- a * `x` s i b", seen_at(mix, 8, 8));
+        check("live/run: a list line's runs follow the cursor (s027: its bullet stays drawn)",
+              seen_at(mix, 8, 8) == "a * `x` s i b", seen_at(mix, 8, 8));
+
+        // -- s027: the cursor's bullet / task line keeps its DRAWN mark ---
+        const std::string bl = "- milk\n  - [ ] eggs\n1. one\nx";
+        check("live/mark: the cursor in a bullet's words -- the bullet stays drawn",
+              seen_at(bl, 4, 4) == "milk\n  eggs\n1. one\nx", seen_at(bl, 4, 4));
+        check("live/mark: at the words' first character it is still the words",
+              seen_at(bl, 2, 2) == "milk\n  eggs\n1. one\nx", seen_at(bl, 2, 2));
+        check("live/mark: the cursor AT the mark (line start, inside it) shows `- `",
+              seen_at(bl, 0, 0) == "- milk\n  eggs\n1. one\nx" && seen_at(bl, 1, 1) == seen_at(bl, 0, 0),
+              seen_at(bl, 0, 0) + " | " + seen_at(bl, 1, 1));
+        check("live/mark: a task's `- [ ] ` shows only at the mark; the indent counts as at it",
+              seen_at(bl, 16, 16) == "milk\n  eggs\n1. one\nx" &&
+                  seen_at(bl, 7, 7) == "milk\n  - [ ] eggs\n1. one\nx" &&
+                  seen_at(bl, 12, 12) == seen_at(bl, 7, 7),
+              seen_at(bl, 16, 16) + " | " + seen_at(bl, 7, 7));
+        {
+            const auto v_in = core::live_view(core::scan(bl), bl, 0, 0, 4, 4);
+            const auto v_at = core::live_view(core::scan(bl), bl, 0, 0, 0, 0);
+            check("live/mark: drawn (bullet + hang) in the words, not drawn at the mark",
+                  count(v_in, K::Bullet) == 1 && v_in.hang_lines.size() == 2 &&
+                      count(v_at, K::Bullet) == 0 && v_at.hang_lines.size() == 1);
+        }
+        check("live/mark: a selection over the mark shows it",
+              seen_at(bl, 0, 4) == "- milk\n  eggs\n1. one\nx", seen_at(bl, 0, 4));
+        check("live/mark: a number is content either way",
+              seen_at(bl, 20, 20) == "milk\n  eggs\n1. one\nx", seen_at(bl, 20, 20));
+        {
+            const auto bs = core::scan(bl);
+            check("touched_marks: the lines whose mark the cursor is at",
+                  core::touched_marks(bs, 0, 0, 0, 0) == std::vector<int>{0} &&
+                      core::touched_marks(bs, 0, 0, 3, 3).empty() &&
+                      core::touched_marks(bs, 0, 1, 1, 9) == std::vector<int>({0, 1}) &&
+                      core::touched_marks(bs, 2, 2, 22, 22).empty());
+        }
 
         const auto tr = core::touched_runs(rs, 16, 16);
         const auto none = core::touched_runs(rs, 9, 9);
@@ -1578,7 +1612,8 @@ int main() {
         en("a selection is the text view's", "- {a}", "(no edit)");
         en("inside a code block is the text view's", "```\n- a|\n```", "(no edit)");
         tab("nests under the item above, lined up with its words", "- a\n- |b", false, "- a\n  - |b");
-        tab("under a number, by the number's width", "1. a\n2. |b", false, "1. a\n   2. |b");
+        tab("under a number, by the number's width (s027: and restarts at 1)", "1. a\n2. |b", false,
+            "1. a\n   1. |b");
         tab("under a task, as under its bullet", "- [ ] a\n- [ ] |b", false, "- [ ] a\n  - [ ] |b");
         tab("the first child can't go deeper (nothing changes)", "- a\n  - |b", false, "- a\n  - |b");
         tab("the first item with nothing above still nests", "- |a", false, "  - |a");
@@ -1588,6 +1623,52 @@ int main() {
         tab("out from deep", "- a\n  - b\n    - |c", true, "- a\n  - b\n  - |c");
         tab("out at the top does nothing, but is ours", "- |a", true, "- |a");
         tab("the cursor in the indent lands at the mark", "- a\n | - b", true, "- a\n|- b");
+
+        // -- s027: numbered lists renumber -----------------------------------
+        en("a number in the middle: the rest count on", "1. a|\n2. b\n3. c", "1. a\n2. |\n3. b\n4. c");
+        en("a list keeps the number it starts at", "5. a|\n6. b", "5. a\n6. |\n7. b");
+        en("wider numbers carry the cursor", "9. a|\n10. b", "9. a\n10. |\n11. b");
+        en("Enter-Enter ends the item; the rest close the gap", "1. a\n2. |\n3. b", "1. a\n|\n2. b");
+        en("an empty nested item steps out and counts on at its new level",
+           "1. a\n   1. b\n   2. |\n2. c", "1. a\n   1. b\n2. |\n3. c");
+        en("in a quote too", "> 1. a|\n> 2. b", "> 1. a\n> 2. |\n> 3. b");
+        tab("nesting restarts at 1, the rest close up", "1. a\n2. |b\n3. c", false, "1. a\n   1. |b\n2. c");
+        tab("nesting under existing children counts on", "1. a\n   1. x\n2. |b", false,
+            "1. a\n   1. x\n   2. |b");
+        tab("out: counts on at the parent's level, the rest after it", "1. a\n   1. b\n   2. |c\n2. d", true,
+            "1. a\n   1. b\n2. |c\n3. d");
+        tab("a moved sub-list keeps its own count", "1. a\n{2. b\n   1. x}\n3. c", false,
+            "1. a\n{   1. b\n      1. x}\n2. c");
+        is("numbered under a list counts on", "1. a\n{b\nc}", F::Numbered, "1. a\n{2. b\n3. c}");
+        is("a bullet in a numbered list splits it; the rest keep their numbers",
+           "1. a\n2. |b\n3. c", F::Bullet, "1. a\n- |b\n3. c");
+        auto rn = [&](const std::string& what, const std::string& in, const std::string& want) {
+            const std::string got = run_with(in, [](const std::string& t, int a, int b) {
+                return core::renumber(t, a, b);
+            });
+            check("renumber: " + what, got == want, got);
+        };
+        rn("a deleted item closes the gap", "1. a\n|3. c\n4. d", "1. a\n|2. c\n3. d");
+        rn("from the end of the item above too", "1. a|\n3. c", "1. a|\n2. c");
+        rn("a blank line inside a list does not end it", "1. a\n\n|3. b", "1. a\n\n|2. b");
+        rn("nested runs count on their own", "1. a\n   3. x\n|   5. y\n4. b",
+           "1. a\n   3. x\n|   4. y\n2. b");
+        rn("a paragraph ends the list", "1. a\n\npara\n|3. x", "(no edit)");
+        rn("already right: nothing to do", "1. a\n|2. b", "(no edit)");
+        rn("code is never a list", "```\n1. a\n|3. b\n```", "(no edit)");
+        auto bk = [&](const std::string& what, const std::string& in, const std::string& want) {
+            const std::string got = run_with(in, [](const std::string& t, int a, int b) {
+                return core::backspace(t, a, b);
+            });
+            check("backspace: " + what, got == want, got);
+        };
+        bk("at a bullet's words the mark goes", "- |milk", "|milk");
+        bk("a nested task keeps its indent", "a\n  - [ ] |x", "a\n  |x");
+        bk("an empty bullet", "- |", "|");
+        bk("in a quote the quote stays", "> - |a", "> |a");
+        bk("in the words it is the text view's", "- m|ilk", "(no edit)");
+        bk("a number is visible: the text view's", "1. |a", "(no edit)");
+        bk("a selection is the text view's", "- {m}ilk", "(no edit)");
     }
 
     // -- Import: a markdown file becomes a note (s021b) ----------------------

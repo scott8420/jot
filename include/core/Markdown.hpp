@@ -84,6 +84,10 @@ struct Line {
     int   level = 0;
     int   begin = 0, end = 0;          // bytes, newline NOT included
     int   cp_begin = 0, cp_end = 0;
+    // s027: where the line's text proper starts -- after a list mark, a
+    // heading's hashes, a quote's `>`. A bullet's mark is [begin + level,
+    // content). Live Preview asks "is the cursor AT the mark".
+    int   content = 0, cp_content = 0;
 
     // A task's checkbox, for hit-testing a click. -1 when the line is not a
     // task. This is why the scan is a model artefact and not a styling detail:

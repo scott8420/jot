@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Format -- the format bar's verbs, as text edits (s024).
@@ -30,14 +31,25 @@ enum class Fmt {
     CodeBlock,
 };
 
+// s027: a further replacement, made AFTER the main one -- a list's numbers
+// put right. Codepoints into the body as the main edit left it.
+struct FmtPatch {
+    int         cp_begin = 0, cp_end = 0;
+    std::string text;
+};
+
 // One replacement: codepoints [cp_begin, cp_end) of the body become `text`,
-// and the selection afterwards is [sel_begin, sel_end) in the NEW body.
-// ok == false means "nothing to do" (e.g. Link across several lines).
+// and the selection afterwards is [sel_begin, sel_end) in the NEW body (after
+// `then` too). ok == false means "nothing to do" (e.g. Link across several
+// lines). `then` (s027): patches over the body after the main edit, sorted,
+// never overlapping; applied last-first so each one's offsets hold. The editor
+// makes main + then ONE undoable action.
 struct FmtEdit {
     bool        ok = false;
     int         cp_begin = 0, cp_end = 0;
     std::string text;
     int         sel_begin = 0, sel_end = 0;
+    std::vector<FmtPatch> then;
 };
 
 // sel_begin / sel_end are codepoints, in either order. The cursor with no
@@ -59,6 +71,24 @@ FmtEdit enter(const std::string& body, int sel_begin, int sel_end);
 // a list line -- a Tab there is the text view's. ok with an unchanged text
 // means the key was ours and there was nothing to do (a top-level Shift+Tab).
 FmtEdit indent(const std::string& body, int sel_begin, int sel_end, bool outdent);
+
+// ── numbered lists renumber (s027) ─────────────────────────────────────────
+// Scott, after s026: Obsidian-style. Each run of numbered items at one level
+// counts on from its first item's number; a nested run restarts at 1 under its
+// parent. enter / indent / the list verbs of format() renumber the list they
+// touched as part of their own edit. This one is for the edits the text view
+// makes itself -- a deleted item, joined lines: the list around the cursor's
+// line, put right. A list keeps the number it STARTS at (`5. 6. 7.`); an item
+// a verb just moved that now starts a run starts it at 1.
+// ok == false: nothing to renumber. The main edit is empty; it is all `then`,
+// and the selection [sel_begin, sel_end] is carried through it.
+FmtEdit renumber(const std::string& body, int sel_begin, int sel_end);
+
+// Backspace with the cursor at the first character of a bullet's or task's
+// words (Live Preview draws the mark there, so the `- ` is not on screen to
+// delete a space of): the mark goes, the indent and the words stay. ok == false
+// anywhere else -- the text view's own Backspace.
+FmtEdit backspace(const std::string& body, int sel_begin, int sel_end);
 
 // The edit applied to the string -- what the editor's buffer ends up holding.
 // For the selftest, and for anyone who wants the answer without a buffer.

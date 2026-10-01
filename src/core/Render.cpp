@@ -213,6 +213,24 @@ bool blank_bytes(const std::string& t, int b, int e) {
 }
 }  // namespace
 
+bool mark_touched(const Line& ln, int sel_begin, int sel_end) {
+    if (sel_begin < 0) return false;
+    if (ln.block != Block::Bullet && ln.block != Block::Task) return false;
+    if (sel_end < sel_begin) std::swap(sel_begin, sel_end);
+    // [line start, content): the indent and the mark. The cursor at the
+    // content's first character is in the words, not at the mark.
+    if (sel_begin == sel_end) return sel_begin >= ln.cp_begin && sel_begin < ln.cp_content;
+    return sel_begin < ln.cp_content && sel_end > ln.cp_begin;
+}
+
+std::vector<int> touched_marks(const Scan& sc, int first, int last, int sel_begin, int sel_end) {
+    std::vector<int> out;
+    const int nl = static_cast<int>(sc.lines.size());
+    for (int l = std::max(0, first); l <= last && l < nl; ++l)
+        if (mark_touched(sc.lines[static_cast<std::size_t>(l)], sel_begin, sel_end)) out.push_back(l);
+    return out;
+}
+
 std::pair<int, int> touched_runs(const Scan& sc, int sel_begin, int sel_end) {
     if (sel_begin < 0) return {0, 0};
     if (sel_end < sel_begin) std::swap(sel_begin, sel_end);
@@ -304,14 +322,19 @@ LiveView live_view(const Scan& sc, const std::string& text, int reveal_first, in
         const auto rit = std::upper_bound(sc.runs.begin(), sc.runs.end(), s.cp_begin,
                                           [](int cp, const Run& r) { return cp < r.cp_begin; });
         const bool inline_mark = rit != sc.runs.begin() && std::prev(rit)->cp_end >= s.cp_end;
+        const Line& ln = *it;
+        const bool leading = s.cp_begin == ln.cp_begin + ln.level;
+        // s027: a bullet's or task's mark stays DRAWN on the cursor's line;
+        // the `- ` / `- [ ] ` shows only when the cursor is AT it.
+        const bool list_mark = leading && (ln.block == Block::Bullet || ln.block == Block::Task);
         if (inline_mark && sel_begin >= 0) {
             const int ri = static_cast<int>(std::prev(rit) - sc.runs.begin());
             if (ri >= touched.first && ri < touched.second) continue;
+        } else if (list_mark && sel_begin >= 0) {
+            if (revealed(line, line) && mark_touched(ln, sel_begin, sel_end)) continue;
         } else if (revealed(line, line)) {
             continue;
         }
-        const Line& ln = *it;
-        const bool leading = s.cp_begin == ln.cp_begin + ln.level;
         if (ln.block == Block::Rule) {
             v.hidden.push_back({s.cp_begin, s.cp_end});
             LiveDeco d;

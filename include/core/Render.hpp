@@ -145,4 +145,16 @@ LiveView live_view(const Scan& sc, const std::string& text, int reveal_first, in
 // within a line changes what Live Preview shows.
 std::pair<int, int> touched_runs(const Scan& sc, int sel_begin, int sel_end);
 
+// s027 -- a bullet / task line keeps its DRAWN bullet or box while the cursor
+// is on it; the `- ` / `- [ ] ` shows only when the cursor (or a selection)
+// is AT the mark: anywhere in [line start, content), the indent included. The
+// cursor at the first character of the words is in the words. A numbered
+// line is unchanged (its number is content, never hidden).
+bool mark_touched(const Line& ln, int sel_begin, int sel_end);
+
+// The lines in [first, last] whose list mark the cursor / selection touches.
+// What the editor compares, alongside touched_runs, to know whether a move
+// changes what Live Preview shows.
+std::vector<int> touched_marks(const Scan& sc, int first, int last, int sel_begin, int sel_end);
+
 }  // namespace jot::core

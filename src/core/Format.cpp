@@ -541,7 +541,120 @@ int target_indent(const U& t, const Lines& L, int line, const Pre& p, bool outde
     return outdent ? 0 : cur + 2;
 }
 
+// ── renumbering (s027) ───────────────────────────────────────────────────────
+// A line that can sit inside a list without ending it: an item, a blank line,
+// or an indented line (an item's continuation). Code never can.
+bool listish(const U& t, const Lines& L, const std::vector<bool>& code, int i) {
+    if (static_cast<std::size_t>(i) < code.size() && code[static_cast<std::size_t>(i)]) return false;
+    const Pre p = parse(line_text(t, L, i));
+    return is_list(p) || p.blank || (p.kind == Kind::Para && indent_of(p) > 0);
+}
+
+// The edits that put right the numbers of every list lines [lo, hi] touch.
+// Each run of numbered items at one indent counts on from its first item; an
+// item in [mlo, mhi] (moved by the verb that called) that STARTS a run starts
+// it at 1. A bullet at the same indent ends a numbered run; anything that is
+// not listish ends every run.
+std::vector<Ed> renumber_eds(const U& t, const Lines& L, const std::vector<bool>& code, int lo, int hi,
+                             int mlo, int mhi) {
+    std::vector<Ed> eds;
+    const int nl = L.count();
+    lo = std::clamp(lo, 0, nl - 1);
+    hi = std::clamp(hi, lo, nl - 1);
+    int start = lo, end = hi;
+    if (listish(t, L, code, start))
+        while (start > 0 && listish(t, L, code, start - 1)) --start;
+    if (listish(t, L, code, end))
+        while (end + 1 < nl && listish(t, L, code, end + 1)) ++end;
+
+    struct Run { int indent; bool numbered; long next; };
+    std::vector<Run> st;
+    bool quote = false;
+    for (int i = start; i <= end; ++i) {
+        if (!listish(t, L, code, i)) { st.clear(); continue; }
+        const U s = line_text(t, L, i);
+        const Pre p = parse(s);
+        if (p.quote != quote && !p.blank) { st.clear(); quote = p.quote; }
+        if (!is_list(p)) continue;
+        const int ind = indent_of(p);
+        while (!st.empty() && st.back().indent > ind) st.pop_back();
+        const bool numbered = p.kind == Kind::Numbered;
+        long want = 0;
+        if (!st.empty() && st.back().indent == ind && st.back().numbered && numbered) {
+            want = st.back().next++;
+        } else {
+            if (!st.empty() && st.back().indent == ind) st.pop_back();
+            const bool moved = i >= mlo && i <= mhi;
+            want = numbered ? (moved ? 1 : p.num) : 0;
+            st.push_back({ind, numbered, want + 1});
+        }
+        if (!numbered || want == p.num) continue;
+        int d = p.ind_end;
+        while (d < static_cast<int>(s.size()) && is_digit(s[static_cast<std::size_t>(d)])) ++d;
+        eds.push_back({L.start[static_cast<std::size_t>(i)] + p.ind_end, d - p.ind_end,
+                       decode(std::to_string(want))});
+    }
+    return eds;
+}
+
+// e, made over `body`, followed by the renumbering of the list(s) it touched.
+// moved: the lines e wrote count as moved (see renumber_eds).
+FmtEdit with_renumber(const std::string& body, FmtEdit e, bool moved) {
+    if (!e.ok) return e;
+    const std::string b2 = core::apply(body, e);
+    const U t2 = decode(b2);
+    const Lines L2 = lines_of(t2);
+    const int len = static_cast<int>(decode(e.text).size());
+    const int lo = L2.of(e.cp_begin);
+    const int hi = L2.of(std::min(e.cp_begin + len, L2.size));
+    const auto eds = renumber_eds(t2, L2, code_lines(b2), lo, hi, moved ? lo : -1, moved ? hi : -2);
+    if (eds.empty()) return e;
+    for (const auto& d : eds) e.then.push_back({d.pos, d.pos + d.del, encode(d.ins)});
+    e.sel_begin = shifted(e.sel_begin, eds, false);
+    e.sel_end   = shifted(e.sel_end, eds, false);
+    return e;
+}
+
 }  // namespace
+
+FmtEdit renumber(const std::string& body, int sel_begin, int sel_end) {
+    const U t = decode(body);
+    const int n = static_cast<int>(t.size());
+    const int a = std::clamp(std::min(sel_begin, sel_end), 0, n);
+    const int b = std::clamp(std::max(sel_begin, sel_end), 0, n);
+    const Lines L = lines_of(t);
+    // The cursor's line and one either side: after a deleted item the cursor
+    // sits at the end of the item above or the start of the one below.
+    const auto eds = renumber_eds(t, L, code_lines(body), L.of(a) - 1, L.of(b) + 1, -1, -2);
+    if (eds.empty()) return {};
+    FmtEdit e;
+    e.ok = true;
+    e.cp_begin = e.cp_end = 0;
+    for (const auto& d : eds) e.then.push_back({d.pos, d.pos + d.del, encode(d.ins)});
+    e.sel_begin = shifted(sel_begin, eds, false);
+    e.sel_end   = shifted(sel_end, eds, false);
+    return e;
+}
+
+FmtEdit backspace(const std::string& body, int sel_begin, int sel_end) {
+    if (sel_begin != sel_end) return {};
+    const U t = decode(body);
+    const int a = std::clamp(sel_begin, 0, static_cast<int>(t.size()));
+    const Lines L = lines_of(t);
+    const int ln = L.of(a);
+    const auto code = code_lines(body);
+    if (static_cast<std::size_t>(ln) < code.size() && code[static_cast<std::size_t>(ln)]) return {};
+    const U s = line_text(t, L, ln);
+    const Pre p = parse(s);
+    if (p.kind != Kind::Bullet && p.kind != Kind::Task) return {};
+    const int ls = L.start[static_cast<std::size_t>(ln)];
+    const int col = a - ls;
+    if (col < p.body) return {};
+    for (int k = p.body; k < col; ++k)       // `-   words`: the spaces are the mark's
+        if (!is_space(s[static_cast<std::size_t>(k)])) return {};
+    const int m0 = ls + p.ind_end;
+    return {true, m0, a, std::string(), m0, m0};
+}
 
 FmtEdit indent(const std::string& body, int sel_begin, int sel_end, bool outdent) {
     const U t = decode(body);
@@ -589,7 +702,7 @@ FmtEdit indent(const std::string& body, int sel_begin, int sel_end, bool outdent
         }
         return pos + d;
     };
-    return finish(t, r0, r1, eds, carry(a), carry(b));
+    return with_renumber(body, finish(t, r0, r1, eds, carry(a), carry(b)), /*moved=*/true);
 }
 
 FmtEdit enter(const std::string& body, int sel_begin, int sel_end) {
@@ -624,8 +737,8 @@ FmtEdit enter(const std::string& body, int sel_begin, int sel_end) {
         }
         const U keep = is_list(p) ? s.substr(0, static_cast<std::size_t>(p.qe)) : U();
         const int r1 = L.end(ln);
-        return {true, ls, r1, encode(keep), ls + static_cast<int>(keep.size()),
-                ls + static_cast<int>(keep.size())};
+        const int c = ls + static_cast<int>(keep.size());
+        return with_renumber(body, {true, ls, r1, encode(keep), c, c, {}}, false);
     }
 
     U mark = s.substr(0, static_cast<std::size_t>(p.ind_end));   // `> ` and the indent, as written
@@ -642,7 +755,7 @@ FmtEdit enter(const std::string& body, int sel_begin, int sel_end) {
     while (rest < L.end(ln) && is_space(t[static_cast<std::size_t>(rest)])) ++rest;
     const U ins = U(U"\n") + mark;
     const int c = cut + static_cast<int>(ins.size());
-    return {true, cut, rest, encode(ins), c, c};
+    return with_renumber(body, {true, cut, rest, encode(ins), c, c, {}}, false);
 }
 
 FmtEdit format(const std::string& body, int sel_begin, int sel_end, Fmt f) {
@@ -658,7 +771,8 @@ FmtEdit format(const std::string& body, int sel_begin, int sel_end, Fmt f) {
         case Fmt::CodeBlock:
             return code_block(t, a, b);
         default:
-            return line_prefix(t, a, b, f);
+            // s027: a line verb can start, end, split or join a numbered list.
+            return with_renumber(body, line_prefix(t, a, b, f), /*moved=*/true);
     }
 }
 
@@ -667,6 +781,9 @@ std::string apply(const std::string& body, const FmtEdit& e) {
     U t = decode(body);
     t.replace(static_cast<std::size_t>(e.cp_begin), static_cast<std::size_t>(e.cp_end - e.cp_begin),
               decode(e.text));
+    for (auto it = e.then.rbegin(); it != e.then.rend(); ++it)
+        t.replace(static_cast<std::size_t>(it->cp_begin), static_cast<std::size_t>(it->cp_end - it->cp_begin),
+                  decode(it->text));
     return encode(t);
 }
 

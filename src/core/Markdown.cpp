@@ -452,6 +452,7 @@ Scan scan(const std::string& text) {
         ln.end   = e;
         const int line = static_cast<int>(sc.lines.size());
         const int content = classify(text, b, e, ln, sc.spans, in_fence);
+        ln.content = std::clamp(content, b, e);
         if (ln.block == Block::Fence) in_fence = !in_fence;
         if (ln.block != Block::Code && ln.block != Block::Fence &&
             ln.block != Block::Rule)
@@ -495,6 +496,7 @@ Scan scan(const std::string& text) {
     for (auto& l : sc.lines) {
         l.cp_begin = cp_of(l.begin);
         l.cp_end   = cp_of(l.end);
+        l.cp_content = cp_of(l.content);
         if (l.box_begin >= 0) {
             l.cp_box_begin = cp_of(l.box_begin);
             l.cp_box_end   = cp_of(l.box_end);

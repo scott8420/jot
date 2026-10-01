@@ -151,6 +151,20 @@ EditorPane::EditorPane(std::string_view name)
         write_body();
         queue_restyle();
     });
+    // s027: an erase that takes a newline with it may have removed a list
+    // item. BEFORE the default handler, while the range still holds the text.
+    m_body.get_buffer()->signal_erase().connect(
+        [this](Gtk::TextBuffer::iterator& a, Gtk::TextBuffer::iterator& b) {
+            if (m_loading || m_applying || m_undoing || m_renumber_queued || m_id.empty()) return;
+            if (a.get_line() == b.get_line()) return;
+            m_renumber_queued = true;
+            Glib::signal_idle().connect_once([this]() { renumber_after_delete(); });
+        },
+        false);
+    m_body.get_buffer()->signal_undo().connect([this]() { m_undoing = true; }, false);
+    m_body.get_buffer()->signal_undo().connect([this]() { m_undoing = false; }, true);
+    m_body.get_buffer()->signal_redo().connect([this]() { m_undoing = true; }, false);
+    m_body.get_buffer()->signal_redo().connect([this]() { m_undoing = false; }, true);
     // s022: the reveal follows the cursor. mark-set fires for every mark on
     // every keystroke; on_cursor_moved looks only at the two that bound the
     // cursor and the selection, and returns at once if their lines held.
@@ -605,6 +619,7 @@ void EditorPane::apply_live() {
     if (!buf || !m_hidden_tag) return;
     int first = -1, last = -1, sel_b = -1, sel_e = -1;
     std::pair<int, int> runs{-1, -1};
+    std::vector<int> marks;
     if (m_live) {
         const auto ia = buf->get_insert()->get_iter();
         const auto ib = buf->get_selection_bound()->get_iter();
@@ -613,11 +628,15 @@ void EditorPane::apply_live() {
         sel_b = std::min(ia.get_offset(), ib.get_offset());
         sel_e = std::max(ia.get_offset(), ib.get_offset());
         runs  = core::touched_runs(m_scan, sel_b, sel_e);
-        if (first == m_reveal_first && last == m_reveal_last && runs == m_reveal_runs) return;
+        marks = core::touched_marks(m_scan, first, last, sel_b, sel_e);
+        if (first == m_reveal_first && last == m_reveal_last && runs == m_reveal_runs &&
+            marks == m_reveal_marks)
+            return;
     }
     m_reveal_first = first;
     m_reveal_last  = last;
     m_reveal_runs  = runs;
+    m_reveal_marks = std::move(marks);
     const auto b = buf->begin(), e = buf->end();
     buf->remove_tag(m_hidden_tag, b, e);
     buf->remove_tag(m_hang_tag, b, e);
@@ -1044,8 +1063,9 @@ bool EditorPane::on_list_key(guint keyval, Gdk::ModifierType state) {
     const bool shift = mods == Gdk::ModifierType::SHIFT_MASK;
     const bool plain = mods == Gdk::ModifierType{};
 
-    enum { None, Enter, In, Out } what = None;
+    enum { None, Enter, In, Out, Back } what = None;
     if ((keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter) && plain) what = Enter;
+    else if (keyval == GDK_KEY_BackSpace && plain && m_live) what = Back;   // s027: the mark is drawn
     else if (keyval == GDK_KEY_Tab && plain) what = In;
     else if ((keyval == GDK_KEY_ISO_Left_Tab || keyval == GDK_KEY_Tab) && shift) what = Out;
     if (what == None) return false;
@@ -1054,14 +1074,17 @@ bool EditorPane::on_list_key(guint keyval, Gdk::ModifierType state) {
     Gtk::TextBuffer::iterator s, e;
     buf->get_selection_bounds(s, e);
     const std::string text = buf->get_text(/*include_hidden_chars=*/true);
-    const core::FmtEdit ed = what == Enter ? core::enter(text, s.get_offset(), e.get_offset())
-                                           : core::indent(text, s.get_offset(), e.get_offset(), what == Out);
+    const core::FmtEdit ed =
+        what == Enter ? core::enter(text, s.get_offset(), e.get_offset())
+        : what == Back ? core::backspace(text, s.get_offset(), e.get_offset())
+                       : core::indent(text, s.get_offset(), e.get_offset(), what == Out);
     if (!ed.ok) return false;          // not a list line: the text view's key
     apply_edit(ed);
     m_body.scroll_to(buf->get_insert());
     if (auto lg = log::get(log::Area::Editor))
-        lg->debug("list key {}: note={} [{},{})", what == Enter ? "enter" : what == In ? "tab" : "shift+tab",
-                  m_id, ed.cp_begin, ed.cp_end);
+        lg->debug("list key {}: note={} [{},{}) +{} renumber",
+                  what == Enter ? "enter" : what == In ? "tab" : what == Out ? "shift+tab" : "backspace",
+                  m_id, ed.cp_begin, ed.cp_end, ed.then.size());
     return true;
 }
 
@@ -1072,16 +1095,40 @@ bool EditorPane::apply_edit(const core::FmtEdit& ed) {
     // must not touch the buffer: an erase-and-reinsert of the same text is
     // still a modification, and the store would hear about it.
     const auto a = buf->get_iter_at_offset(ed.cp_begin), b = buf->get_iter_at_offset(ed.cp_end);
-    if (buf->get_text(a, b, /*include_hidden_chars=*/true).raw() == ed.text) {
+    const bool same = buf->get_text(a, b, /*include_hidden_chars=*/true).raw() == ed.text;
+    if (same && ed.then.empty()) {
         buf->select_range(buf->get_iter_at_offset(ed.sel_begin), buf->get_iter_at_offset(ed.sel_end));
         return true;
     }
+    // s027: the edit and the renumbering it caused are ONE undo step.
+    m_applying = true;
     buf->begin_user_action();
-    auto it = buf->erase(buf->get_iter_at_offset(ed.cp_begin), buf->get_iter_at_offset(ed.cp_end));
-    if (!ed.text.empty()) buf->insert(it, ed.text);
+    if (!same) {
+        auto it = buf->erase(buf->get_iter_at_offset(ed.cp_begin), buf->get_iter_at_offset(ed.cp_end));
+        if (!ed.text.empty()) buf->insert(it, ed.text);
+    }
+    for (auto p = ed.then.rbegin(); p != ed.then.rend(); ++p) {
+        auto it = buf->erase(buf->get_iter_at_offset(p->cp_begin), buf->get_iter_at_offset(p->cp_end));
+        if (!p->text.empty()) buf->insert(it, p->text);
+    }
     buf->end_user_action();
+    m_applying = false;
     buf->select_range(buf->get_iter_at_offset(ed.sel_begin), buf->get_iter_at_offset(ed.sel_end));
     return true;
+}
+
+void EditorPane::renumber_after_delete() {
+    m_renumber_queued = false;
+    if (m_loading || m_reading || m_id.empty() || !m_body.get_editable()) return;
+    auto buf = m_body.get_buffer();
+    Gtk::TextBuffer::iterator s, e;
+    buf->get_selection_bounds(s, e);
+    const std::string text = buf->get_text(/*include_hidden_chars=*/true);
+    const core::FmtEdit ed = core::renumber(text, s.get_offset(), e.get_offset());
+    if (!ed.ok) return;
+    apply_edit(ed);
+    if (auto lg = log::get(log::Area::Editor))
+        lg->debug("renumber after delete: note={} {} number(s)", m_id, ed.then.size());
 }
 
 void EditorPane::apply_format(core::Fmt f) {

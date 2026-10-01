@@ -136,6 +136,9 @@ public:
 private:
     void build_format_bar();
     bool apply_edit(const core::FmtEdit& ed);     // one user action; false if !ed.ok
+    // s027: lines the text view deleted (an item cut, joined lines) may leave a
+    // numbered list counting wrong; on idle, core::renumber puts it right.
+    void renumber_after_delete();
     bool on_list_key(guint keyval, Gdk::ModifierType state);   // s025: Enter / Tab in a list
     bool on_drop(const Glib::ValueBase& value, double x, double y);
     void on_paste_clipboard();       // "paste-clipboard", run BEFORE the default
@@ -216,6 +219,8 @@ private:
     // s026: the inline runs [lo, hi) the cursor touches -- a move along a
     // line that changes them re-applies, one that does not costs nothing.
     std::pair<int, int> m_reveal_runs{-1, -1};
+    // s027: and the lines whose bullet / task mark the cursor is AT.
+    std::vector<int> m_reveal_marks;
 
     // s025b: NEVER change what is hidden while a mouse button is down. The
     // reveal re-lays the line out, and GTK is still mid-click on the old
@@ -258,6 +263,12 @@ private:
     // that kind of edit, so the guard is here from the start rather than after
     // the bug.
     bool m_styling = false;
+    // s027: a deletion of ours (apply_edit), or one undo / redo is replaying,
+    // is not a reason to renumber -- ours already did, and a renumber during
+    // undo would be a new action that throws the redo away.
+    bool m_applying = false;
+    bool m_undoing = false;
+    bool m_renumber_queued = false;
     bool m_restyle_queued = false;
 };
 
