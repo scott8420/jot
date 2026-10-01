@@ -81,6 +81,7 @@ bool tag_body_char(char c) {
 
 void scan_inline(const std::string& t, int from, int to, int line, Scan& sc) {
     std::vector<Span>& out = sc.spans;
+    auto run = [&](int b, int e) { sc.runs.push_back(Run{line, b, e, 0, 0}); };
     int i = from;
     while (i < to) {
         const char c = t[static_cast<std::size_t>(i)];
@@ -88,6 +89,7 @@ void scan_inline(const std::string& t, int from, int to, int line, Scan& sc) {
         // An escape: dim the backslash, leave the escaped character plain.
         if (c == '\\' && i + 1 < to && is_escapable(t[static_cast<std::size_t>(i + 1)])) {
             add(out, Style::Mark, i, i + 1);
+            run(i, i + 2);
             i += 2;
             continue;
         }
@@ -101,6 +103,7 @@ void scan_inline(const std::string& t, int from, int to, int line, Scan& sc) {
                 add(out, Style::Mark, i, i + 1);
                 add(out, Style::Code, i + 1, j);
                 add(out, Style::Mark, j, j + 1);
+                run(i, j + 1);
                 i = j + 1;
                 continue;
             }
@@ -113,6 +116,7 @@ void scan_inline(const std::string& t, int from, int to, int line, Scan& sc) {
                 add(out, Style::Mark, i, i + 2);
                 add(out, Style::Strike, i + 2, j);
                 add(out, Style::Mark, j, j + 2);
+                run(i, j + 2);
                 i = j + 2;
                 continue;
             }
@@ -128,6 +132,7 @@ void scan_inline(const std::string& t, int from, int to, int line, Scan& sc) {
                 add(out, Style::Mark, i, i + 2);
                 add(out, Style::Bold, i + 2, j);
                 add(out, Style::Mark, j, j + 2);
+                run(i, j + 2);
                 i = j + 2;
                 continue;
             }
@@ -141,6 +146,7 @@ void scan_inline(const std::string& t, int from, int to, int line, Scan& sc) {
                 add(out, Style::Mark, i, i + 1);
                 add(out, Style::Italic, i + 1, j);
                 add(out, Style::Mark, j, j + 1);
+                run(i, j + 1);
                 i = j + 1;
                 continue;
             }
@@ -178,6 +184,7 @@ void scan_inline(const std::string& t, int from, int to, int line, Scan& sc) {
                     lk.begin  = start;
                     lk.end    = rp + 1;
                     sc.links.push_back(std::move(lk));
+                    run(start, rp + 1);
 
                     i = rp + 1;
                     continue;
@@ -504,6 +511,10 @@ Scan scan(const std::string& text) {
     for (auto& g : sc.tags) {
         g.cp_begin = cp_of(g.begin);
         g.cp_end   = cp_of(g.end);
+    }
+    for (auto& r : sc.runs) {
+        r.cp_begin = cp_of(r.begin);
+        r.cp_end   = cp_of(r.end);
     }
 
     return sc;

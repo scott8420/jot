@@ -603,16 +603,21 @@ void EditorPane::set_live(bool on) {
 void EditorPane::apply_live() {
     auto buf = m_body.get_buffer();
     if (!buf || !m_hidden_tag) return;
-    int first = -1, last = -1;
+    int first = -1, last = -1, sel_b = -1, sel_e = -1;
+    std::pair<int, int> runs{-1, -1};
     if (m_live) {
-        const int a = buf->get_insert()->get_iter().get_line();
-        const int b = buf->get_selection_bound()->get_iter().get_line();
-        first = std::min(a, b);
-        last  = std::max(a, b);
-        if (first == m_reveal_first && last == m_reveal_last) return;
+        const auto ia = buf->get_insert()->get_iter();
+        const auto ib = buf->get_selection_bound()->get_iter();
+        first = std::min(ia.get_line(), ib.get_line());
+        last  = std::max(ia.get_line(), ib.get_line());
+        sel_b = std::min(ia.get_offset(), ib.get_offset());
+        sel_e = std::max(ia.get_offset(), ib.get_offset());
+        runs  = core::touched_runs(m_scan, sel_b, sel_e);
+        if (first == m_reveal_first && last == m_reveal_last && runs == m_reveal_runs) return;
     }
     m_reveal_first = first;
     m_reveal_last  = last;
+    m_reveal_runs  = runs;
     const auto b = buf->begin(), e = buf->end();
     buf->remove_tag(m_hidden_tag, b, e);
     buf->remove_tag(m_hang_tag, b, e);
@@ -624,7 +629,7 @@ void EditorPane::apply_live() {
         return;
     }
 
-    m_view = core::live_view(m_scan, m_text, first, last);
+    m_view = core::live_view(m_scan, m_text, first, last, sel_b, sel_e);
     const int n = e.get_offset();
     auto hide = [&](int from, int to) {
         from = std::max(0, from);

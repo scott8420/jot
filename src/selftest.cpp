@@ -1364,6 +1364,74 @@ int main() {
                   h[1].end == 8 && h[2].begin == 9 && h[2].end == 11);
         const auto e = core::live_view(core::scan(""), "", -1, -1);
         check("live: empty body hides and draws nothing", e.hidden.empty() && e.decos.empty());
+
+        // -- s026: reveal per RUN, not per line ---------------------------
+        // The cursor is one codepoint (sb == se) or a selection [sb, se].
+        auto seen_at = [](const std::string& src, int sb, int se) {
+            const auto sc = core::scan(src);
+            int line = 0;
+            for (int k = 0; k < sb && k < static_cast<int>(src.size()); ++k) line += src[static_cast<std::size_t>(k)] == '\n';
+            int line_e = line;
+            for (int k = sb; k < se && k < static_cast<int>(src.size()); ++k) line_e += src[static_cast<std::size_t>(k)] == '\n';
+            const auto v = core::live_view(sc, src, line, line_e, sb, se);
+            std::string out;
+            int at = 0;
+            const int n = static_cast<int>(src.size());
+            for (const auto& h : v.hidden) {
+                const int b = std::min(h.begin, n), en = std::min(h.end, n);
+                out += src.substr(static_cast<std::size_t>(at), static_cast<std::size_t>(b - at));
+                at = en;
+            }
+            return out + src.substr(static_cast<std::size_t>(at));
+        };
+        // "## Plan\n" is 8; `**bold**` is [13,21); `[a link](jot:n1)` is [26,42).
+        const auto rs = core::scan(src);
+        check("runs: the scanner records each inline construct whole",
+              rs.runs.size() == 2 && rs.runs[0].cp_begin == 13 && rs.runs[0].cp_end == 21 &&
+                  rs.runs[1].cp_begin == 26 && rs.runs[1].cp_end == 42 && rs.runs[1].line == 1);
+        check("live/run: the cursor on a line but in no run reveals none of its inline marks",
+              seen_at(src, 9, 9) == "Plan\nsome bold and a link\nsaid\ntail", seen_at(src, 9, 9));
+        check("live/run: the cursor in the bold word reveals the bold word only",
+              seen_at(src, 16, 16) == "Plan\nsome **bold** and a link\nsaid\ntail", seen_at(src, 16, 16));
+        check("live/run: touching either edge counts (arrowing up to it; just finished typing it)",
+              seen_at(src, 13, 13) == seen_at(src, 16, 16) && seen_at(src, 21, 21) == seen_at(src, 16, 16));
+        check("live/run: the cursor in the link reveals the link only",
+              seen_at(src, 30, 30) == "Plan\nsome bold and [a link](jot:n1)\nsaid\ntail", seen_at(src, 30, 30));
+        check("live/run: a selection reveals every run it touches",
+              seen_at(src, 16, 30) == "Plan\nsome **bold** and [a link](jot:n1)\nsaid\ntail", seen_at(src, 16, 30));
+        check("live/run: line-level marks still follow the line (heading, quote)",
+              seen_at(src, 3, 3) == "## Plan\nsome bold and a link\nsaid\ntail" &&
+                  seen_at(src, 45, 45) == "Plan\nsome bold and a link\n> said\ntail",
+              seen_at(src, 3, 3) + " | " + seen_at(src, 45, 45));
+        check("live/run: no cursor given -> the s022 line rule",
+              seen(src, 1, 1) == "Plan\nsome **bold** and [a link](jot:n1)\nsaid\ntail");
+
+        const std::string mix = "- a \\* `x` ~~s~~ *i* __b__";
+        const auto ms = core::scan(mix);
+        check("runs: escape, code, strike, italic, bold -- five, in order, disjoint",
+              ms.runs.size() == 5 && ms.runs[0].cp_begin == 4 && ms.runs[0].cp_end == 6 &&
+                  [&] {
+                      for (std::size_t k = 1; k < ms.runs.size(); ++k)
+                          if (ms.runs[k].cp_begin < ms.runs[k - 1].cp_end) return false;
+                      return true;
+                  }());
+        check("live/run: a list line's bullet follows the line, its runs follow the cursor",
+              seen_at(mix, 8, 8) == "- a * `x` s i b", seen_at(mix, 8, 8));
+
+        const auto tr = core::touched_runs(rs, 16, 16);
+        const auto none = core::touched_runs(rs, 9, 9);
+        check("touched_runs: [lo, hi) of what the cursor touches; empty is lo == hi",
+              tr.first == 0 && tr.second == 1 && none.first == none.second &&
+                  core::touched_runs(rs, 16, 30) == std::make_pair(0, 2) &&
+                  core::touched_runs(rs, -1, -1).first == core::touched_runs(rs, -1, -1).second);
+
+        const std::string adj = "**a***b* z";
+        check("live/run: the cursor between two touching runs reveals both",
+              seen_at(adj, 5, 5) == "**a***b* z" && seen_at(adj, 9, 9) == "ab z",
+              seen_at(adj, 5, 5) + " | " + seen_at(adj, 9, 9));
+        const auto us = core::scan(u);
+        check("runs: codepoints, not bytes", us.runs.size() == 1 && us.runs[0].cp_begin == 6 &&
+                                                 us.runs[0].cp_end == 11);
     }
 
     // -- Format: the format bar's verbs (s024) --------------------------------

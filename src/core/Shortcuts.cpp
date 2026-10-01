@@ -188,10 +188,10 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         // s021: Obsidian's key for the same flip. No F-key twin needed.
         {"View", "win.toggle-reading",  {"<Ctrl>e"}, "",
          "Switch the note between Source and Reading"},
-        // s022: what editing looks like -- marks only on the cursor's line,
+        // s022: what editing looks like -- marks only where the cursor is (s026: per run),
         // or every mark on screen.
         {"View", "win.toggle-live",     {"<Ctrl><Shift>e"}, "",
-         "Live preview: hide the marks except on the line you are on"},
+         "Live preview: hide the marks except where the cursor is"},
 
         // ── Writing ───────────────────────────────────────────
         // s024: doc-only rows. These are bound on the NOTE, not the app, so

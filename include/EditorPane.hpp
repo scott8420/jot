@@ -213,6 +213,9 @@ private:
     Glib::RefPtr<Gtk::TextTag> m_hidden_tag;
     bool m_live = false;
     int  m_reveal_first = -1, m_reveal_last = -1;
+    // s026: the inline runs [lo, hi) the cursor touches -- a move along a
+    // line that changes them re-applies, one that does not costs nothing.
+    std::pair<int, int> m_reveal_runs{-1, -1};
 
     // s025b: NEVER change what is hidden while a mouse button is down. The
     // reveal re-lays the line out, and GTK is still mid-click on the old

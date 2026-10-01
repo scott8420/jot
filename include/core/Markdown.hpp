@@ -124,11 +124,26 @@ struct Tag {
     int         cp_begin = 0, cp_end = 0;
 };
 
+// An inline RUN (s026): one construct's whole extent, marks included --
+// `**bold**`, `*it*`, `` `code` ``, `~~s~~`, `[l](t)` / `![l](t)`, `\*`.
+// Live Preview reveals a run's marks only when the cursor touches the run,
+// as Obsidian does, rather than every mark on the cursor's line. The scanner
+// already knows where each pair opens and closes; recording it here keeps
+// ONE answer to "which marks belong together". Inline constructs do not nest
+// in this scanner, so runs never overlap, and they come out in text order.
+// Line-level marks (heading hashes, `>`, a list mark) are NOT runs.
+struct Run {
+    int line = 0;
+    int begin = 0, end = 0;          // bytes
+    int cp_begin = 0, cp_end = 0;
+};
+
 struct Scan {
     std::vector<Line> lines;   // index == buffer line number, always
     std::vector<Span> spans;
     std::vector<Link> links;
     std::vector<Tag>  tags;
+    std::vector<Run>  runs;    // s026: sorted, non-overlapping
 };
 
 // jot's own link scheme: `[label](jot:<node id>)`. Returns the id, or EMPTY for

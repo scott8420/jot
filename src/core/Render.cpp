@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <iterator>
 #include <map>
 
 namespace jot::core {
@@ -212,11 +213,25 @@ bool blank_bytes(const std::string& t, int b, int e) {
 }
 }  // namespace
 
-LiveView live_view(const Scan& sc, const std::string& text, int reveal_first, int reveal_last) {
+std::pair<int, int> touched_runs(const Scan& sc, int sel_begin, int sel_end) {
+    if (sel_begin < 0) return {0, 0};
+    if (sel_end < sel_begin) std::swap(sel_begin, sel_end);
+    // Runs are sorted and disjoint: the first one whose end reaches the
+    // selection, then every one that starts no later than its end.
+    const auto lo = std::lower_bound(sc.runs.begin(), sc.runs.end(), sel_begin,
+                                     [](const Run& r, int cp) { return r.cp_end < cp; });
+    auto hi = lo;
+    while (hi != sc.runs.end() && hi->cp_begin <= sel_end) ++hi;
+    return {static_cast<int>(lo - sc.runs.begin()), static_cast<int>(hi - sc.runs.begin())};
+}
+
+LiveView live_view(const Scan& sc, const std::string& text, int reveal_first, int reveal_last,
+                   int sel_begin, int sel_end) {
     LiveView v;
     const int nl = static_cast<int>(sc.lines.size());
     if (nl == 0) return v;
     auto revealed = [&](int a, int b) { return a <= reveal_last && b >= reveal_first; };
+    const auto touched = touched_runs(sc, sel_begin, sel_end);
 
     // ── fenced blocks: pair the fence lines ────────────────────────────────
     std::vector<int> in_block(static_cast<std::size_t>(nl), -1);   // line -> open fence line
@@ -285,7 +300,16 @@ LiveView live_view(const Scan& sc, const std::string& text, int reveal_first, in
         --it;
         const int line = static_cast<int>(it - sc.lines.begin());
         if (in_block[static_cast<std::size_t>(line)] >= 0) continue;   // done above
-        if (revealed(line, line)) continue;
+        // s026: a mark inside an inline run follows the RUN, not the line.
+        const auto rit = std::upper_bound(sc.runs.begin(), sc.runs.end(), s.cp_begin,
+                                          [](int cp, const Run& r) { return cp < r.cp_begin; });
+        const bool inline_mark = rit != sc.runs.begin() && std::prev(rit)->cp_end >= s.cp_end;
+        if (inline_mark && sel_begin >= 0) {
+            const int ri = static_cast<int>(std::prev(rit) - sc.runs.begin());
+            if (ri >= touched.first && ri < touched.second) continue;
+        } else if (revealed(line, line)) {
+            continue;
+        }
         const Line& ln = *it;
         const bool leading = s.cp_begin == ln.cp_begin + ln.level;
         if (ln.block == Block::Rule) {

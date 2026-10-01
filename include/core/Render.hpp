@@ -2,6 +2,7 @@
 #include "core/Markdown.hpp"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,7 +105,16 @@ int rendered_cp(const Rendered& r, int source_cp);
 //     (newline too, so they take no room), a Code deco for the Copy button.
 //     A block reveals WHOLE when the cursor is anywhere in it.
 // Lines [reveal_first, reveal_last] are the cursor's (or every line a
-// selection touches). All ranges are codepoints into the scanned text,
+// selection touches).
+//
+// s026 -- reveal per RUN. The LINE-level marks (heading hashes, `>`, a list
+// mark, a rule, a lone picture, a fence) reveal on the cursor's lines, as
+// above. An INLINE mark (emphasis, `code` ticks, ~~, an escape, a link's
+// brackets) reveals only when the cursor -- or the selection,
+// [sel_begin, sel_end] in codepoints -- touches its run (core::Run). Touching
+// includes the run's edges, so arrowing up to `**` shows it before stepping
+// in, and the cursor just past a run you finished typing keeps it open.
+// sel_begin < 0: no cursor known; inline marks follow the line rule (s022). All ranges are codepoints into the scanned text,
 // sorted and non-overlapping; `hidden` may run one past the last codepoint
 // (a trailing newline that is not there) and the editor clamps.
 struct CpRange { int begin = 0, end = 0; };
@@ -127,6 +137,12 @@ struct LiveView {
                                         // the editor indents them to make room for the glyph
 };
 
-LiveView live_view(const Scan& sc, const std::string& text, int reveal_first, int reveal_last);
+LiveView live_view(const Scan& sc, const std::string& text, int reveal_first, int reveal_last,
+                   int sel_begin = -1, int sel_end = -1);
+
+// The runs [lo, hi) a cursor / selection [sel_begin, sel_end] touches, edges
+// included. lo == hi: none. What the editor compares to know whether a move
+// within a line changes what Live Preview shows.
+std::pair<int, int> touched_runs(const Scan& sc, int sel_begin, int sel_end);
 
 }  // namespace jot::core
