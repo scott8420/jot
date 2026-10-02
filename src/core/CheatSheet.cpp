@@ -138,6 +138,9 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Today", "", "Today tab", "What you can actually do now",
          "Today: due by tonight, plus flagged. Available: everything not blocked or "
          "deferred. Flagged: all flagged."},
+        {"Today", "", "Today tab › Logbook", "What got done, newest first, by day",
+         "Ticked todos, and projects Completed or Dropped, with the time. Untick one there "
+         "and it goes back."},
         {"Today", "", "Due notification", "A desktop notice when a todo comes due",
          "Click it to open the todo. On in Preferences; jot can keep running with "
          "its window closed so the clock keeps ticking."},

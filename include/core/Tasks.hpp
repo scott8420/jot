@@ -180,4 +180,38 @@ struct TaskGroup {
 std::vector<TaskGroup> group_by_parent(const NodeSource& src,
                                        const std::vector<NodeId>& ids);
 
+// ── the Logbook (s032) ──────────────────────────────────────────────────────
+// What got done, newest first. An entry is a node that is finished BY ITSELF:
+// a ticked todo, or a project marked Completed or Dropped. A todo that only
+// counts as done because its project was completed is NOT listed again -- the
+// project's own line says it.
+//
+// The time is Task::finished, stamped by the store. Items finished before
+// s032 have no time and sort last, under their own heading: a made-up date
+// (`modified`, say) would put them on a day they were not done.
+//
+// A whole-tree walk, not the TaskIndex: a completed project is very often a
+// plain note, and the index only holds todos.
+struct LogEntry {
+    NodeId       id;
+    std::int64_t when = 0;                          // 0 == undated
+    ProjectState kind = ProjectState::Completed;    // Completed (incl. a tick) or Dropped
+};
+
+std::vector<LogEntry> logbook(const NodeSource& src);
+
+// Entries split by LOCAL day, in the order given. `day` is that day's
+// day_start(); 0 for the undated tail.
+struct LogDay {
+    std::int64_t          day = 0;
+    std::vector<LogEntry> entries;
+};
+std::vector<LogDay> group_by_day(const std::vector<LogEntry>& entries);
+
+// "Today", "Yesterday", a weekday name within the last week, else
+// "Wed 23 Sep" (with the year when it is not this year). "No date recorded"
+// for 0. `now` is the caller's instant, like everywhere in this file.
+std::string day_label(std::int64_t day, std::int64_t now);
+std::string format_clock(std::int64_t when);    // "14:32"; "" when 0
+
 }  // namespace jot::core

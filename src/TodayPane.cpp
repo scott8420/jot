@@ -3,6 +3,7 @@
 
 #include <gtkmm/enums.h>
 
+#include <algorithm>
 #include <ctime>
 
 // TodayPane.cpp -- the report. Reads the index, draws rows, writes only one
@@ -66,6 +67,7 @@ TodayPane::TodayPane(std::string_view name)
       m_b_today("today.filter_today"),
       m_b_available("today.filter_available"),
       m_b_flagged("today.filter_flagged"),
+      m_b_logbook("today.filter_logbook"),
       m_scroll("today.scroll"),
       m_column("today.column", Gtk::Orientation::VERTICAL, 14),
       m_empty("today.empty"),
@@ -183,6 +185,8 @@ void TodayPane::build_filter_bar() {
         {&m_b_available, "Available", View::Available,
          "Everything you could actually start right now"},
         {&m_b_flagged,   "Flagged",   View::Flagged, "Everything you have flagged"},
+        {&m_b_logbook,   "Logbook",   View::Logbook,
+         "What got done, newest first, by day"},
     };
     for (auto& s : spec) {
         s.b->set_label(s.label);
@@ -208,6 +212,7 @@ void TodayPane::set_view(View v) {
     m_b_today.set_active(v == View::Today);
     m_b_available.set_active(v == View::Available);
     m_b_flagged.set_active(v == View::Flagged);
+    m_b_logbook.set_active(v == View::Logbook);
     m_switching = false;
     refresh();
 }
@@ -323,6 +328,7 @@ void TodayPane::refresh() {
 
     if (!m_src || !m_tasks) { m_empty.set_visible(true); return; }
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    if (m_view == View::Logbook) { fill_logbook(now); return; }   // looks back: no Overdue pin
 
     core::Filter f = core::Filter::Today;
     if (m_view == View::Available) f = core::Filter::Available;
@@ -368,6 +374,7 @@ void TodayPane::refresh() {
                 m_empty.set_text("Nothing is flagged.\n\nFlag a todo in the details "
                                  "pane when it is the one you mean to do next.");
                 break;
+            case View::Logbook: break;   // fill_logbook says its own
         }
         m_empty.set_visible(true);
     }
@@ -376,6 +383,139 @@ void TodayPane::refresh() {
         lg->debug("today: view={} overdue={} rows={} of {} todo(s)",
                   static_cast<int>(m_view), overdue.size(), rest.size(),
                   m_tasks->count());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The Logbook (s032). Same shape as the forward views -- a heading per group,
+// rows under it -- but the group is a DAY and the order is newest first.
+//
+// A todo's row keeps its tick, ticked: unticking it is how you say "that was
+// not done after all", and the row leaves because the model said so, exactly
+// as a tick in Today does. A project that is a plain note has no tick to
+// offer; its row says Completed or Dropped instead.
+//
+// Capped, because every row is a widget and a year of ticks is thousands. The
+// cap says so on screen rather than quietly ending the list.
+// ─────────────────────────────────────────────────────────────────────────────
+namespace {
+constexpr std::size_t kLogbookCap = 300;
+}
+
+Gtk::Widget* TodayPane::log_row(const core::Node& n, const core::LogEntry& e) {
+    auto* row = Gtk::make_managed<widgets::Box>(widgets::unregistered,
+                                                "today.logrow." + n.id,
+                                                Gtk::Orientation::HORIZONTAL, 8);
+    const core::NodeId id = n.id;
+    if (n.task.is_task && n.task.done) {
+        auto* tick = Gtk::make_managed<widgets::CheckButton>(widgets::unregistered,
+                                                             "today.logtick." + n.id);
+        tick->set_valign(Gtk::Align::CENTER);
+        tick->set_active(true);
+        tick->set_tooltip_text("Untick: not done after all");
+        tick->signal_toggled().connect([this, id, tick]() {
+            if (m_src) m_src->set_done(id, tick->get_active());
+        });
+        row->append(*tick);
+    } else {
+        // No tick to offer (a note project): hold its place so the titles line up.
+        auto* gap = Gtk::make_managed<widgets::Box>(widgets::unregistered,
+                                                    "today.loggap." + n.id,
+                                                    Gtk::Orientation::HORIZONTAL, 0);
+        gap->set_size_request(16, -1);
+        row->append(*gap);
+    }
+
+    auto* text = Gtk::make_managed<widgets::Box>(widgets::unregistered,
+                                                 "today.logtext." + n.id,
+                                                 Gtk::Orientation::VERTICAL, 0);
+    auto* title = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                    "today.logtitle." + n.id);
+    title->set_text(n.title.empty() ? "(untitled)" : n.title);
+    title->set_xalign(0.0f);
+    title->set_ellipsize(Pango::EllipsizeMode::END);
+    if (!n.title.empty()) title->set_tooltip_text(n.title);
+    if (e.kind == core::ProjectState::Dropped) title->add_css_class("dim-label");
+    text->append(*title);
+
+    // "14:32 · Completed project · in Home" -- the time, what kind of finish
+    // when it is not a plain tick, and where it lives.
+    std::string sub = core::format_clock(e.when);
+    auto add = [&sub](const std::string& part) {
+        if (part.empty()) return;
+        sub += sub.empty() ? part : "  ·  " + part;
+    };
+    if (e.kind == core::ProjectState::Dropped) add("Dropped");
+    else if (!(n.task.is_task && n.task.done)) add("Completed");
+    if (const core::Node* p = n.parent_id.empty() ? nullptr : m_src->find(n.parent_id))
+        add("in " + titled(p));
+    if (!sub.empty()) {
+        auto* when = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                       "today.logwhen." + n.id);
+        when->set_text(sub);
+        when->set_xalign(0.0f);
+        when->set_ellipsize(Pango::EllipsizeMode::END);
+        when->add_css_class("dim-label");
+        when->add_css_class("caption");
+        text->append(*when);
+    }
+
+    auto* go = Gtk::make_managed<widgets::Button>(widgets::unregistered,
+                                                  "today.loggoto." + n.id);
+    go->set_has_frame(false);
+    go->set_hexpand(true);
+    go->set_child(*text);
+    go->signal_clicked().connect([this, id]() { m_sig_goto.emit(id); });
+    row->append(*go);
+    return row;
+}
+
+void TodayPane::fill_logbook(std::int64_t now) {
+    const auto all = core::logbook(*m_src);
+    std::vector<core::LogEntry> shown(all.begin(),
+                                      all.begin() + std::min(all.size(), kLogbookCap));
+    for (const auto& day : core::group_by_day(shown)) {
+        const std::string key = std::to_string(day.day);
+        auto* group = Gtk::make_managed<widgets::Box>(widgets::unregistered,
+                                                      "today.logday." + key,
+                                                      Gtk::Orientation::VERTICAL, 4);
+        auto* head = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                       "today.logday_head." + key);
+        head->set_text(core::day_label(day.day, now) + "  ·  " +
+                       std::to_string(day.entries.size()));
+        head->set_xalign(0.0f);
+        head->add_css_class("heading");
+        group->append(*head);
+        if (day.day == 0) {
+            auto* why = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                          "today.logday_why");
+            why->set_text("Finished before jot kept the time.");
+            why->set_xalign(0.0f);
+            why->add_css_class("dim-label");
+            why->add_css_class("caption");
+            group->append(*why);
+        }
+        for (const auto& e : day.entries)
+            if (const core::Node* n = m_src->find(e.id)) group->append(*log_row(*n, e));
+        m_column.append(*group);
+    }
+
+    if (all.size() > shown.size()) {
+        auto* more = Gtk::make_managed<widgets::Label>(widgets::unregistered, "today.logmore");
+        more->set_text("…and " + std::to_string(all.size() - shown.size()) +
+                       " older, not shown.");
+        more->set_xalign(0.0f);
+        more->add_css_class("dim-label");
+        m_column.append(*more);
+    }
+
+    if (all.empty()) {
+        m_empty.set_text("Nothing done yet.\n\nTick a todo, or mark a project Completed or "
+                         "Dropped, and it is listed here under the day it happened.");
+        m_empty.set_visible(true);
+    }
+
+    if (auto lg = log::get(log::Area::Drawer))
+        lg->debug("today: logbook {} entr(ies), {} shown", all.size(), shown.size());
 }
 
 }  // namespace jot

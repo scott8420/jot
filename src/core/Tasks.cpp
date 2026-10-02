@@ -354,4 +354,73 @@ std::vector<TaskGroup> group_by_parent(const NodeSource& src,
     return out;
 }
 
+// ── the Logbook (s032) ──────────────────────────────────────────────────────
+
+std::vector<LogEntry> logbook(const NodeSource& src) {
+    std::vector<LogEntry> out;
+    std::vector<NodeId> stack;
+    {
+        const auto roots = src.children("");
+        stack.assign(roots.rbegin(), roots.rend());
+    }
+    while (!stack.empty()) {                     // preorder: the undated tail reads in tree order
+        const NodeId id = stack.back();
+        stack.pop_back();
+        if (const Node* n = src.find(id)) {
+            const bool ticked = n->task.is_task && n->task.done;
+            if (ticked || n->task.project == ProjectState::Completed)
+                out.push_back({id, n->task.finished, ProjectState::Completed});
+            else if (n->task.project == ProjectState::Dropped)
+                out.push_back({id, n->task.finished, ProjectState::Dropped});
+        }
+        const auto kids = src.children(id);
+        for (auto it = kids.rbegin(); it != kids.rend(); ++it) stack.push_back(*it);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const LogEntry& a, const LogEntry& b) {
+        if ((a.when == 0) != (b.when == 0)) return a.when != 0;   // dated first
+        return a.when > b.when;                                   // newest first
+    });
+    return out;
+}
+
+std::vector<LogDay> group_by_day(const std::vector<LogEntry>& entries) {
+    std::vector<LogDay> out;
+    for (const auto& e : entries) {
+        const std::int64_t d = e.when == 0 ? 0 : day_start(e.when);
+        if (out.empty() || out.back().day != d) out.push_back(LogDay{d, {}});
+        out.back().entries.push_back(e);
+    }
+    return out;
+}
+
+std::string day_label(std::int64_t day, std::int64_t now) {
+    if (day == 0) return "No date recorded";
+    const std::int64_t today = day_start(now);
+    const std::int64_t d     = day_start(day);
+    // Days by calendar, not by 86400 seconds: a DST change makes one day 23 h.
+    const std::int64_t yesterday = day_start(today - 12 * 3600);
+    if (d == today)     return "Today";
+    if (d == yesterday) return "Yesterday";
+    const std::tm tm = local_of(d);
+    const std::tm tn = local_of(today);
+    char buf[48];
+    if (d < today && today - d < 7 * 24 * 3600 - 3600)
+        std::strftime(buf, sizeof buf, "%A", &tm);                 // "Wednesday"
+    else if (tm.tm_year == tn.tm_year)
+        std::strftime(buf, sizeof buf, "%a %e %b", &tm);           // "Wed 23 Sep"
+    else
+        std::strftime(buf, sizeof buf, "%a %e %b %Y", &tm);
+    std::string out = buf;
+    if (auto p = out.find("  "); p != std::string::npos) out.erase(p, 1);   // %e pads " 3"
+    return out;
+}
+
+std::string format_clock(std::int64_t when) {
+    if (when == 0) return {};
+    const std::tm tm = local_of(when);
+    char buf[16];
+    std::strftime(buf, sizeof buf, "%H:%M", &tm);
+    return buf;
+}
+
 }  // namespace jot::core

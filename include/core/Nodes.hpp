@@ -88,6 +88,13 @@ struct Task {
     bool         flagged = false;  // "this one, today"
     Status       status  = Status::None;   // how THIS node's children run
     ProjectState project = ProjectState::Active;   // s031: where THIS project stands
+    // s032. WHEN it was finished: ticked (a todo), Completed or Dropped (a
+    // project). 0 == not finished, or finished before s032 kept the time.
+    // Nobody sets it by hand: MemoryNodes::set_task stamps it on the way IN to
+    // a finished state and clears it on the way out, so every road to "done"
+    // (the tree's tick, Today's tick, the drawer, the project menu) records
+    // the time without knowing it does.
+    std::int64_t finished = 0;
 
     bool operator==(const Task&) const = default;
 };
@@ -288,6 +295,10 @@ public:
     // with an empty id (the "everything changed" shape a real reload will use).
     void reset(std::vector<Node> nodes);
 
+    // s032. The clock behind `modified` and the finish stamp. The selftest
+    // stands it at a known instant; nothing else sets it.
+    void set_clock(std::function<std::int64_t()> fn) { m_clock = std::move(fn); }
+
 protected:
     // Mint the id for a new node. MemoryNodes uses a counter because its nodes
     // are throwaway fixtures; a persistent store overrides this with something
@@ -295,6 +306,8 @@ protected:
     virtual NodeId mint_id();
 
 private:
+    std::int64_t now() const;
+    std::function<std::int64_t()> m_clock;
     Node* mutable_find(const NodeId& id);
     void  reindex();
     void  collect_subtree(const NodeId& id, std::vector<NodeId>& out) const;

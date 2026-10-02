@@ -198,11 +198,39 @@ bool MemoryNodes::set_inbox(const NodeId& id, bool on) {
     return true;
 }
 
-bool MemoryNodes::set_task(const NodeId& id, const Task& t) {
+std::int64_t MemoryNodes::now() const { return m_clock ? m_clock() : now_seconds(); }
+
+// s032. How a task record is finished: 0 not, 1 done / completed, 2 dropped.
+// A change of KIND (completed -> dropped) is a new event and gets a new time;
+// staying finished keeps the time it already had.
+namespace {
+int finish_kind(const Task& t) {
+    if (t.is_task && t.done) return 1;
+    if (t.project == ProjectState::Completed) return 1;
+    if (t.project == ProjectState::Dropped) return 2;
+    return 0;
+}
+}  // namespace
+
+bool MemoryNodes::set_task(const NodeId& id, const Task& in) {
     Node* n = mutable_find(id);
-    if (!n || n->task == t) return false;   // no-op writes must not dirty a note
+    if (!n) return false;
+    Task t = in;
+    const int was = finish_kind(n->task);
+    const int is  = finish_kind(t);
+    if (is == 0) {
+        t.finished = 0;                                        // reopened: no stale time
+    } else if (is != was) {
+        // Entering a finished state. A caller that copied the old record still
+        // carries the old stamp (or 0); one that set a different time on
+        // purpose (an import, one day an undo) keeps it.
+        if (t.finished == 0 || t.finished == n->task.finished) t.finished = now();
+    } else if (t.finished == 0) {
+        t.finished = n->task.finished;                         // still finished: keep when
+    }
+    if (n->task == t) return false;   // no-op writes must not dirty a note
     n->task     = t;
-    n->modified = now_seconds();
+    n->modified = now();
     notify(Change::Task, id);
     return true;
 }

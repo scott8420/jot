@@ -2101,6 +2101,136 @@ int main() {
         fs::remove_all(dir, ec);
     }
 
+    // -- Logbook (s032): when it was done ---------------------------------------
+    // The stamp is written by the store on the way INTO a finished state, by
+    // every road (tick, project menu), and cleared on the way out. The failure
+    // this guards: a Logbook that shows a thing on the wrong day, or keeps a
+    // thing you unticked.
+    {
+        using core::ProjectState;
+        std::int64_t clock = 1'800'000'000;
+        core::MemoryNodes m;
+        m.set_clock([&clock] { return clock; });
+        const auto home = m.create("", "Home");
+        const auto a = m.create(home, "buy paint");
+        const auto b = m.create(home, "sand the door");
+        const auto proj = m.create("", "Kitchen");                // a NOTE project
+        const auto k1 = m.create(proj, "measure");
+        const auto old = m.create("", "ancient");
+        for (const auto& id : {a, b, k1, old}) m.make_task(id, true);
+
+        check("log: a fresh todo has no finish time", m.find(a)->task.finished == 0);
+        m.set_done(a, true);
+        check("log: ticking stamps the time", m.find(a)->task.finished == clock);
+        clock += 60;
+        m.set_flagged(a, true);
+        check("log: another edit to a done todo keeps its time",
+              m.find(a)->task.finished == clock - 60);
+        m.set_done(a, false);
+        check("log: unticking clears it", m.find(a)->task.finished == 0);
+        m.set_done(a, true);
+        check("log: re-ticking stamps the new time", m.find(a)->task.finished == clock);
+
+        clock += 3600;
+        core::set_project_state(m, proj, ProjectState::Completed);
+        check("log: Completed on a note project stamps", m.find(proj)->task.finished == clock);
+        clock += 60;
+        core::set_project_state(m, proj, ProjectState::Dropped);
+        check("log: Completed -> Dropped is a new event, a new time",
+              m.find(proj)->task.finished == clock);
+        core::set_project_state(m, proj, ProjectState::OnHold);
+        check("log: On hold is not finished", m.find(proj)->task.finished == 0);
+        core::set_project_state(m, proj, ProjectState::Completed);
+
+        clock += 60;
+        core::set_project_state(m, b, ProjectState::Completed);   // a todo: this is its tick
+        check("log: Completed on a todo is its tick, stamped",
+              m.find(b)->task.done && m.find(b)->task.finished == clock);
+        m.make_task(b, false);
+        check("log: un-making a done todo clears the time", m.find(b)->task.finished == 0);
+        m.make_task(b, true);
+
+        // An item done before s032: done, no time -- as a load hands it over.
+        {
+            std::vector<core::Node> all;
+            for (const auto& id : {home, a, b, proj, k1, old}) all.push_back(*m.find(id));
+            all.back().task.done     = true;
+            all.back().task.finished = 0;
+            m.reset(all);
+        }
+
+        const auto lb = core::logbook(m);
+        auto pos = [&lb](const core::NodeId& id) {
+            for (std::size_t i = 0; i < lb.size(); ++i) if (lb[i].id == id) return int(i);
+            return -1;
+        };
+        check("log: done todo, completed project and the undated one are listed",
+              lb.size() == 3 && pos(a) >= 0 && pos(proj) >= 0 && pos(old) >= 0,
+              std::to_string(lb.size()));
+        check("log: a todo inside a completed project is not listed twice", pos(k1) == -1);
+        check("log: newest first, undated last",
+              pos(proj) == 0 && pos(a) == 1 && pos(old) == 2);
+        check("log: the project entry says Completed",
+              !lb.empty() && lb[0].kind == ProjectState::Completed);
+
+        const auto days = core::group_by_day(lb);
+        check("log: two groups -- one day, then the undated tail",
+              days.size() == 2 && days[0].entries.size() == 2 && days[1].day == 0,
+              std::to_string(days.size()));
+
+        const std::int64_t now = 1'800'000'000;
+        check("log: day labels", core::day_label(core::day_start(now), now) == "Today" &&
+                                     core::day_label(now - 24 * 3600, now) == "Yesterday" &&
+                                     core::day_label(0, now) == "No date recorded",
+              core::day_label(now - 24 * 3600, now));
+        const std::string wk = core::day_label(now - 3 * 24 * 3600, now);
+        const std::string far = core::day_label(now - 40 * 24 * 3600, now);
+        check("log: a weekday within the week, a date beyond it",
+              wk.find(' ') == std::string::npos && far.find(' ') != std::string::npos, wk + " / " + far);
+        check("log: format_clock is HH:MM", core::format_clock(now).size() == 5 &&
+                                               core::format_clock(0).empty());
+
+        // Dropped keeps its own kind.
+        core::set_project_state(m, proj, ProjectState::Dropped);
+        const auto lb2 = core::logbook(m);
+        check("log: a dropped project is listed as Dropped",
+              !lb2.empty() && lb2[0].id == proj && lb2[0].kind == ProjectState::Dropped);
+    }
+    // The stamp survives the disk, and is written only when set.
+    {
+        namespace fs = std::filesystem;
+        const std::string dir = (fs::temp_directory_path() / "jot_selftest_logbook").string();
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        core::NodeId done_id, open_id;
+        std::int64_t stamp = 0;
+        {
+            core::Project v;
+            v.open(dir);
+            done_id = v.create("", "done one");
+            open_id = v.create("", "open one");
+            v.make_task(done_id, true);
+            v.make_task(open_id, true);
+            v.set_done(done_id, true);
+            stamp = v.find(done_id)->task.finished;
+            v.flush();
+        }
+        std::ifstream f(fs::path(dir) / "jot.json");
+        const std::string js((std::istreambuf_iterator<char>(f)), {});
+        std::size_t n_keys = 0;
+        for (std::size_t at = 0; (at = js.find("\"finished\"", at)) != std::string::npos; ++at) ++n_keys;
+        check("log/jots: only the finished node writes the key", n_keys == 1 && stamp != 0, js);
+        {
+            core::Project v;
+            v.open(dir);
+            check("log/jots: the time survives a reopen",
+                  v.find(done_id)->task.finished == stamp &&
+                      v.find(open_id)->task.finished == 0);
+            check("log/jots: the Logbook reads it back", core::logbook(v).size() == 1);
+        }
+        fs::remove_all(dir, ec);
+    }
+
     // -- Cheat sheet (s030): the running reference ------------------------------
     // "Every milestone adds its lines" is a rule; these make it a failing test.
     // A keyed verb with no line, a line naming a verb that does not exist, a key

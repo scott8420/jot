@@ -451,6 +451,7 @@ bool Project::load_project(std::vector<Node>& out) const {
         n.task.flagged = e.value("flagged", false);
         n.task.status  = status_from(e.value("status", std::string{}));
         n.task.project = project_from(e.value("project", std::string{}));   // s031
+        n.task.finished = e.value("finished", std::int64_t{0});              // s032
         n.inbox        = e.value("inbox", false);   // s028; absent == processed
         if (!n.id.empty()) out.push_back(std::move(n));
     }
@@ -535,6 +536,7 @@ bool Project::save_project() const {
             if (n->task.status != Status::None) e["status"] = status_name(n->task.status);
             if (n->task.project != ProjectState::Active)
                 e["project"] = project_name(n->task.project);             // s031, same rule
+            if (n->task.finished != 0)         e["finished"] = n->task.finished;   // s032
             if (n->inbox)                      e["inbox"]   = true;   // s028, same rule
             j["nodes"].push_back(std::move(e));
         }

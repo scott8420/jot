@@ -71,13 +71,18 @@ private:
     // The three views, and deliberately only three. Forecast and a review queue
     // are perspectives over the same index and they are worthless without a
     // real corpus to look at, so they are not built until there is one.
-    enum class View { Today, Available, Flagged };
+    // s032: Logbook -- what got done, newest first, by day. It looks BACK,
+    // where the other three look forward; it is the fourth button rather than
+    // a fifth tab because it is still a report over the same nodes.
+    enum class View { Today, Available, Flagged, Logbook };
 
     void build_filter_bar();
     void build_desktop_bar();
     void add_group(const core::NodeId& parent, const std::vector<core::NodeId>& ids,
                    const std::string& override_head);
     Gtk::Widget* task_row(const core::Node& n);
+    Gtk::Widget* log_row(const core::Node& n, const core::LogEntry& e);
+    void         fill_logbook(std::int64_t now);
     void set_view(View v);
 
     core::NodeSource*      m_src   = nullptr;   // not owned; the seam
@@ -85,7 +90,7 @@ private:
     View                   m_view  = View::Today;
 
     widgets::Box            m_filter_bar;
-    widgets::ToggleButton   m_b_today, m_b_available, m_b_flagged;
+    widgets::ToggleButton   m_b_today, m_b_available, m_b_flagged, m_b_logbook;
     widgets::ScrolledWindow m_scroll;
     widgets::Box            m_column;
     widgets::Label          m_empty;

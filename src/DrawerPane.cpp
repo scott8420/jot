@@ -467,7 +467,12 @@ void DrawerPane::fill_task(const core::Node& n) {
         switch (core::availability(*m_src, n.id, now)) {
             case core::Avail::Available: why = "Available now."; break;
             case core::Avail::Done: {
-                if (n.task.done) { why = "Done."; break; }
+                if (n.task.done) {
+                    // s032: and WHEN, if jot was keeping time then.
+                    why = n.task.finished ? "Done " + core::format_date(n.task.finished) + "."
+                                          : "Done.";
+                    break;
+                }
                 const core::NodeId by = core::stopped_by(*m_src, n.id);
                 const core::Node* b = by.empty() ? nullptr : m_src->find(by);
                 why = b ? "Done \u2014 \"" + titled(b) + "\" is completed."
@@ -480,7 +485,10 @@ void DrawerPane::fill_task(const core::Node& n) {
                 const core::NodeId by = core::stopped_by(*m_src, n.id);
                 const core::Node* b = by.empty() ? nullptr : m_src->find(by);
                 const bool drop = core::availability(*m_src, n.id, now) == core::Avail::Dropped;
-                if (by == n.id)  why = drop ? "Dropped." : "On hold.";
+                if (by == n.id)  why = drop ? (n.task.finished
+                                                   ? "Dropped " + core::format_date(n.task.finished) + "."
+                                                   : std::string("Dropped."))
+                                            : "On hold.";
                 else if (b)      why = std::string(drop ? "Dropped" : "On hold") + " \u2014 \"" +
                                        titled(b) + "\" is " + (drop ? "dropped." : "on hold.");
                 break;
