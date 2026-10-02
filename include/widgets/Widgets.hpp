@@ -3,6 +3,7 @@
 
 #include <gtkmm/box.h>
 #include <gtkmm/button.h>
+#include <gtkmm/calendar.h>
 #include <gtkmm/checkbutton.h>
 #include <gtkmm/entry.h>
 #include <gtkmm/expander.h>
@@ -11,6 +12,7 @@
 #include <gtkmm/listbox.h>
 #include <gtkmm/menubutton.h>
 #include <gtkmm/paned.h>
+#include <gtkmm/popover.h>
 #include <gtkmm/popovermenu.h>
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/stack.h>
@@ -25,6 +27,7 @@ namespace jot::widgets {
 
 using Box            = Named<Gtk::Box>;
 using Button         = Named<Gtk::Button>;
+using Calendar       = Named<Gtk::Calendar>;
 using CheckButton    = Named<Gtk::CheckButton>;
 using Entry          = Named<Gtk::Entry>;
 using Expander       = Named<Gtk::Expander>;
@@ -33,6 +36,7 @@ using Label          = Named<Gtk::Label>;
 using ListBox        = Named<Gtk::ListBox>;
 using MenuButton     = Named<Gtk::MenuButton>;
 using Paned          = Named<Gtk::Paned>;
+using Popover        = Named<Gtk::Popover>;
 using PopoverMenu    = Named<Gtk::PopoverMenu>;
 using ScrolledWindow = Named<Gtk::ScrolledWindow>;
 using Separator      = Named<Gtk::Separator>;

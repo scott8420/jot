@@ -180,6 +180,11 @@ private:
     void build_task_block();
     void fill_task(const core::Node& n);
     void commit_date(core::DateKind kind);        // an entry -> the model
+    void commit_repeat();                         // s033: the Repeat entry -> the model
+    // s033b: the dropdowns beside the fields. Each writes TEXT into its entry
+    // and commits it, so a pick and a typed value take one road to the model.
+    Gtk::Widget* date_picker(core::DateKind kind);
+    Gtk::Widget* repeat_picker();
     void update_task_sensitivity(const core::Node& n);
 
     void fill_links(const core::Node& n);
@@ -252,6 +257,10 @@ private:
     widgets::Box         m_defer_row;
     widgets::Label       m_defer_label;
     widgets::Entry       m_defer;
+    widgets::Box         m_repeat_row;      // s033
+    widgets::Label       m_repeat_label;
+    widgets::Entry       m_repeat;
+    widgets::CheckButton m_repeat_done;     // count from when it is done, not from the due date
     widgets::Label       m_avail;       // the DERIVED line: why it is or is not actionable
 
     // Children: how this node's children run. Shown only when it HAS children

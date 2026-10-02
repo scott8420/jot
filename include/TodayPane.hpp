@@ -81,7 +81,7 @@ private:
     void add_group(const core::NodeId& parent, const std::vector<core::NodeId>& ids,
                    const std::string& override_head);
     Gtk::Widget* task_row(const core::Node& n);
-    Gtk::Widget* log_row(const core::Node& n, const core::LogEntry& e);
+    Gtk::Widget* log_row(const core::LogEntry& e);
     void         fill_logbook(std::int64_t now);
     void set_view(View v);
 

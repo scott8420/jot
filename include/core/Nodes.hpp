@@ -1,4 +1,5 @@
 #pragma once
+#include "core/Repeat.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -95,6 +96,8 @@ struct Task {
     // (the tree's tick, Today's tick, the drawer, the project menu) records
     // the time without knowing it does.
     std::int64_t finished = 0;
+    // s033. Comes back when ticked (core/Repeat). Off by default.
+    Repeat       repeat;
 
     bool operator==(const Task&) const = default;
 };
@@ -117,6 +120,17 @@ struct Node {
     bool         inbox    = false;
 };
 
+// s033. One occurrence of a repeating todo, done. The note itself rolls on to
+// the next occurrence (core/Repeat), so the past lives here: the Logbook's
+// record of it. The title is copied, not looked up, so a record still reads
+// right after the note is renamed or deleted.
+struct LogRecord {
+    NodeId       id;
+    std::string  title;
+    std::int64_t when = 0;
+    bool operator==(const LogRecord&) const = default;
+};
+
 // ── The seam ────────────────────────────────────────────────────────────────
 // Reads are by id; there is no "give me your vector". Writes return false when
 // the model refuses (a cycle, a protected node, an unknown id) -- refusal is a
@@ -131,6 +145,8 @@ public:
     virtual std::vector<NodeId> children(const NodeId& parent) const = 0;
     virtual const Node*         find(const NodeId& id) const         = 0;
     virtual std::size_t         count() const                        = 0;
+    // s033: done occurrences of repeating todos, oldest first. Empty by default.
+    virtual const std::vector<LogRecord>& history() const;
 
     // ── writes ──────────────────────────────────────────────────────────────
     virtual NodeId create(const NodeId& parent, const std::string& title) = 0;
@@ -153,6 +169,7 @@ public:
     bool set_due(const NodeId& id, std::int64_t when);
     bool set_defer(const NodeId& id, std::int64_t when);
     bool set_status(const NodeId& id, Status s);
+    bool set_repeat(const NodeId& id, const Repeat& r);   // s033
     // Make this node a todo / stop it being one. Un-making CLEARS the fields
     // rather than leaving them set-but-ignored: a due date that survives
     // un-tasking is a date that comes back from the dead when you re-task.
@@ -299,6 +316,10 @@ public:
     // stands it at a known instant; nothing else sets it.
     void set_clock(std::function<std::int64_t()> fn) { m_clock = std::move(fn); }
 
+    // s033. The repeat history. set_history is the LOAD path: no notify.
+    const std::vector<LogRecord>& history() const override { return m_history; }
+    void set_history(std::vector<LogRecord> h) { m_history = std::move(h); }
+
 protected:
     // Mint the id for a new node. MemoryNodes uses a counter because its nodes
     // are throwaway fixtures; a persistent store overrides this with something
@@ -308,6 +329,7 @@ protected:
 private:
     std::int64_t now() const;
     std::function<std::int64_t()> m_clock;
+    std::vector<LogRecord>        m_history;
     Node* mutable_find(const NodeId& id);
     void  reindex();
     void  collect_subtree(const NodeId& id, std::vector<NodeId>& out) const;

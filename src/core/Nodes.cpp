@@ -228,10 +228,38 @@ bool MemoryNodes::set_task(const NodeId& id, const Task& in) {
     } else if (t.finished == 0) {
         t.finished = n->task.finished;                         // still finished: keep when
     }
-    if (n->task == t) return false;   // no-op writes must not dirty a note
+    // s033. Ticking a REPEATING todo finishes this occurrence, not the note:
+    // the occurrence goes to the history (the Logbook reads it), and the note
+    // rolls on -- dates forward, tick off. Here, at the one door, so every
+    // road to done (tree, Today, drawer, project menu) repeats alike.
+    bool rolled = false;
+    if (t.is_task && t.repeat.on() && is == 1 && was != 1) {
+        const std::int64_t at = now();
+        m_history.push_back(LogRecord{id, n->title, at});
+        repeat_next(t.repeat, at, t.due, t.defer);
+        t.done     = false;
+        t.finished = 0;
+        if (t.project == ProjectState::Completed) t.project = ProjectState::Active;
+        rolled = true;
+    }
+    if (n->task == t && !rolled) return false;   // no-op writes must not dirty a note
     n->task     = t;
     n->modified = now();
     notify(Change::Task, id);
+    if (rolled) {
+        // A repeating project starts over: its ticked steps untick. Through
+        // the virtual, so a persistent store writes each one.
+        std::vector<NodeId> under;
+        collect_subtree(id, under);
+        for (const auto& d : under) {
+            if (d == id) continue;
+            const Node* k = find(d);
+            if (!k || !k->task.is_task || !k->task.done) continue;
+            Task kt = k->task;
+            kt.done = false;
+            set_task(d, kt);
+        }
+    }
     return true;
 }
 
@@ -259,6 +287,13 @@ bool NodeSource::set_due(const NodeId& id, std::int64_t when) {
 }
 bool NodeSource::set_defer(const NodeId& id, std::int64_t when) {
     return edit_task(*this, id, [&](Task& t) { t.defer = when; });
+}
+bool NodeSource::set_repeat(const NodeId& id, const Repeat& r) {
+    return edit_task(*this, id, [&](Task& t) { t.repeat = r; });
+}
+const std::vector<LogRecord>& NodeSource::history() const {
+    static const std::vector<LogRecord> kNone;
+    return kNone;
 }
 bool NodeSource::set_status(const NodeId& id, Status s) {
     return edit_task(*this, id, [&](Task& t) { t.status = s; });

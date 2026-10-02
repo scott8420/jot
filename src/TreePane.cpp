@@ -323,6 +323,18 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         box->append(*star);
     }
 
+    // s033. A repeating todo: ticking it brings it back, which is surprising
+    // if nothing said so. A text glyph rather than an icon -- it draws on any
+    // theme, and the sandbox cannot render some Adwaita SVGs to check one.
+    if (n.task.is_task && n.task.repeat.on()) {
+        auto* rep = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                      "tree.repeat." + n.id);
+        rep->set_text("\u21bb");
+        rep->set_tooltip_text("Repeats " + core::repeat_text(n.task.repeat));
+        rep->add_css_class("dim-label");
+        box->append(*rep);
+    }
+
     // s031. The project's word, as a mark you can see without opening it --
     // the reason a whole branch has gone quiet in Today is otherwise invisible
     // from the tree. Completed needs no mark: the strike says it.

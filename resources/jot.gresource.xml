@@ -13,5 +13,7 @@
 <gresources>
   <gresource prefix="/io/github/scott8420/Jot/icons/scalable/apps">
     <file preprocess="xml-stripblanks" alias="jot-logo-symbolic.svg">icons/scalable/apps/jot-logo-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-pane-left-symbolic.svg">icons/scalable/apps/jot-pane-left-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-pane-right-symbolic.svg">icons/scalable/apps/jot-pane-right-symbolic.svg</file>
   </gresource>
 </gresources>

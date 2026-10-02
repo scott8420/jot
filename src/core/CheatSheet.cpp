@@ -111,8 +111,12 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Todos", "win.toggle-done", "", "Tick it done, or not", ""},
         {"Todos", "win.toggle-flag", "", "Flag it: “this one, today”", ""},
         {"Todos", "", "Due / Defer", "Give it dates, in note details",
-         "2026-10-09, 2026-10-09 14:30, today, tomorrow. Defer hides it until then. "
+         "Type 2026-10-09, 2026-10-09 14:30, today, tomorrow -- or the calendar button. "
+         "Defer hides it until then; its button offers This weekend and 2 days before due. "
          "Both pass down to the notes under it."},
+        {"Todos", "", "Note details › Repeat", "Make a todo come back: weekly, every 2 weeks, monthly",
+         "Type it or use the ▾ list. Ticking it logs this one and moves its dates on; ↻ marks it. Tick \u201cCount from "
+         "when it is done\u201d for chores."},
         {"Todos", "", "Drag it up", "Set priority: the order IS the priority",
          "There is no priority number."},
 
@@ -189,9 +193,10 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Double-click anywhere to go back to editing at that spot."},
         {"Views", "win.toggle-live", "", "Live Preview: marks show only where the cursor is",
          "Off: every mark on screen (plain Source)."},
-        {"Views", "win.toggle-tree", "", "Show or hide the side pane", ""},
+        {"Views", "win.toggle-tree", "", "Show or hide the side pane",
+         "Or the top-left pair: the button with its LEFT side filled."},
         {"Views", "win.toggle-drawer", "", "Show or hide note details",
-         "Both panes off: the note alone on screen."},
+         "Or the pair's button with its RIGHT side filled. Both off: the note alone on screen."},
 
         // ── Command line ────────────────────────────────────────────────────
         {"Command line", "", "jot NAME -l milk eggs \"rye bread\"",

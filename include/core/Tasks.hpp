@@ -110,6 +110,16 @@ std::int64_t parse_date(const std::string& text, DateKind kind,
                         std::int64_t now);                        // 0 when empty OR unparseable
 bool         date_parses(const std::string& text);                // "" counts as parsing
 
+// s033b. The quick picks beside the date fields' calendars. Each answers a
+// DAY as "YYYY-MM-DD" text -- the field's own language, so a pick goes through
+// the same parse as typing and the due/defer end/start-of-day rule still holds.
+// "" when the pick does not apply (BeforeDue with no due date).
+//   ThisWeekend  the coming Saturday; today if today is Saturday or Sunday
+//   NextMonday   the Monday after today (a week on, if today is Monday)
+//   BeforeDue    two days before the due date -- "show it in time to do it"
+enum class QuickDate { Today, Tomorrow, NextWeek, ThisWeekend, NextMonday, BeforeDue };
+std::string quick_date_text(QuickDate q, std::int64_t now, std::int64_t due);
+
 std::int64_t day_start(std::int64_t when);   // 00:00:00 local, same day
 std::int64_t day_end(std::int64_t when);     // 23:59:59 local, same day
 
@@ -196,6 +206,11 @@ struct LogEntry {
     NodeId       id;
     std::int64_t when = 0;                          // 0 == undated
     ProjectState kind = ProjectState::Completed;    // Completed (incl. a tick) or Dropped
+    // s033: one done occurrence of a repeating todo, from the history. The
+    // note has rolled on, so `title` is the record's own copy and the row has
+    // no tick to take back.
+    bool         repeat = false;
+    std::string  title;
 };
 
 std::vector<LogEntry> logbook(const NodeSource& src);

@@ -56,6 +56,10 @@ std::string when_line(const core::NodeSource& src, const core::Node& n,
     // the row says so, or it reads as a thing you can do now.
     if (core::availability(src, n.id, now) == core::Avail::OnHold)
         out += out.empty() ? "On hold" : "  \u00b7  On hold";
+    // s033: a repeating todo says so -- ticking it brings it back.
+    if (n.task.repeat.on())
+        out += (out.empty() ? "" : "  \u00b7  ") + std::string("\u21bb ") +
+               core::repeat_text(n.task.repeat);
     return out;
 }
 
@@ -401,14 +405,21 @@ namespace {
 constexpr std::size_t kLogbookCap = 300;
 }
 
-Gtk::Widget* TodayPane::log_row(const core::Node& n, const core::LogEntry& e) {
+Gtk::Widget* TodayPane::log_row(const core::LogEntry& e) {
+    // A repeat record's note may have been renamed or deleted since; the
+    // record carries its own title, and `n` is only where the row LEADS.
+    const core::Node* np = m_src->find(e.id);
+    core::Node blank;
+    blank.id = e.id;
+    const core::Node& n = np ? *np : blank;
+    const std::string key = e.repeat ? e.id + "." + std::to_string(e.when) : e.id;
     auto* row = Gtk::make_managed<widgets::Box>(widgets::unregistered,
-                                                "today.logrow." + n.id,
+                                                "today.logrow." + key,
                                                 Gtk::Orientation::HORIZONTAL, 8);
     const core::NodeId id = n.id;
-    if (n.task.is_task && n.task.done) {
+    if (!e.repeat && n.task.is_task && n.task.done) {
         auto* tick = Gtk::make_managed<widgets::CheckButton>(widgets::unregistered,
-                                                             "today.logtick." + n.id);
+                                                             "today.logtick." + key);
         tick->set_valign(Gtk::Align::CENTER);
         tick->set_active(true);
         tick->set_tooltip_text("Untick: not done after all");
@@ -419,21 +430,22 @@ Gtk::Widget* TodayPane::log_row(const core::Node& n, const core::LogEntry& e) {
     } else {
         // No tick to offer (a note project): hold its place so the titles line up.
         auto* gap = Gtk::make_managed<widgets::Box>(widgets::unregistered,
-                                                    "today.loggap." + n.id,
+                                                    "today.loggap." + key,
                                                     Gtk::Orientation::HORIZONTAL, 0);
         gap->set_size_request(16, -1);
         row->append(*gap);
     }
 
     auto* text = Gtk::make_managed<widgets::Box>(widgets::unregistered,
-                                                 "today.logtext." + n.id,
+                                                 "today.logtext." + key,
                                                  Gtk::Orientation::VERTICAL, 0);
     auto* title = Gtk::make_managed<widgets::Label>(widgets::unregistered,
-                                                    "today.logtitle." + n.id);
-    title->set_text(n.title.empty() ? "(untitled)" : n.title);
+                                                    "today.logtitle." + key);
+    const std::string& name = e.repeat ? e.title : n.title;
+    title->set_text(name.empty() ? "(untitled)" : name);
     title->set_xalign(0.0f);
     title->set_ellipsize(Pango::EllipsizeMode::END);
-    if (!n.title.empty()) title->set_tooltip_text(n.title);
+    if (!name.empty()) title->set_tooltip_text(name);
     if (e.kind == core::ProjectState::Dropped) title->add_css_class("dim-label");
     text->append(*title);
 
@@ -444,13 +456,14 @@ Gtk::Widget* TodayPane::log_row(const core::Node& n, const core::LogEntry& e) {
         if (part.empty()) return;
         sub += sub.empty() ? part : "  ·  " + part;
     };
-    if (e.kind == core::ProjectState::Dropped) add("Dropped");
+    if (e.repeat)                               add("\u21bb Repeats");
+    else if (e.kind == core::ProjectState::Dropped) add("Dropped");
     else if (!(n.task.is_task && n.task.done)) add("Completed");
     if (const core::Node* p = n.parent_id.empty() ? nullptr : m_src->find(n.parent_id))
         add("in " + titled(p));
     if (!sub.empty()) {
         auto* when = Gtk::make_managed<widgets::Label>(widgets::unregistered,
-                                                       "today.logwhen." + n.id);
+                                                       "today.logwhen." + key);
         when->set_text(sub);
         when->set_xalign(0.0f);
         when->set_ellipsize(Pango::EllipsizeMode::END);
@@ -460,11 +473,12 @@ Gtk::Widget* TodayPane::log_row(const core::Node& n, const core::LogEntry& e) {
     }
 
     auto* go = Gtk::make_managed<widgets::Button>(widgets::unregistered,
-                                                  "today.loggoto." + n.id);
+                                                  "today.loggoto." + key);
     go->set_has_frame(false);
     go->set_hexpand(true);
     go->set_child(*text);
-    go->signal_clicked().connect([this, id]() { m_sig_goto.emit(id); });
+    const bool exists = np != nullptr;
+    go->signal_clicked().connect([this, id, exists]() { if (exists) m_sig_goto.emit(id); });
     row->append(*go);
     return row;
 }
@@ -495,7 +509,7 @@ void TodayPane::fill_logbook(std::int64_t now) {
             group->append(*why);
         }
         for (const auto& e : day.entries)
-            if (const core::Node* n = m_src->find(e.id)) group->append(*log_row(*n, e));
+            if (e.repeat || m_src->find(e.id)) group->append(*log_row(e));
         m_column.append(*group);
     }
 

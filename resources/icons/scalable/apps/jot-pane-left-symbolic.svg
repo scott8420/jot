@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- jot s033c: show / hide the LEFT pane (the tree, Inbox, Today). A window outline, that panel filled. Whole-pixel edges so it is crisp at 16 px. -->
+  <path fill="currentColor" fill-rule="evenodd" d="M 3 2 L 13 2 C 14.105 2 15 2.895 15 4 L 15 12 C 15 13.105 14.105 14 13 14 L 3 14 C 1.895 14 1 13.105 1 12 L 1 4 C 1 2.895 1.895 2 3 2 Z M 3 3 C 2.448 3 2 3.448 2 4 L 2 12 C 2 12.552 2.448 13 3 13 L 13 13 C 13.552 13 14 12.552 14 12 L 14 4 C 14 3.448 13.552 3 13 3 Z"/>
+  <path fill="currentColor" d="M 1.5 2.5 L 6 2.5 L 6 13.5 L 1.5 13.5 Z"/>
+</svg>

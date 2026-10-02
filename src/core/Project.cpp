@@ -409,6 +409,16 @@ bool Project::open(const std::string& dir) {
         json j = json::parse(read_file(fs::path(m_dir) / kProjectFile), nullptr, false);
         if (!j.is_discarded() && j.is_object() && j.contains("enclosures"))
             m_attach.metas = decode_metas(j["enclosures"].dump());
+        // s033: the repeat history. Set BEFORE reset(), whose Reload is what
+        // the surfaces repaint on.
+        std::vector<LogRecord> h;
+        if (!j.is_discarded() && j.is_object() && j.contains("history") && j["history"].is_array())
+            for (const auto& r : j["history"])
+                if (r.is_object())
+                    h.push_back(LogRecord{r.value("id", std::string{}),
+                                          r.value("title", std::string{}),
+                                          r.value("when", std::int64_t{0})});
+        set_history(std::move(h));
     }
     load_bodies(nodes);
     adopt_orphans(nodes);
@@ -452,6 +462,10 @@ bool Project::load_project(std::vector<Node>& out) const {
         n.task.status  = status_from(e.value("status", std::string{}));
         n.task.project = project_from(e.value("project", std::string{}));   // s031
         n.task.finished = e.value("finished", std::int64_t{0});              // s032
+        if (repeat_parse(e.value("repeat", std::string{}), n.task.repeat))   // s033
+            n.task.repeat.from_done = e.value("repeat_from", std::string{}) == "done";
+        else
+            n.task.repeat = Repeat{};          // a word we do not know reads as no repeat
         n.inbox        = e.value("inbox", false);   // s028; absent == processed
         if (!n.id.empty()) out.push_back(std::move(n));
     }
@@ -537,11 +551,20 @@ bool Project::save_project() const {
             if (n->task.project != ProjectState::Active)
                 e["project"] = project_name(n->task.project);             // s031, same rule
             if (n->task.finished != 0)         e["finished"] = n->task.finished;   // s032
+            if (n->task.repeat.on()) {                                            // s033
+                e["repeat"] = repeat_text(n->task.repeat);
+                if (n->task.repeat.from_done) e["repeat_from"] = "done";
+            }
             if (n->inbox)                      e["inbox"]   = true;   // s028, same rule
             j["nodes"].push_back(std::move(e));
         }
         const auto kids = children(id);
         for (auto it = kids.rbegin(); it != kids.rend(); ++it) stack.push_back(*it);
+    }
+    if (!history().empty()) {                                                     // s033
+        j["history"] = json::array();
+        for (const auto& r : history())
+            j["history"].push_back({{"id", r.id}, {"title", r.title}, {"when", r.when}});
     }
     if (!m_attach.metas.empty()) j["enclosures"] = json::parse(encode_metas(m_attach.metas));
     return write_atomic(fs::path(m_dir) / kProjectFile, j.dump(2) + "\n");

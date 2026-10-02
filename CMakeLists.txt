@@ -91,6 +91,7 @@ add_library(jot_core STATIC
     # a wrong availability answer is invisible from the surface -- a task wrongly
     # hidden is a task you do not do, and nothing on screen would say so.
     src/core/Tasks.cpp
+    src/core/Repeat.cpp
     # s028: what is waiting to be processed, and Clean Up. A query over a mark,
     # not a place -- the node stays where it is in the tree.
     src/core/Inbox.cpp

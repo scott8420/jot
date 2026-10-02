@@ -376,6 +376,8 @@ std::vector<LogEntry> logbook(const NodeSource& src) {
         const auto kids = src.children(id);
         for (auto it = kids.rbegin(); it != kids.rend(); ++it) stack.push_back(*it);
     }
+    for (const auto& r : src.history())                    // s033: repeats done
+        out.push_back({r.id, r.when, ProjectState::Completed, true, r.title});
     std::stable_sort(out.begin(), out.end(), [](const LogEntry& a, const LogEntry& b) {
         if ((a.when == 0) != (b.when == 0)) return a.when != 0;   // dated first
         return a.when > b.when;                                   // newest first
@@ -420,6 +422,30 @@ std::string format_clock(std::int64_t when) {
     const std::tm tm = local_of(when);
     char buf[16];
     std::strftime(buf, sizeof buf, "%H:%M", &tm);
+    return buf;
+}
+
+// ── quick picks (s033b) ─────────────────────────────────────────────────────
+
+std::string quick_date_text(QuickDate q, std::int64_t now, std::int64_t due) {
+    std::tm tm = local_of(q == QuickDate::BeforeDue ? due : now);
+    if (q == QuickDate::BeforeDue && due == 0) return {};
+    int add = 0;
+    switch (q) {
+        case QuickDate::Today:       add = 0; break;
+        case QuickDate::Tomorrow:    add = 1; break;
+        case QuickDate::NextWeek:    add = 7; break;
+        case QuickDate::ThisWeekend: add = tm.tm_wday == 0 ? 0 : (6 - tm.tm_wday); break;
+        case QuickDate::NextMonday:  add = ((8 - tm.tm_wday) % 7) == 0 ? 7 : (8 - tm.tm_wday) % 7; break;
+        case QuickDate::BeforeDue:   add = -2; break;
+    }
+    tm.tm_mday += add;                 // calendar days through mktime: DST-safe
+    tm.tm_hour = 12; tm.tm_min = 0; tm.tm_sec = 0; tm.tm_isdst = -1;
+    const std::time_t t = std::mktime(&tm);
+    std::tm out{};
+    localtime_r(&t, &out);
+    char buf[16];
+    std::strftime(buf, sizeof buf, "%Y-%m-%d", &out);
     return buf;
 }
 

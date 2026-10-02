@@ -1,4 +1,7 @@
 #include "DrawerPane.hpp"
+
+#include <cstdio>
+#include <memory>
 #include "Log.hpp"
 #include "core/Markdown.hpp"
 
@@ -141,6 +144,10 @@ DrawerPane::DrawerPane(std::string_view name)
       m_defer_row("drawer.defer_row", Gtk::Orientation::HORIZONTAL, 8),
       m_defer_label("drawer.defer_label"),
       m_defer("drawer.defer"),
+      m_repeat_row("drawer.repeat_row", Gtk::Orientation::HORIZONTAL, 8),
+      m_repeat_label("drawer.repeat_label"),
+      m_repeat("drawer.repeat"),
+      m_repeat_done("drawer.repeat_done"),
       m_avail("drawer.avail"),
       m_order_row("drawer.order_row", Gtk::Orientation::VERTICAL, 2),
       m_order_label("drawer.order_label"),
@@ -310,7 +317,15 @@ void DrawerPane::build_task_block() {
         auto focus = Gtk::EventControllerFocus::create();
         focus->signal_leave().connect([this, kind]() { commit_date(kind); });
         entry.add_controller(focus);
-        row.append(entry);
+        // s033b: the entry and its calendar button read as one control.
+        auto* combo = Gtk::make_managed<widgets::Box>(
+            widgets::unregistered, std::string(text) == "Due" ? "drawer.due_combo" : "drawer.defer_combo",
+            Gtk::Orientation::HORIZONTAL, 0);
+        combo->add_css_class("linked");
+        combo->set_hexpand(true);
+        combo->append(entry);
+        combo->append(*date_picker(kind));
+        row.append(*combo);
         m_task_body.append(row);
     };
     date_field(m_due_row, m_due_label, m_due, "Due",
@@ -319,6 +334,48 @@ void DrawerPane::build_task_block() {
     date_field(m_defer_row, m_defer_label, m_defer, "Defer",
                "Do not surface it before this. A bare date means the start of "
                "that day.", core::DateKind::Defer);
+
+    // s033. Repeat: typed, like the dates -- "weekly", "every 2 weeks",
+    // "every other month". Ticking a repeating todo logs this time and brings
+    // the same note back with its dates moved on (core/Repeat).
+    m_repeat_label.set_text("Repeat");
+    m_repeat_label.set_xalign(0.0f);
+    m_repeat_label.set_width_chars(6);
+    m_repeat_label.add_css_class("dim-label");
+    m_repeat_row.append(m_repeat_label);
+    m_repeat.set_placeholder_text("never");
+    m_repeat.set_tooltip_text("daily, weekly, monthly, yearly, every 3 days, "
+                              "every other week. Empty for never.");
+    m_repeat.set_hexpand(true);
+    m_repeat.signal_activate().connect([this]() { commit_repeat(); });
+    {
+        auto focus = Gtk::EventControllerFocus::create();
+        focus->signal_leave().connect([this]() { commit_repeat(); });
+        m_repeat.add_controller(focus);
+    }
+    {
+        auto* combo = Gtk::make_managed<widgets::Box>(widgets::unregistered, "drawer.repeat_combo",
+                                                      Gtk::Orientation::HORIZONTAL, 0);
+        combo->add_css_class("linked");
+        combo->set_hexpand(true);
+        combo->append(m_repeat);
+        combo->append(*repeat_picker());
+        m_repeat_row.append(*combo);
+    }
+    m_task_body.append(m_repeat_row);
+    m_repeat_done.set_label("Count from when it is done");
+    m_repeat_done.set_tooltip_text("Off: the next one is due an interval after the last DUE "
+                                   "date (rent). On: an interval after the day you did it "
+                                   "(watering the plants).");
+    m_repeat_done.signal_toggled().connect([this]() {
+        if (m_loading || !m_src || m_id.empty()) return;
+        const core::Node* n = m_src->find(m_id);
+        if (!n) return;
+        core::Repeat r = n->task.repeat;
+        r.from_done = m_repeat_done.get_active();
+        m_src->set_repeat(m_id, r);
+    });
+    m_task_body.append(m_repeat_done);
 
     // THE DERIVED LINE. Not a control and not stored anywhere -- it is the
     // answer availability() gives about this node right now. It is here because
@@ -436,6 +493,194 @@ void DrawerPane::commit_date(core::DateKind kind) {
     else                             m_src->set_defer(m_id, when);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// s033b -- the dropdowns (Scott: "a dropdown that has a calendar widget").
+//
+// A calendar button beside Due and Defer, a list button beside Repeat. Each
+// pick WRITES TEXT INTO THE FIELD and commits it, exactly as typing and Enter
+// would: one road to the model, one parse, one set of rules (a bare due is
+// the end of its day, a bare defer the start). The typed field stays -- it is
+// faster than any picker for "tomorrow", and it is where a time goes.
+//
+// Due and Defer get the same calendar but different quick picks, because they
+// answer different questions: Due is "when must it be done" (Today, Tomorrow,
+// Next week); Defer is "when do I want to SEE it" (Tomorrow, This weekend,
+// Next Monday, In a week, and 2 days before it is due).
+// ─────────────────────────────────────────────────────────────────────────────
+Gtk::Widget* DrawerPane::date_picker(core::DateKind kind) {
+    const bool due = (kind == core::DateKind::Due);
+    const std::string base = due ? "drawer.due_pick" : "drawer.defer_pick";
+    widgets::Entry& entry = due ? m_due : m_defer;
+
+    auto* mb = Gtk::make_managed<widgets::MenuButton>(widgets::unregistered, base);
+    mb->set_icon_name("x-office-calendar-symbolic");
+    mb->set_tooltip_text(due ? "Pick a due date" : "Pick a defer date");
+    auto* pop = Gtk::make_managed<widgets::Popover>(widgets::unregistered, base + ".popover");
+    auto* col = Gtk::make_managed<widgets::Box>(widgets::unregistered, base + ".column",
+                                                Gtk::Orientation::VERTICAL, 6);
+    col->set_margin(6);
+
+    // Writes the day into the field, keeping a clock time the field already had.
+    auto pick = [this, kind, &entry, pop](const std::string& day) {
+        std::string text = day;
+        if (!day.empty()) {
+            const std::string cur = std::string(entry.get_text());
+            const auto sp = cur.find(' ');
+            if (sp != std::string::npos && core::date_parses(cur)) text += cur.substr(sp);
+        }
+        entry.set_text(text);
+        commit_date(kind);
+        pop->popdown();
+    };
+
+    struct Q { const char* label; core::QuickDate q; };
+    std::vector<Q> quick = due
+        ? std::vector<Q>{{"Today", core::QuickDate::Today},
+                         {"Tomorrow", core::QuickDate::Tomorrow},
+                         {"Next week", core::QuickDate::NextWeek}}
+        : std::vector<Q>{{"Tomorrow", core::QuickDate::Tomorrow},
+                         {"This weekend", core::QuickDate::ThisWeekend},
+                         {"Next Monday", core::QuickDate::NextMonday},
+                         {"In a week", core::QuickDate::NextWeek},
+                         {"2 days before due", core::QuickDate::BeforeDue}};
+    Gtk::Button* before_due = nullptr;
+    widgets::Box* line = nullptr;
+    for (std::size_t i = 0; i < quick.size(); ++i) {
+        if (i % 3 == 0) {
+            line = Gtk::make_managed<widgets::Box>(widgets::unregistered,
+                                                   base + ".quick" + std::to_string(i / 3),
+                                                   Gtk::Orientation::HORIZONTAL, 4);
+            line->set_homogeneous(true);
+            col->append(*line);
+        }
+        auto* b = Gtk::make_managed<widgets::Button>(widgets::unregistered,
+                                                     base + ".q" + std::to_string(i));
+        b->set_label(quick[i].label);
+        const core::QuickDate q = quick[i].q;
+        b->signal_clicked().connect([this, pick, q]() {
+            const core::Node* n = m_src ? m_src->find(m_id) : nullptr;
+            const std::string t = core::quick_date_text(
+                q, static_cast<std::int64_t>(std::time(nullptr)), n ? n->task.due : 0);
+            if (!t.empty()) pick(t);
+        });
+        if (q == core::QuickDate::BeforeDue) before_due = b;
+        line->append(*b);
+    }
+
+    auto* cal = Gtk::make_managed<widgets::Calendar>(widgets::unregistered, base + ".calendar");
+    col->append(*cal);
+
+    auto* clear = Gtk::make_managed<widgets::Button>(widgets::unregistered, base + ".clear");
+    clear->set_label("No date");
+    clear->set_has_frame(false);
+    clear->signal_clicked().connect([pick]() { pick(""); });
+    col->append(*clear);
+
+    pop->set_child(*col);
+    mb->set_popover(*pop);
+
+    // Paging the calendar to another month also "selects a day" in GTK 4, so
+    // a selection only counts as a PICK when the month did not change with
+    // it. The shared state lives with the lambdas, not in the class.
+    auto shown = std::make_shared<std::pair<int, int>>(0, 0);   // year, month shown
+    auto syncing = std::make_shared<bool>(false);
+    pop->signal_show().connect([this, cal, shown, syncing, &entry, before_due, kind]() {
+        const std::string cur = std::string(entry.get_text());
+        std::int64_t when = core::date_parses(cur)
+            ? core::parse_date(cur, kind, static_cast<std::int64_t>(std::time(nullptr))) : 0;
+        if (when == 0) when = static_cast<std::int64_t>(std::time(nullptr));
+        const auto dt = Glib::DateTime::create_now_local(static_cast<gint64>(when));
+        *syncing = true;
+        cal->select_day(dt);
+        *syncing = false;
+        *shown = {dt.get_year(), dt.get_month()};
+        if (before_due) {
+            const core::Node* n = m_src ? m_src->find(m_id) : nullptr;
+            before_due->set_sensitive(n && n->task.due != 0);
+        }
+    });
+    // Whether paging emits day-selected differs between GTK releases (4.14,
+    // here, does not), so the page buttons say which month is showing too.
+    // Either order of the two signals leaves `shown` right.
+    auto paged = [cal, shown]() {
+        const Glib::DateTime d = cal->get_date();
+        *shown = {d.get_year(), d.get_month()};
+    };
+    cal->signal_next_month().connect(paged);
+    cal->signal_prev_month().connect(paged);
+    cal->signal_next_year().connect(paged);
+    cal->signal_prev_year().connect(paged);
+    cal->signal_day_selected().connect([cal, shown, syncing, pick]() {
+        if (*syncing) return;
+        const Glib::DateTime d = cal->get_date();
+        if (std::make_pair(d.get_year(), d.get_month()) != *shown) {
+            *shown = {d.get_year(), d.get_month()};    // paged, not picked
+            return;
+        }
+        char buf[16];
+        std::snprintf(buf, sizeof buf, "%04d-%02d-%02d", d.get_year(), d.get_month(),
+                      d.get_day_of_month());
+        pick(buf);
+    });
+    return mb;
+}
+
+Gtk::Widget* DrawerPane::repeat_picker() {
+    auto* mb = Gtk::make_managed<widgets::MenuButton>(widgets::unregistered, "drawer.repeat_pick");
+    mb->set_icon_name("pan-down-symbolic");
+    mb->set_tooltip_text("Pick how often");
+    auto* pop = Gtk::make_managed<widgets::Popover>(widgets::unregistered, "drawer.repeat_pick.popover");
+    auto* col = Gtk::make_managed<widgets::Box>(widgets::unregistered, "drawer.repeat_pick.column",
+                                                Gtk::Orientation::VERTICAL, 0);
+    col->set_margin(4);
+    struct P { const char* label; const char* text; };
+    const P picks[] = {
+        {"Never", ""},          {"Every day", "every day"},       {"Every week", "every week"},
+        {"Every 2 weeks", "every 2 weeks"},  {"Every month", "every month"},
+        {"Every 3 months", "every 3 months"}, {"Every year", "every year"},
+    };
+    int i = 0;
+    for (const auto& p : picks) {
+        auto* b = Gtk::make_managed<widgets::Button>(widgets::unregistered,
+                                                     "drawer.repeat_pick.p" + std::to_string(i++));
+        b->set_has_frame(false);
+        auto* l = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                    "drawer.repeat_pick.l" + std::to_string(i));
+        l->set_text(p.label);
+        l->set_xalign(0.0f);
+        b->set_child(*l);
+        const std::string text = p.text;
+        b->signal_clicked().connect([this, text, pop]() {
+            m_repeat.set_text(text);
+            commit_repeat();
+            pop->popdown();
+        });
+        col->append(*b);
+    }
+    pop->set_child(*col);
+    mb->set_popover(*pop);
+    return mb;
+}
+
+// s033. Same contract as commit_date: a rule that does not parse turns the
+// field red and changes nothing.
+void DrawerPane::commit_repeat() {
+    if (m_loading || !m_src || m_id.empty()) return;
+    const core::Node* n = m_src->find(m_id);
+    if (!n) return;
+    core::Repeat r = n->task.repeat;
+    if (!core::repeat_parse(std::string(m_repeat.get_text()), r)) {
+        m_repeat.add_css_class("error");
+        if (auto lg = log::get(log::Area::Drawer))
+            lg->info("repeat '{}' on {}: refused (unparseable)",
+                     std::string(m_repeat.get_text()), m_id);
+        return;
+    }
+    m_repeat.remove_css_class("error");
+    if (r == n->task.repeat) return;
+    m_src->set_repeat(m_id, r);
+}
+
 // Everything in the block, re-read from the node. Guarded by m_loading because
 // every set_active() below emits `toggled`, and an unguarded one would write
 // the value it just read straight back into the model -- marking a note
@@ -459,6 +704,17 @@ void DrawerPane::fill_task(const core::Node& n) {
         if (std::string(m_defer.get_text()) != def)   m_defer.set_text(def);
         m_due.remove_css_class("error");
         m_defer.remove_css_class("error");
+        // s033. Only rewrite the text when the RULE differs, so "weekly"
+        // typed by hand is not rewritten to "every week" under the cursor.
+        {
+            core::Repeat shown = n.task.repeat;
+            if (!core::repeat_parse(std::string(m_repeat.get_text()), shown) ||
+                shown.every != n.task.repeat.every || shown.unit != n.task.repeat.unit)
+                m_repeat.set_text(core::repeat_text(n.task.repeat));
+            m_repeat.remove_css_class("error");
+            m_repeat_done.set_active(n.task.repeat.from_done);
+            m_repeat_done.set_visible(n.task.repeat.on());
+        }
 
         // The derived line, spelled out rather than named. "Blocked" alone
         // tells you the verdict and not the reason, and the reason is the only
@@ -512,6 +768,9 @@ void DrawerPane::fill_task(const core::Node& n) {
         const std::int64_t eff = core::effective_due(*m_src, n.id);
         if (eff != 0 && eff != n.task.due)
             why += "  Due " + core::format_date(eff) + ", inherited from a parent.";
+        if (n.task.repeat.on())
+            why += "  Repeats " + core::repeat_text(n.task.repeat) +
+                   (n.task.repeat.from_done ? " from when it is done." : ".");
         m_avail.set_text(why);
     }
 
@@ -551,6 +810,8 @@ void DrawerPane::update_task_sensitivity(const core::Node& n) {
     m_flag.set_sensitive(on);
     m_due.set_editable(on);
     m_defer.set_editable(on);
+    m_repeat.set_editable(on);
+    m_repeat_done.set_sensitive(on);
     m_order_none.set_sensitive(on);
     m_order_seq.set_sensitive(on);
     m_order_par.set_sensitive(on);

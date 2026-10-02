@@ -41,6 +41,9 @@ void Shell::build_shell() {  // zone: window + header + paned body
     m_logo_button.set_action_name("win.about");
     header->pack_start(m_logo_button);
 
+    // s033c: the two pane toggles, together, before + (Scott).
+    build_pane_toggles(*header);
+
     // Capture is the shortest path in the app -- it gets a button, not a menu
     // item. (ARCHITECTURE: "the front door is a blank note, not a tree.")
     m_new_button.set_icon_name("list-add-symbolic");
@@ -63,7 +66,12 @@ void Shell::build_shell() {  // zone: window + header + paned body
     m_note_menu_button.set_menu_model(menus::note_menu());
     header->pack_end(m_note_menu_button);
 
-    build_pane_toggles(*header);
+    // s021: Source / Reading. The eye is "look, don't touch"; pressed means
+    // Reading. It stays at the right: it is about the note, not the panes.
+    m_reading_toggle.set_icon_name("view-reveal-symbolic");
+    m_reading_toggle.set_tooltip_text("Reading view (Ctrl+E)");
+    m_reading_toggle.set_action_name("win.toggle-reading");
+    header->pack_end(m_reading_toggle);
 
     // The title is a BUTTON, because the jots folder's location is a thing you
     // need to see and act on, not decoration. update_jots_title() fills it.
@@ -238,22 +246,28 @@ void Shell::build_left_pane() {  // zone: Notes | Today
 // one of the recent additions.
 // ─────────────────────────────────────────────────────────────────────────────
 void Shell::build_pane_toggles(Gtk::HeaderBar& header) {  // zone: the focus-mode toggles
-    m_tree_toggle.set_icon_name("sidebar-show-symbolic");
+    // s033c (Scott): one pair at the left, before +, instead of a sidebar
+    // icon at one end and an info icon at the other. Each is a window outline
+    // with the panel it shows filled in -- left filled for the side pane,
+    // right filled for note details -- so the picture says which pane, and
+    // pressed says it is showing. jot's own icons (resources/), drawn on
+    // whole pixels so they are crisp at 16 px. Same actions as before, so
+    // Ctrl+[ / Ctrl+] (and F9 / F10) are unchanged.
+    auto* pair = Gtk::make_managed<widgets::Box>("shell.pane_toggles",
+                                                 Gtk::Orientation::HORIZONTAL, 0);
+    pair->add_css_class("linked");
+
+    m_tree_toggle.set_icon_name("jot-pane-left-symbolic");
     m_tree_toggle.set_tooltip_text("Show the side pane (Ctrl+[ or F9)");
     m_tree_toggle.set_action_name("win.toggle-tree");
-    header.pack_start(m_tree_toggle);
+    pair->append(m_tree_toggle);
 
-    m_drawer_toggle.set_icon_name("dialog-information-symbolic");
+    m_drawer_toggle.set_icon_name("jot-pane-right-symbolic");
     m_drawer_toggle.set_tooltip_text("Show note details (Ctrl+] or F10)");
     m_drawer_toggle.set_action_name("win.toggle-drawer");
-    header.pack_end(m_drawer_toggle);
+    pair->append(m_drawer_toggle);
 
-    // s021: Source / Reading. The eye is "look, don't touch"; pressed means
-    // Reading. Next to the drawer toggle because both are about the note.
-    m_reading_toggle.set_icon_name("view-reveal-symbolic");
-    m_reading_toggle.set_tooltip_text("Reading view (Ctrl+E)");
-    m_reading_toggle.set_action_name("win.toggle-reading");
-    header.pack_end(m_reading_toggle);
+    header.pack_start(*pair);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

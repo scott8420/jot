@@ -2231,6 +2231,235 @@ int main() {
         fs::remove_all(dir, ec);
     }
 
+    // -- Repeat (s033): a todo that comes back ---------------------------------
+    // The failure modes: a rule that reads back as something else, a month
+    // that walks backwards (Jan 31 -> Feb 28 -> Mar 28), a DST night that
+    // moves "end of day" by an hour, and a tick that finishes a repeating
+    // todo for good instead of bringing it back.
+    {
+        using core::Repeat;
+        using core::RepeatUnit;
+        auto parsed = [](const std::string& t, int every, RepeatUnit u) {
+            Repeat r;
+            return core::repeat_parse(t, r) && r.every == every && (every == 0 || r.unit == u);
+        };
+        check("repeat: words", parsed("weekly", 1, RepeatUnit::Week) &&
+                                   parsed("Daily", 1, RepeatUnit::Day) &&
+                                   parsed("fortnightly", 2, RepeatUnit::Week) &&
+                                   parsed("monthly", 1, RepeatUnit::Month) &&
+                                   parsed("annually", 1, RepeatUnit::Year));
+        check("repeat: every N units", parsed("every 2 weeks", 2, RepeatUnit::Week) &&
+                                           parsed("  Every Other  Month ", 2, RepeatUnit::Month) &&
+                                           parsed("3 days", 3, RepeatUnit::Day) &&
+                                           parsed("every day", 1, RepeatUnit::Day) &&
+                                           parsed("every 1 year", 1, RepeatUnit::Year));
+        check("repeat: empty / none / never is off",
+              parsed("", 0, RepeatUnit::Day) && parsed("none", 0, RepeatUnit::Day) &&
+                  parsed("never", 0, RepeatUnit::Day));
+        {
+            Repeat r{3, RepeatUnit::Week, true};
+            const Repeat before = r;
+            check("repeat: nonsense is refused and changes nothing",
+                  !core::repeat_parse("every 0 days", r) && !core::repeat_parse("every 2", r) &&
+                      !core::repeat_parse("sometimes", r) && !core::repeat_parse("every 2x weeks", r) &&
+                      r == before);
+            Repeat d{0, RepeatUnit::Day, true};
+            check("repeat: parsing keeps the from-done switch",
+                  core::repeat_parse("weekly", d) && d.from_done);
+        }
+        {
+            bool ok = true;
+            std::string bad;
+            for (const auto& r : {Repeat{1, RepeatUnit::Day}, Repeat{2, RepeatUnit::Week},
+                                  Repeat{1, RepeatUnit::Month}, Repeat{5, RepeatUnit::Year}}) {
+                Repeat back;
+                if (!core::repeat_parse(core::repeat_text(r), back) || back != r) {
+                    ok = false;
+                    bad += core::repeat_text(r) + " ";
+                }
+            }
+            check("repeat: text round-trips", ok && core::repeat_text(Repeat{}).empty(), bad);
+        }
+
+        // Calendar arithmetic, in a zone with DST so the night it changes is real.
+        const char* old_tz = std::getenv("TZ");
+        const std::string saved = old_tz ? old_tz : "";
+        setenv("TZ", "America/Chicago", 1);
+        tzset();
+        auto at = [](int y, int mo, int d, int h, int mi, int sec) {
+            std::tm tm{};
+            tm.tm_year = y - 1900; tm.tm_mon = mo - 1; tm.tm_mday = d;
+            tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = sec; tm.tm_isdst = -1;
+            return static_cast<std::int64_t>(std::mktime(&tm));
+        };
+        const Repeat monthly{1, RepeatUnit::Month};
+        const std::int64_t jan31 = at(2027, 1, 31, 23, 59, 59);
+        check("repeat: Jan 31 + a month is Feb 28",
+              core::repeat_add(jan31, monthly, 1) == at(2027, 2, 28, 23, 59, 59));
+        check("repeat: ...and + two months is Mar 31, not Mar 28",
+              core::repeat_add(jan31, monthly, 2) == at(2027, 3, 31, 23, 59, 59));
+        check("repeat: Feb 29 + a year is Feb 28",
+              core::repeat_add(at(2028, 2, 29, 9, 0, 0), Repeat{1, RepeatUnit::Year}) ==
+                  at(2029, 2, 28, 9, 0, 0));
+        check("repeat: a day across the DST night keeps end-of-day",
+              core::repeat_add(at(2026, 10, 31, 23, 59, 59), Repeat{1, RepeatUnit::Day}) ==
+                  at(2026, 11, 1, 23, 59, 59));
+        {
+            // Fixed: due ten days ago, weekly -> the first one after now (+14),
+            // and the defer keeps its two days, start of day, across DST.
+            const std::int64_t now = at(2026, 11, 3, 12, 0, 0);
+            std::int64_t due = at(2026, 10, 24, 23, 59, 59);
+            std::int64_t defer = at(2026, 10, 22, 0, 0, 0);
+            core::repeat_next(Repeat{1, RepeatUnit::Week}, now, due, defer);
+            check("repeat: fixed skips the missed one and lands after now",
+                  due == at(2026, 11, 7, 23, 59, 59), core::format_date(due));
+            check("repeat: the defer keeps its gap, at the start of a day",
+                  defer == at(2026, 11, 5, 0, 0, 0), core::format_date(defer));
+        }
+        {
+            // The defer on the far side of the DST night from the due: moved
+            // by seconds it would land at 23:00 the day before.
+            const std::int64_t now = at(2026, 11, 3, 12, 0, 0);
+            std::int64_t due = at(2026, 11, 2, 23, 59, 59);
+            std::int64_t defer = at(2026, 10, 30, 0, 0, 0);
+            core::repeat_next(Repeat{1, RepeatUnit::Week}, now, due, defer);
+            check("repeat: a defer across the DST night stays at the start of its day",
+                  due == at(2026, 11, 9, 23, 59, 59) && defer == at(2026, 11, 6, 0, 0, 0),
+                  core::format_date(defer));
+        }
+        {
+            // From done: due in five days at 18:00, done today -> a week from today at 18:00.
+            const std::int64_t now = at(2026, 10, 2, 15, 0, 0);
+            std::int64_t due = at(2026, 10, 7, 18, 0, 0), defer = 0;
+            core::repeat_next(Repeat{1, RepeatUnit::Week, true}, now, due, defer);
+            check("repeat: from done counts from the day it was done",
+                  due == at(2026, 10, 9, 18, 0, 0) && defer == 0, core::format_date(due));
+            std::int64_t d0 = 0, f0 = 0;
+            core::repeat_next(Repeat{1, RepeatUnit::Week}, now, d0, f0);
+            check("repeat: no dates, nothing to move", d0 == 0 && f0 == 0);
+        }
+
+        // The roll, at the one door.
+        {
+            std::int64_t clock = at(2026, 10, 2, 15, 0, 0);
+            core::MemoryNodes m;
+            m.set_clock([&clock] { return clock; });
+            const auto plants = m.create("", "water the plants");
+            const auto plain = m.create("", "one-off");
+            const auto rent = m.create("", "pay rent");
+            const auto step = m.create(rent, "log in to the bank");
+            for (const auto& id : {plants, plain, rent, step}) m.make_task(id, true);
+            m.set_due(plants, at(2026, 10, 2, 23, 59, 59));
+            m.set_repeat(plants, Repeat{1, RepeatUnit::Week});
+            m.set_due(rent, at(2026, 10, 1, 23, 59, 59));
+            m.set_repeat(rent, Repeat{1, RepeatUnit::Month});
+
+            m.set_done(plants, true);
+            const core::Node* p = m.find(plants);
+            check("repeat/roll: ticking brings it back unticked", !p->task.done && p->task.finished == 0);
+            check("repeat/roll: ...due a week on", p->task.due == at(2026, 10, 9, 23, 59, 59),
+                  core::format_date(p->task.due));
+            check("repeat/roll: ...and the occurrence is in the history",
+                  m.history().size() == 1 && m.history()[0].id == plants &&
+                      m.history()[0].title == "water the plants" && m.history()[0].when == clock);
+            m.set_done(plain, true);
+            check("repeat/roll: a todo with no rule finishes as before",
+                  m.find(plain)->task.done && m.history().size() == 1);
+
+            m.set_done(step, true);
+            clock += 3600;
+            core::set_project_state(m, rent, core::ProjectState::Completed);
+            check("repeat/roll: Completed on a repeating project rolls it too",
+                  !m.find(rent)->task.done && m.find(rent)->task.due == at(2026, 11, 1, 23, 59, 59) &&
+                      m.history().size() == 2, core::format_date(m.find(rent)->task.due));
+            check("repeat/roll: ...and its steps start over", !m.find(step)->task.done);
+
+            const auto lb = core::logbook(m);
+            std::size_t reps = 0;
+            for (const auto& e : lb) if (e.repeat) ++reps;
+            check("repeat/log: the Logbook lists both occurrences, newest first",
+                  reps == 2 && lb.size() == 3 && lb[0].repeat && lb[0].title == "pay rent",
+                  std::to_string(lb.size()));
+            m.set_title(plants, "water the ferns");
+            {
+                std::string t;
+                for (const auto& e : core::logbook(m)) if (e.repeat && e.id == plants) t = e.title;
+                check("repeat/log: a record keeps the title it was done under",
+                      t == "water the plants", t);
+            }
+            m.make_task(plants, false);
+            check("repeat: un-making the todo drops its rule", !m.find(plants)->task.repeat.on());
+        }
+
+        // s033b: the quick picks beside the calendars.
+        {
+            using core::QuickDate;
+            const std::int64_t fri = at(2026, 10, 2, 15, 0, 0);   // a Friday
+            auto q = [](QuickDate k, std::int64_t now, std::int64_t due = 0) {
+                return core::quick_date_text(k, now, due);
+            };
+            check("quick: today / tomorrow / next week",
+                  q(QuickDate::Today, fri) == "2026-10-02" && q(QuickDate::Tomorrow, fri) == "2026-10-03" &&
+                      q(QuickDate::NextWeek, fri) == "2026-10-09");
+            check("quick: from a Friday, this weekend is Saturday and next Monday the 5th",
+                  q(QuickDate::ThisWeekend, fri) == "2026-10-03" &&
+                      q(QuickDate::NextMonday, fri) == "2026-10-05");
+            check("quick: on a weekend, this weekend is today",
+                  q(QuickDate::ThisWeekend, at(2026, 10, 3, 9, 0, 0)) == "2026-10-03" &&
+                      q(QuickDate::ThisWeekend, at(2026, 10, 4, 9, 0, 0)) == "2026-10-04");
+            check("quick: on a Monday, next Monday is a week on",
+                  q(QuickDate::NextMonday, at(2026, 10, 5, 9, 0, 0)) == "2026-10-12" &&
+                      q(QuickDate::NextMonday, at(2026, 10, 4, 9, 0, 0)) == "2026-10-05");
+            check("quick: 2 days before due, and nothing without a due",
+                  q(QuickDate::BeforeDue, fri, at(2026, 10, 9, 23, 59, 59)) == "2026-10-07" &&
+                      q(QuickDate::BeforeDue, fri, 0).empty());
+            check("quick: across the DST night, still the right day",
+                  q(QuickDate::NextWeek, at(2026, 10, 30, 23, 30, 0)) == "2026-11-06" &&
+                      q(QuickDate::Tomorrow, at(2026, 10, 31, 23, 30, 0)) == "2026-11-01");
+        }
+
+        if (saved.empty()) unsetenv("TZ"); else setenv("TZ", saved.c_str(), 1);
+        tzset();
+    }
+    // The rule and the history survive the disk.
+    {
+        namespace fs = std::filesystem;
+        const std::string dir = (fs::temp_directory_path() / "jot_selftest_repeat").string();
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        core::NodeId a, b;
+        {
+            core::Project v;
+            v.open(dir);
+            a = v.create("", "weekly chore");
+            b = v.create("", "plain");
+            v.make_task(a, true);
+            v.make_task(b, true);
+            v.set_due(a, 1'800'000'000);
+            v.set_repeat(a, core::Repeat{2, core::RepeatUnit::Week, true});
+            v.set_done(a, true);
+            v.flush();
+        }
+        std::ifstream f(fs::path(dir) / "jot.json");
+        const std::string js((std::istreambuf_iterator<char>(f)), {});
+        check("repeat/jots: written as words, only on the repeating node",
+              js.find("\"every 2 weeks\"") != std::string::npos &&
+                  js.find("\"repeat_from\": \"done\"") != std::string::npos &&
+                  js.find("\"history\"") != std::string::npos, js);
+        {
+            core::Project v;
+            v.open(dir);
+            const auto& r = v.find(a)->task.repeat;
+            check("repeat/jots: the rule survives a reopen",
+                  r.every == 2 && r.unit == core::RepeatUnit::Week && r.from_done &&
+                      !v.find(b)->task.repeat.on());
+            check("repeat/jots: the history survives a reopen",
+                  v.history().size() == 1 && v.history()[0].title == "weekly chore" &&
+                      core::logbook(v).size() == 1);
+        }
+        fs::remove_all(dir, ec);
+    }
+
     // -- Cheat sheet (s030): the running reference ------------------------------
     // "Every milestone adds its lines" is a rule; these make it a failing test.
     // A keyed verb with no line, a line naming a verb that does not exist, a key
