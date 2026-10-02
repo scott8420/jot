@@ -4,6 +4,7 @@
 #include "EditorPane.hpp"
 #include "TreePane.hpp"
 #include "TodayPane.hpp"
+#include "InboxPane.hpp"
 #include "Log.hpp"
 #include "core/Recents.hpp"
 
@@ -92,6 +93,14 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
                                         sigc::mem_fun(*this, &Shell::on_toggle_done), false);
     m_act_toggle_flag = add_action_bool("toggle-flag",
                                         sigc::mem_fun(*this, &Shell::on_toggle_flag), false);
+    // s028. Clean Up is app-level (the whole Inbox, not the selection); In Inbox
+    // is a note verb, stateful so the note menu draws a tick.
+    m_act_clean_up     = add_action("clean-up", sigc::mem_fun(*this, &Shell::on_clean_up));
+    m_act_toggle_inbox = add_action_bool("toggle-inbox",
+                                         sigc::mem_fun(*this, &Shell::on_toggle_inbox), false);
+    // s029. Move to...: the selection's picker. The Inbox rows reach the same
+    // picker through signal_move, for the row's own note.
+    m_act_move_to = add_action("move-to", sigc::mem_fun(*this, &Shell::on_move_to));
 
     // Which half of the left pane shows. Stateful string, exactly like the two
     // pane toggles are stateful bools -- the tab buttons and the View menu's
@@ -142,6 +151,8 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // it the same way -- reveal in the tree, load the note. Neither pane knows
     // the other exists.
     m_today->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));
+    m_inbox->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));   // s028
+    m_inbox->signal_move().connect(sigc::mem_fun(*this, &Shell::open_move));      // s029
     // The footer used to carry three check boxes that asked these actions to
     // flip. s016a moved the switches to Preferences alone; the footer keeps the
     // status lines and a button onto win.preferences, so there is nothing here

@@ -82,6 +82,13 @@ struct Node {
     std::int64_t modified = 0;
     bool         protect  = false; // carried from Notr: locked against move/delete/edit
     Task         task;             // default-constructed => this node is a note
+    // s028: waiting to be processed. Set by every capture road; cleared by
+    // Clean Up once the node has been dealt with (core/Inbox), or by hand.
+    // A MARK, not a place: the node stays wherever it is in the tree, and
+    // filing it does not take it out of the Inbox until Clean Up says so --
+    // the OmniFocus behaviour, so a row never vanishes from under the hand
+    // that is processing it.
+    bool         inbox    = false;
 };
 
 // ── The seam ────────────────────────────────────────────────────────────────
@@ -110,6 +117,10 @@ public:
     // to persist. The single-field writers below are non-virtual conveniences
     // built on this one, so there is exactly one path to disk.
     virtual bool   set_task(const NodeId& id, const Task& t)              = 0;
+    // s028. Not refused on a protected node: the mark is about the user's
+    // processing, not the note's content, and a locked note can still be
+    // something you have dealt with. Change::Flags; `modified` is untouched.
+    virtual bool   set_inbox(const NodeId& id, bool on)                   = 0;
 
     bool set_done(const NodeId& id, bool on);
     bool set_flagged(const NodeId& id, bool on);
@@ -188,9 +199,12 @@ bool can_move(const NodeSource& src, const NodeId& id, const NodeId& new_parent,
 // one thing a capture box must never do.
 void capture_split(const std::string& text, std::string& title, std::string& body);
 
-// Capture `text` as a new TOP-LEVEL note and return its id. Top-level and
-// undated is what "unfiled" means in jot -- there is no Inbox to route it to
-// and nothing to empty later.
+// Capture `text` as a new TOP-LEVEL note, marked for the Inbox (s028), and
+// return its id. s007 said "there is no Inbox"; s028 overturned it -- the
+// mark is what makes a capture something to PROCESS rather than a note that
+// happens to sit at the top level. Every capture road goes through here or
+// through capture_list / capture_append, and each marks a note it MAKES (not
+// one it grows: appending to Groceries is not a new thing to process).
 //
 // One function for both callers (the headerbar box and `jot --capture`) on
 // purpose: two capture paths that split text differently would be two apps.
@@ -246,6 +260,7 @@ public:
     bool   set_body(const NodeId& id, const std::string& body) override;
     bool   set_protect(const NodeId& id, bool on) override;
     bool   set_task(const NodeId& id, const Task& t) override;
+    bool   set_inbox(const NodeId& id, bool on) override;
     using NodeSource::move;   // keep the 2-arg convenience visible through this type
     bool   move(const NodeId& id, const NodeId& new_parent, int index) override;
     bool   remove(const NodeId& id) override;

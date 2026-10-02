@@ -428,6 +428,7 @@ bool Project::load_project(std::vector<Node>& out) const {
         n.task.defer   = e.value("defer", std::int64_t{0});
         n.task.flagged = e.value("flagged", false);
         n.task.status  = status_from(e.value("status", std::string{}));
+        n.inbox        = e.value("inbox", false);   // s028; absent == processed
         if (!n.id.empty()) out.push_back(std::move(n));
     }
     return true;
@@ -509,6 +510,7 @@ bool Project::save_project() const {
             if (n->task.defer != 0)            e["defer"]   = n->task.defer;
             if (n->task.flagged)               e["flagged"] = true;
             if (n->task.status != Status::None) e["status"] = status_name(n->task.status);
+            if (n->inbox)                      e["inbox"]   = true;   // s028, same rule
             j["nodes"].push_back(std::move(e));
         }
         const auto kids = children(id);
@@ -575,6 +577,15 @@ bool Project::set_body(const NodeId& id, const std::string& body) {
 
 bool Project::set_protect(const NodeId& id, bool on) {
     if (!MemoryNodes::set_protect(id, on)) return false;
+    m_structure_dirty = true;
+    flush();
+    return true;
+}
+
+// The Inbox mark is structure too: it lives in jot.json, and a capture that
+// forgot it was a capture after a crash is a thought nobody processes.
+bool Project::set_inbox(const NodeId& id, bool on) {
+    if (!MemoryNodes::set_inbox(id, on)) return false;
     m_structure_dirty = true;
     flush();
     return true;

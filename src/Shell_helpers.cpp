@@ -4,6 +4,8 @@
 #include "JotsFolderDialog.hpp"
 #include "TreePane.hpp"
 #include "TodayPane.hpp"
+#include "InboxPane.hpp"
+#include "core/Inbox.hpp"
 #include "Log.hpp"
 #include "core/Prefs.hpp"
 #include "core/Notify.hpp"
@@ -452,6 +454,7 @@ void Shell::update_note_actions() {  // helper: grey what the selection can't do
     if (m_act_rename_note) m_act_rename_note->set_enabled(n != nullptr && !n->protect);
     if (m_act_protect)   m_act_protect->set_enabled(n != nullptr);
     if (m_act_delete)    m_act_delete->set_enabled(n != nullptr && !n->protect);
+    if (m_act_move_to)   m_act_move_to->set_enabled(n != nullptr && !n->protect);   // s029
 
     // The ticks (s016c). Written only here, from the model, so the check items
     // in both note menus always say what the selected note IS.
@@ -462,6 +465,32 @@ void Shell::update_note_actions() {  // helper: grey what the selection can't do
     tick(m_act_toggle_done, is_task && n->task.done);
     tick(m_act_toggle_flag, is_task && n->task.flagged);
     tick(m_act_protect,     n && n->protect);
+    if (m_act_toggle_inbox) m_act_toggle_inbox->set_enabled(n != nullptr);
+    tick(m_act_toggle_inbox, n && n->inbox);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// queue_inbox_refresh -- the Inbox pane, the tab's count, Clean Up's greying,
+// and the In Inbox tick, on ONE idle (s028).
+//
+// An idle, not now: Keep is a button INSIDE a row the refresh destroys, and
+// tearing a widget down from inside its own click is the get_parent CRITICAL
+// s017 chased out of the drawer. The pane is cheap to rebuild; the gesture is
+// not cheap to break.
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::queue_inbox_refresh() {  // helper: Inbox pane + count + greying, one idle
+    if (m_inbox_refresh_queued) return;
+    m_inbox_refresh_queued = true;
+    Glib::signal_idle().connect_once([this]() {
+        m_inbox_refresh_queued = false;
+        if (!m_store || !m_inbox) return;
+        m_inbox->refresh();
+        const auto c = core::inbox_counts(*m_store);
+        m_tab_inbox.set_label(c.waiting ? "Inbox " + std::to_string(c.waiting)
+                                        : std::string("Inbox"));
+        if (m_act_clean_up) m_act_clean_up->set_enabled(c.ready > 0);
+        update_note_actions();   // the In Inbox tick, if the selection's mark moved
+    });
 }
 
 std::string Shell::prefs_file() const {  // helper: XDG path for the layout pump

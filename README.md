@@ -130,6 +130,17 @@ running, and the application does not choose the chord — it proposes
 one and the desktop asks the user, which is exactly the thing this
 preferences row exists to do.
 
+## The Inbox
+
+Everything captured -- the header line, `jot --capture`, the global
+shortcut, and a new note made by `jot --list` or `-a` -- lands in the
+**Inbox** tab (Notes | Inbox | Today), whose label counts what is waiting.
+Deal with each one: drag it under a project in the tree, tick it done, or
+press **Keep** if it belongs where it is. Filed and done rows stay on the
+list, dimmed, until **Clean Up** (the button, View > Clean Up Inbox, or
+`Ctrl+Shift+K`) takes them off. Nothing moves or is deleted by Clean Up.
+The note menu's **In Inbox** puts any note on the list by hand.
+
 ## Dated todos on the desktop
 
 Tick **Show dated todos on the desktop** at the bottom of the Today

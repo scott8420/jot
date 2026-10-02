@@ -6,6 +6,9 @@
 #include "EditorPane.hpp"
 #include "TreePane.hpp"
 #include "TodayPane.hpp"
+#include "InboxPane.hpp"
+#include "core/Inbox.hpp"
+#include "core/Filing.hpp"
 #include "Log.hpp"
 #include "Registry.hpp"
 #include "core/Recents.hpp"
@@ -113,10 +116,63 @@ void Shell::on_rename_note() {  // handler: rename in the tree
 // Notes <-> Today. The action holds the state; this is the one writer of what
 // the stack shows, which is why the tab buttons and the menu items cannot
 // disagree about which view is up.
-void Shell::on_left_view(const Glib::ustring& which) {  // handler: Notes <-> Today
+void Shell::on_left_view(const Glib::ustring& which) {  // handler: Notes | Inbox | Today
     if (m_act_left_view) m_act_left_view->set_state(Glib::Variant<Glib::ustring>::create(which));
-    m_left_stack.set_visible_child(which == "today" ? "today" : "notes");
-    if (which == "today") m_today->refresh();   // it may have been away a while
+    const Glib::ustring page = (which == "today" || which == "inbox") ? which : "notes";
+    m_left_stack.set_visible_child(page);
+    if (page == "today") m_today->refresh();   // it may have been away a while
+    if (page == "inbox") m_inbox->refresh();   // ages ("3 h ago") move with the clock
+}
+
+// s028. Clean Up: every processed Inbox mark cleared, in one go. core decides
+// what "processed" is; this only asks and reports.
+void Shell::on_clean_up() {  // handler: clear processed Inbox marks
+    if (!m_store) return;
+    const std::size_t n = core::clean_up(*m_store);
+    if (auto lg = log::get(log::Area::Shell)) lg->info("clean up: {} cleared", n);
+}
+
+// s028. The note menu's "In Inbox": put a note on the Inbox to deal with later,
+// or take it off by hand. Allowed on a protected note -- the mark is about your
+// processing, not the note's content.
+void Shell::on_toggle_inbox() {  // handler: selection in / out of the Inbox
+    const auto id = m_tree->selected();
+    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
+    if (n) m_store->set_inbox(id, !n->inbox);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// s029. Move to... -- file a note by typing where it goes.
+//
+// The picker reports a place; the move is made HERE, through the model, after
+// asking can_move once more -- the picker offered only legal places, but the
+// question is cheap and the model is the one that has to keep the promise.
+// The move appends: filing puts a note at the end of its new home, the same
+// as a drop onto a row's middle.
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::on_move_to() {  // handler: Move to... on the selection
+    if (m_tree) open_move(m_tree->selected());
+}
+
+void Shell::open_move(const core::NodeId& id) {  // handler: the picker, for any note
+    const core::Node* n = (id.empty() || !m_store) ? nullptr : m_store->find(id);
+    if (!n || n->protect) return;
+    // One at a time; the old one is hidden (modal), so destroying it here is
+    // not destroying a widget from inside its own event.
+    m_move_dialog.reset();
+    m_move_dialog = std::make_unique<MoveDialog>(
+        *this, *m_store, id, m_move_recent, [this, id](const core::NodeId& target) {
+            std::string why;
+            if (!m_store || !core::can_move(*m_store, id, target, &why)) {
+                if (auto lg = log::get(log::Area::Shell)) lg->warn("move to: refused ({})", why);
+                return;
+            }
+            const bool ok = m_store->move(id, target, -1);
+            if (ok) core::remember_target(m_move_recent, target);
+            if (auto lg = log::get(log::Area::Shell))
+                lg->info("move to: {} {}", id, ok ? "moved" : "no change");
+        });
+    m_move_dialog->present();
 }
 
 void Shell::on_selection_changed(const core::NodeId& id) {  // handler: tree row -> editor
@@ -142,6 +198,9 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
     // synchronous rebuild would destroy the row the gesture is still using.
     // See queue_tree_rebuild().
     if (what != C::Body) queue_tree_rebuild();
+    // s028: any change but a keystroke can change the Inbox -- a capture, a
+    // move (filed), a tick (done), a rename, the mark itself.
+    if (what != C::Body) queue_inbox_refresh();
 
     switch (what) {
         case C::Reload:

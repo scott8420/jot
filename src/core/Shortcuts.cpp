@@ -161,6 +161,14 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
          "Protect or unprotect the selected note"},
         {"Notes", "win.rename-note",    {"<Ctrl>r", "F2"}, "",
          "Rename the selected note in the tree"},
+        // s028. OmniFocus's Clean Up is Cmd-K; Ctrl+K is the body's Link, so
+        // the shifted twin -- not a text-editing chord (steals_text_editing).
+        {"Notes", "win.clean-up",       {"<Ctrl><Shift>k"}, "",
+         "Clean Up: take everything filed or done off the Inbox"},
+        // s029. OmniFocus's Move is Cmd-Shift-M; Ctrl+Shift+M is Import here
+        // (s021b), so the plain chord -- nothing in a text box binds Ctrl+M.
+        {"Notes", "win.move-to",        {"<Ctrl>m"}, "",
+         "Move the selected note: type where it goes"},
 
         // ── Todos ─────────────────────────────────────────────────────────────
         // A todo IS a note (D2), so these three are note verbs and they sit

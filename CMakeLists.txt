@@ -91,6 +91,12 @@ add_library(jot_core STATIC
     # a wrong availability answer is invisible from the surface -- a task wrongly
     # hidden is a task you do not do, and nothing on screen would say so.
     src/core/Tasks.cpp
+    # s028: what is waiting to be processed, and Clean Up. A query over a mark,
+    # not a place -- the node stays where it is in the tree.
+    src/core/Inbox.cpp
+    # s029: where a note can go -- the legal targets "Move to..." offers,
+    # ranked for what was typed. The model decides legality, not the picker.
+    src/core/Filing.cpp
     # WHAT the desktop is told, decided in core and nowhere else (s009). The
     # backend that writes it is Desktop.cpp, over in the app target with
     # libecal; this half is a pure function of the model and an instant, so it
@@ -185,6 +191,10 @@ add_executable(jot
     # The report. Groups by parent because the parent's note is the WHY -- the
     # one thing a task app with a scratch-field "note" cannot put anywhere.
     src/TodayPane.cpp
+    # s028. What is waiting to be processed; a query over the Inbox mark.
+    src/InboxPane.cpp
+    # s029. "Move to...": a picker you type into, over core/Filing.
+    src/MoveDialog.cpp
     src/Shell_zones.cpp
     src/Shell_bindings.cpp
     src/Shell_handlers.cpp

@@ -1,6 +1,7 @@
 #pragma once
 #include "core/Import.hpp"
 #include "JotsFolderDialog.hpp"
+#include "MoveDialog.hpp"
 #include "core/Nodes.hpp"
 #include "core/Links.hpp"
 #include "core/Tasks.hpp"
@@ -71,6 +72,7 @@ class TreePane;
 class EditorPane;
 class DrawerPane;
 class TodayPane;
+class InboxPane;
 
 class Shell : public Gtk::ApplicationWindow {
 public:
@@ -139,7 +141,11 @@ private:
     void on_toggle_done();                       // category: handler: tick/untick the selection
     void on_toggle_flag();                       // category: handler: flag/unflag the selection
     void on_rename_note();                       // category: handler: rename in the tree (F2)
-    void on_left_view(const Glib::ustring& which);  // category: handler: Notes <-> Today
+    void on_left_view(const Glib::ustring& which);  // category: handler: Notes | Inbox | Today
+    void on_clean_up();                          // category: handler: s028 clear processed Inbox marks
+    void on_toggle_inbox();                      // category: handler: s028 the selection in / out of the Inbox
+    void on_move_to();                           // category: handler: s029 "Move to..." on the selection
+    void open_move(const core::NodeId& id);      // category: handler: s029 the picker, for any note (Inbox rows too)
     void on_selection_changed(const core::NodeId& id);  // category: handler: tree row -> editor
     void on_model_changed(core::NodeSource::Change what,
                           const core::NodeId& id);      // category: handler: model -> surfaces
@@ -216,6 +222,7 @@ private:
     void apply_layout_state();                   // category: helper: ONE writer for both panes' visibility
     void queue_drawer_refresh();                 // category: helper: coalesce index + drawer to one idle
     void queue_tree_rebuild();                   // category: helper: rebuild the tree on an idle, never inside a gesture
+    void queue_inbox_refresh();                  // category: helper: s028 Inbox pane + tab count + Clean Up greying, on an idle
     void remember_window_geometry();             // category: helper: size + maximized -> prefs, at close
     void refresh_tasks(bool rebuild_index, const core::NodeId& id = {});  // category: helper: ONE writer for the task index + Today
     void queue_desktop_sync();                   // category: helper: arm the debounce; the only way a sync starts
@@ -272,6 +279,7 @@ private:
     widgets::Box                m_left;
     widgets::Box                m_left_tabs;
     widgets::ToggleButton       m_tab_notes;
+    widgets::ToggleButton       m_tab_inbox;     // s028
     widgets::ToggleButton       m_tab_today;
     widgets::Stack              m_left_stack;
 
@@ -281,6 +289,7 @@ private:
     std::unique_ptr<EditorPane> m_editor;
     std::unique_ptr<DrawerPane> m_drawer;
     std::unique_ptr<TodayPane>  m_today;
+    std::unique_ptr<InboxPane>  m_inbox;      // s028
 
     // The two toggles. BOTH OFF is the focus mode -- the note alone on screen,
     // which is the front door ARCHITECTURE describes. They are held so
@@ -302,6 +311,7 @@ private:
     core::LinkIndex m_links;
     bool m_drawer_refresh_queued = false;
     bool m_tree_rebuild_queued   = false;
+    bool m_inbox_refresh_queued  = false;   // s028
 
     // Which nodes are todos, in document order. Owned here for the same reason
     // the link index is: the Shell is the only thing that sees every write.
@@ -418,6 +428,13 @@ private:
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_todo;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_done;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_flag;
+    // s028. Clean Up greys itself when nothing is processed; In Inbox is a
+    // check item ticked from the model, like Protected.
+    Glib::RefPtr<Gio::SimpleAction> m_act_clean_up;
+    Glib::RefPtr<Gio::SimpleAction> m_act_toggle_inbox;
+    // s029. "Move to..." -- greyed on no selection or a protected note, the
+    // two cases where the picker would have nothing to offer.
+    Glib::RefPtr<Gio::SimpleAction> m_act_move_to;
 
     // Which half of the left pane is showing. A stateful STRING action, so the
     // two tab buttons and the View menu's radio items draw from one place --
@@ -452,6 +469,12 @@ private:
     // The naming dialog. One instance, rebuilt per occasion because its mode
     // is fixed at construction and there are only three of them.
     std::unique_ptr<JotsFolderDialog> m_name_dialog;
+
+    // s029. The Move picker, rebuilt per use (the note it moves is fixed at
+    // construction), and the places filed into lately -- most recent first,
+    // this run only. Ids, so a renamed project is still the same place.
+    std::unique_ptr<MoveDialog> m_move_dialog;
+    std::vector<core::NodeId>   m_move_recent;
 
     // Set only by guard_scratch's continuation, so the second close_request
     // (the one that actually closes) doesn't ask again. Nothing else may

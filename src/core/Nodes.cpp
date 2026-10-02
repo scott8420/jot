@@ -190,6 +190,14 @@ bool MemoryNodes::set_protect(const NodeId& id, bool on) {
     return true;
 }
 
+bool MemoryNodes::set_inbox(const NodeId& id, bool on) {
+    Node* n = mutable_find(id);
+    if (!n || n->inbox == on) return false;   // a no-op must not dirty jot.json
+    n->inbox = on;                            // NOT `modified`: the note did not change
+    notify(Change::Flags, id);
+    return true;
+}
+
 bool MemoryNodes::set_task(const NodeId& id, const Task& t) {
     Node* n = mutable_find(id);
     if (!n || n->task == t) return false;   // no-op writes must not dirty a note
@@ -340,7 +348,9 @@ NodeId capture(NodeSource& src, const std::string& text) {
     capture_split(text, title, body);
     if (title.empty()) return {};          // nothing typed is not a note
     const NodeId id = src.create("", title);
-    if (!id.empty() && !body.empty()) src.set_body(id, body);
+    if (id.empty()) return id;
+    if (!body.empty()) src.set_body(id, body);
+    src.set_inbox(id, true);
     return id;
 }
 
@@ -402,7 +412,7 @@ NodeId capture_append(NodeSource& src, const std::string& name, const std::strin
         return id;
     }
     id = src.create("", title);
-    if (!id.empty()) src.set_body(id, append_text("", text));
+    if (!id.empty()) { src.set_body(id, append_text("", text)); src.set_inbox(id, true); }
     return id;
 }
 
@@ -441,7 +451,7 @@ NodeId capture_list(NodeSource& src, const std::string& name,
         return id;
     }
     id = src.create("", title);
-    if (!id.empty()) src.set_body(id, add);
+    if (!id.empty()) { src.set_body(id, add); src.set_inbox(id, true); }
     return id;
 }
 

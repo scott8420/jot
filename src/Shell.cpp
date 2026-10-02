@@ -6,6 +6,7 @@
 #include "EditorPane.hpp"
 #include "TreePane.hpp"
 #include "TodayPane.hpp"
+#include "InboxPane.hpp"
 #include "Log.hpp"
 
 #include <giomm/desktopappinfo.h>
@@ -37,6 +38,7 @@ Shell::Shell()
       m_left("shell.left", Gtk::Orientation::VERTICAL, 0),
       m_left_tabs("shell.left_tabs", Gtk::Orientation::HORIZONTAL, 0),
       m_tab_notes("shell.tab_notes"),
+      m_tab_inbox("shell.tab_inbox"),
       m_tab_today("shell.tab_today"),
       m_left_stack("shell.left_stack"),
       m_paned_left("shell.paned_left", Gtk::Orientation::HORIZONTAL),
@@ -49,6 +51,7 @@ Shell::Shell()
     m_editor = std::make_unique<EditorPane>("shell.editor");
     m_drawer = std::make_unique<DrawerPane>("shell.drawer");
     m_today  = std::make_unique<TodayPane>("shell.today");
+    m_inbox  = std::make_unique<InboxPane>("shell.inbox");
 }
 
 Shell::~Shell() = default;
@@ -94,6 +97,8 @@ void Shell::build_ui() {
         core::save_prefs(m_prefs_file, m_prefs);
     });
     m_today->set_source(m_store.get(), &m_tasks);
+    m_inbox->set_source(m_store.get());
+    queue_inbox_refresh();   // the tab's count and Clean Up's greying
 
     // The desktop footer, brought up to match the state the action already
     // holds. `compiled_in()` is a property of the BINARY, so a build without

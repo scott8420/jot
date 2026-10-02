@@ -18,10 +18,12 @@ Glib::RefPtr<Gio::Menu> note_menu() {
     todo->append("Todo", "win.toggle-todo");
     todo->append("Done", "win.toggle-done");
     todo->append("Flagged", "win.toggle-flag");
+    todo->append("In Inbox", "win.toggle-inbox");   // s028
     menu->append_section(todo);
 
     auto name = Gio::Menu::create();
     name->append("Rename", "win.rename-note");
+    name->append("Move to\u2026", "win.move-to");   // s029
     name->append("Copy link", "win.copy-link");
     menu->append_section(name);
 

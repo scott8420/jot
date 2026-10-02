@@ -30,6 +30,8 @@
 #include "core/TextMap.hpp"
 #include "core/Render.hpp"
 #include "core/Import.hpp"
+#include "core/Inbox.hpp"
+#include "core/Filing.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -2953,6 +2955,265 @@ int main() {
               core::pending_dir("/home/s/.local/share") == "/home/s/.local/share/jot/pending");
 
         std::filesystem::remove_all(dir, ec);
+    }
+
+    // -- Inbox: the mark, the states, Clean Up (s028) --------------------------
+    // s007 said "there is no Inbox". s028 overturned it: every capture road
+    // marks what it MAKES, filing or ticking makes it PROCESSED without taking
+    // it off the list, and only Clean Up clears the mark.
+    {
+        core::MemoryNodes m;
+        const auto proj = m.create("", "Taxes");
+        const auto plain = m.create("", "a note made by hand");
+        check("inbox: a note made by hand is not in the Inbox", !m.find(plain)->inbox);
+
+        const auto c1 = core::capture(m, "ring the vet");
+        const auto c2 = core::capture(m, "file the 1099\nfrom the bank");
+        check("inbox: a capture is marked", m.find(c1)->inbox && m.find(c2)->inbox);
+        check("inbox: a capture is Waiting",
+              core::inbox_state(*m.find(c1)) == core::InboxState::Waiting);
+
+        bool grew = false;
+        const auto gl = core::capture_list(m, "Groceries", {"milk"}, &grew);
+        check("inbox: a NEW list note is marked", !grew && m.find(gl)->inbox);
+        m.set_inbox(gl, false);
+        core::capture_list(m, "Groceries", {"eggs"}, &grew);
+        check("inbox: GROWING a list does not re-mark it", grew && !m.find(gl)->inbox);
+        const auto ga = core::capture_append(m, "Ideas", "a thought", &grew);
+        check("inbox: a NEW append note is marked", !grew && m.find(ga)->inbox);
+        m.set_inbox(ga, false);
+
+        // Order: tree order, so a later capture is below an earlier one.
+        auto mem = core::inbox_members(m);
+        check("inbox: members in tree order",
+              mem.size() == 2 && mem[0] == c1 && mem[1] == c2);
+
+        // Filing: a move makes it Filed -- and it STAYS in the Inbox.
+        check("inbox: file it under a project", m.move(c2, proj));
+        check("inbox: a filed capture is Filed, not gone",
+              m.find(c2)->inbox &&
+                  core::inbox_state(*m.find(c2)) == core::InboxState::Filed);
+        mem = core::inbox_members(m);
+        check("inbox: a filed capture is still a member (until Clean Up)",
+              mem.size() == 2 && std::find(mem.begin(), mem.end(), c2) != mem.end());
+
+        // Done: a todo ticked done is processed even at the top level.
+        const auto c3 = core::capture(m, "buy stamps");
+        m.make_task(c3, true);
+        check("inbox: an open todo at the top level is Waiting",
+              core::inbox_state(*m.find(c3)) == core::InboxState::Waiting);
+        m.set_done(c3, true);
+        check("inbox: a done todo is Done",
+              core::inbox_state(*m.find(c3)) == core::InboxState::Done);
+        m.move(c3, proj);
+        check("inbox: done beats filed", core::inbox_state(*m.find(c3)) == core::InboxState::Done);
+
+        auto counts = core::inbox_counts(m);
+        check("inbox: counts -- one waiting, two ready",
+              counts.waiting == 1 && counts.ready == 2,
+              std::to_string(counts.waiting) + "/" + std::to_string(counts.ready));
+
+        // Clean Up: clears the processed, leaves the waiting, moves nothing.
+        const auto before_parent = m.find(c2)->parent_id;
+        const auto before_body = m.find(c2)->body;
+        int notes = 0;
+        m.on_changed([&](core::NodeSource::Change w, const core::NodeId&) {
+            if (w == core::NodeSource::Change::Flags) ++notes;
+        });
+        check("inbox: Clean Up takes the two processed", core::clean_up(m) == 2);
+        check("inbox: ...and says so through the model (Flags)", notes == 2);
+        check("inbox: the waiting one stays", m.find(c1)->inbox);
+        check("inbox: the cleaned ones are unmarked", !m.find(c2)->inbox && !m.find(c3)->inbox);
+        check("inbox: Clean Up moved and edited nothing",
+              m.find(c2)->parent_id == before_parent && m.find(c2)->body == before_body);
+        check("inbox: a second Clean Up is a no-op", core::clean_up(m) == 0);
+        counts = core::inbox_counts(m);
+        check("inbox: counts after -- one waiting, none ready",
+              counts.waiting == 1 && counts.ready == 0);
+
+        // The hand-cleared case: Keep at the top level.
+        check("inbox: set_inbox off is a write", m.set_inbox(c1, false));
+        check("inbox: set_inbox to the same value is a no-op", !m.set_inbox(c1, false));
+        check("inbox: empty now", core::inbox_members(m).empty());
+
+        // A protected note can still be marked and cleared.
+        m.set_protect(plain, true);
+        check("inbox: protection does not refuse the mark",
+              m.set_inbox(plain, true) && m.set_inbox(plain, false));
+
+        // Ages.
+        const std::int64_t now = 1'800'000'000;
+        check("inbox: age -- just now", core::age_phrase(now - 5, now) == "just now");
+        check("inbox: age -- minutes", core::age_phrase(now - 4 * 60, now) == "4 min ago");
+        check("inbox: age -- hours", core::age_phrase(now - 3 * 3600, now) == "3 h ago");
+        check("inbox: age -- a day", core::age_phrase(now - 30 * 3600, now) == "1 day ago");
+        check("inbox: age -- days", core::age_phrase(now - 5 * 86400, now) == "5 days ago");
+        check("inbox: age -- old is a date",
+              core::age_phrase(now - 40 * 86400, now) == core::format_date(now - 40 * 86400));
+        check("inbox: age -- a clock gone backwards is just now",
+              core::age_phrase(now + 500, now) == "just now");
+        check("inbox: age -- no time is no phrase", core::age_phrase(0, now).empty());
+    }
+
+    // -- Move to... : where a note can go (s029) ------------------------------
+    // The picker offers only what can_move allows, names each place by its
+    // path, ranks for what was typed, and remembers where you filed lately.
+    {
+        core::MemoryNodes m;
+        const auto work  = m.create("", "Work");
+        const auto taxes = m.create(work, "Taxes");
+        const auto y2025 = m.create(taxes, "2025");
+        const auto home  = m.create("", "Home");
+        const auto notes = m.create(home, "Notes");
+        const auto wnote = m.create(work, "Notes");
+        const auto cap   = core::capture(m, "file the 1099");
+
+        auto ids = [](const std::vector<core::MoveTarget>& v) {
+            std::vector<core::NodeId> out;
+            for (const auto& t : v) out.push_back(t.id);
+            return out;
+        };
+        auto has = [&](const std::vector<core::MoveTarget>& v, const core::NodeId& id) {
+            const auto i = ids(v);
+            return std::find(i.begin(), i.end(), id) != i.end();
+        };
+
+        // A top-level capture: everything but itself; no "Top level" (it is there).
+        auto t = core::move_targets(m, cap, "");
+        check("move: a top-level note is not offered the top level", !has(t, ""));
+        check("move: a note is not offered itself", !has(t, cap));
+        check("move: every other note is a place, in tree order",
+              ids(t) == std::vector<core::NodeId>{work, taxes, y2025, wnote, home, notes},
+              std::to_string(t.size()));
+        check("move: a place is named by its path",
+              t[2].title == "2025" && t[2].path == "Work › Taxes" && t[0].path.empty());
+        check("move: node_path agrees", core::node_path(m, y2025) == "Work › Taxes");
+
+        // A nested note: the top level first, never its own subtree, never
+        // where it already is.
+        t = core::move_targets(m, taxes, "");
+        check("move: a nested note is offered the top level, first",
+              !t.empty() && t[0].id.empty() && t[0].title == core::kTopLevel);
+        check("move: never into its own subtree", !has(t, y2025) && !has(t, taxes));
+        check("move: not where it already is", !has(t, work));
+        for (const auto& x : t)
+            check("move: every offer passes can_move (" + x.title + ")",
+                  core::can_move(m, taxes, x.id));
+
+        // Ranking: starts-with, then contains, then path.
+        const auto tax2 = m.create(home, "Property tax");
+        t = core::move_targets(m, cap, "tax");
+        check("move: query -- prefix first, then contains, then path",
+              ids(t) == std::vector<core::NodeId>{taxes, tax2, y2025}, std::to_string(t.size()));
+        t = core::move_targets(m, cap, "  NOTES ");
+        check("move: query is trimmed and case-blind",
+              ids(t) == std::vector<core::NodeId>{wnote, notes});
+        check("move: two \"Notes\" told apart by path",
+              t.size() == 2 && t[0].path == "Work" && t[1].path == "Home");
+        check("move: nothing matches -> empty", core::move_targets(m, cap, "zebra").empty());
+        t = core::move_targets(m, taxes, "top");
+        check("move: \"top\" finds the top level", !t.empty() && t[0].id.empty());
+
+        // A protected note goes nowhere; an unknown one neither.
+        m.set_protect(cap, true);
+        check("move: a protected note has no places", core::move_targets(m, cap, "").empty());
+        m.set_protect(cap, false);
+        check("move: an unknown note has no places", core::move_targets(m, "nope", "").empty());
+
+        // An untitled note is still a place, and says so.
+        const auto blank = m.create("", "");
+        t = core::move_targets(m, cap, "untitled");
+        check("move: an untitled place reads Untitled",
+              t.size() == 1 && t[0].id == blank && t[0].title == "Untitled");
+
+        // Recent: most recent first, deduplicated, capped, top level not kept.
+        std::vector<core::NodeId> r;
+        core::remember_target(r, taxes);
+        core::remember_target(r, home);
+        core::remember_target(r, taxes);
+        core::remember_target(r, "");
+        check("move: recent -- newest first, no repeats, no top level",
+              r == std::vector<core::NodeId>{taxes, home});
+        for (int i = 0; i < 9; ++i) core::remember_target(r, "x" + std::to_string(i), 5);
+        check("move: recent -- capped", r.size() == 5 && r[0] == "x8");
+
+        // Recent places are filtered for THIS note: gone, itself, its parent,
+        // its own subtree.
+        r = {y2025, taxes, work, home, "gone"};
+        auto rt = core::recent_targets(m, taxes, r);
+        check("move: recent -- only legal places for this note",
+              ids(rt) == std::vector<core::NodeId>{home}, std::to_string(rt.size()));
+        rt = core::recent_targets(m, cap, r);
+        check("move: recent -- carries the path",
+              rt.size() == 4 && rt[0].id == y2025 && rt[0].path == "Work › Taxes");
+
+        // The whole road: a capture filed by the picker reads Filed on the Inbox.
+        t = core::move_targets(m, cap, "taxes");
+        check("move: file the capture", !t.empty() && m.move(cap, t[0].id, -1));
+        check("move: ...and the Inbox says Filed",
+              m.find(cap)->parent_id == taxes &&
+                  core::inbox_state(*m.find(cap)) == core::InboxState::Filed);
+        check("move: ...appended at the end of its new home",
+              m.children(taxes).back() == cap);
+    }
+
+    // The picker's key is a real chord, and nobody else's.
+    {
+        const auto& reg = core::shortcut_registry();
+        bool found = false;
+        for (const auto& s2 : reg)
+            if (s2.action == "win.move-to" && !s2.accels.empty() && s2.accels[0] == "<Ctrl>m")
+                found = true;
+        check("move: Ctrl+M is win.move-to", found);
+    }
+
+    // The mark survives the disk, and only marked nodes carry the key.
+    {
+        namespace fs = std::filesystem;
+        const std::string dir = (fs::temp_directory_path() / "jot_selftest_inbox").string();
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        core::NodeId cap, hand;
+        {
+            core::Project v;
+            v.open(dir);
+            hand = v.create("", "by hand");
+            cap = core::capture(v, "captured");
+            v.flush();
+        }
+        std::ifstream f(fs::path(dir) / "jot.json");
+        const std::string js((std::istreambuf_iterator<char>(f)), {});
+        std::size_t n_keys = 0;
+        for (std::size_t at = 0; (at = js.find("\"inbox\"", at)) != std::string::npos; ++at) ++n_keys;
+        check("inbox/jots: only the marked node writes the key", n_keys == 1, js);
+        {
+            core::Project v;
+            v.open(dir);
+            check("inbox/jots: the mark survives a reopen",
+                  v.find(cap) && v.find(cap)->inbox && v.find(hand) && !v.find(hand)->inbox);
+            v.set_inbox(cap, false);
+        }
+        {
+            core::Project v;
+            v.open(dir);
+            check("inbox/jots: clearing it is written at once",
+                  v.find(cap) && !v.find(cap)->inbox);
+        }
+        {
+            // Adopt (scratch -> folder) carries the mark.
+            core::MemoryNodes scratch;
+            core::capture(scratch, "scribbled before a folder existed");
+            const std::string dir2 = dir + "_adopt";
+            fs::remove_all(dir2, ec);
+            core::Project v;
+            v.open(dir2);
+            v.adopt(scratch);
+            const auto roots = v.children("");
+            check("inbox/adopt: the scratch capture is still in the Inbox",
+                  roots.size() == 1 && v.find(roots[0])->inbox);
+            fs::remove_all(dir2, ec);
+        }
+        fs::remove_all(dir, ec);
     }
 
     // ── enclosures (s016b) ──────────────────────────────────────────────────

@@ -3,6 +3,7 @@
 #include "EditorPane.hpp"
 #include "TreePane.hpp"
 #include "TodayPane.hpp"
+#include "InboxPane.hpp"
 #include "Log.hpp"
 #include "Menus.hpp"
 
@@ -190,6 +191,16 @@ void Shell::build_left_pane() {  // zone: Notes | Today
     m_tab_notes.set_tooltip_text("The note tree");
     m_left_tabs.append(m_tab_notes);
 
+    // s028. Between Notes and Today: where a thought goes after it is
+    // captured and before it is something to do. The label carries the
+    // waiting count (queue_inbox_refresh writes it).
+    m_tab_inbox.set_label("Inbox");
+    m_tab_inbox.set_hexpand(true);
+    m_tab_inbox.set_action_name("win.left-view");
+    m_tab_inbox.set_action_target_value(Glib::Variant<Glib::ustring>::create("inbox"));
+    m_tab_inbox.set_tooltip_text("What you captured and have not dealt with yet");
+    m_left_tabs.append(m_tab_inbox);
+
     m_tab_today.set_label("Today");
     m_tab_today.set_hexpand(true);
     m_tab_today.set_action_name("win.left-view");
@@ -198,6 +209,7 @@ void Shell::build_left_pane() {  // zone: Notes | Today
     m_left_tabs.append(m_tab_today);
 
     m_left_stack.add(*m_tree,  "notes");
+    m_left_stack.add(*m_inbox, "inbox");
     m_left_stack.add(*m_today, "today");
     m_left_stack.set_vexpand(true);
     m_left_stack.set_transition_type(Gtk::StackTransitionType::CROSSFADE);
@@ -329,7 +341,9 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     // fast road; this is where you find them.
     auto view = Gio::Menu::create();
     view->append("Notes", "win.left-view::notes");
+    view->append("Inbox", "win.left-view::inbox");
     view->append("Today", "win.left-view::today");
+    view->append("Clean Up Inbox", "win.clean-up");   // s028
     auto panes = Gio::Menu::create();
     panes->append("Side pane", "win.toggle-tree");
     panes->append("Note details", "win.toggle-drawer");
