@@ -35,7 +35,7 @@ void Shell::build_shell() {  // zone: window + header + paned body
     // resource resolved from the compiled-in bundle (App registers it), so this
     // one button exercises the resource pipeline. Click opens the About window
     // (the dialog-lifetime exemplar).
-    m_logo_button.set_icon_name("jot-logo-symbolic");
+    m_logo_button.set_icon_name("jot-app-logo-symbolic");
     m_logo_button.set_has_frame(false);
     m_logo_button.set_tooltip_text("About jot");
     m_logo_button.set_action_name("win.about");

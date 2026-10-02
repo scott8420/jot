@@ -34,7 +34,7 @@ AboutWindow::AboutWindow(Gtk::Window& parent) {
     // Hero logo: symbolic icon from the gresource bundle, recoloured to the
     // theme foreground by GTK. Proof the resource pipeline resolved.
     auto* logo = Gtk::make_managed<widgets::Image>(widgets::unregistered, "shell.about.logo");
-    logo->set_from_icon_name("jot-logo-symbolic");
+    logo->set_from_icon_name("jot-app-logo-symbolic");
     logo->set_pixel_size(88);
     page->append(*logo);
 

@@ -13,6 +13,12 @@
 <gresources>
   <gresource prefix="/io/github/scott8420/Jot/icons/scalable/apps">
     <file preprocess="xml-stripblanks" alias="jot-logo-symbolic.svg">icons/scalable/apps/jot-logo-symbolic.svg</file>
+    <!-- s034b: the SAME file under a name nothing installs. install-desktop.sh puts
+         jot-logo-symbolic in ~/.local/share/icons, and GTK searches theme dirs
+         BEFORE resource paths -- so a stale installed copy shadowed the bundle.
+         In-app widgets use this name; the desktop entry and notifications keep
+         jot-logo-symbolic (GNOME Shell can only see the installed one). -->
+    <file preprocess="xml-stripblanks" alias="jot-app-logo-symbolic.svg">icons/scalable/apps/jot-logo-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-pane-left-symbolic.svg">icons/scalable/apps/jot-pane-left-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-pane-right-symbolic.svg">icons/scalable/apps/jot-pane-right-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-order-single-symbolic.svg">icons/scalable/apps/jot-order-single-symbolic.svg</file>
