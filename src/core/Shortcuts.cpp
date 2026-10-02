@@ -124,6 +124,12 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
          "Preferences \u2014 including the global capture shortcut"},
         {"General", "win.shortcuts",     {"<Ctrl>question", "<Ctrl>slash"}, "",
          "Keyboard shortcuts (this window)"},
+        // s030. F1 is GNOME's HELP key -- the reason About lost it in s016c --
+        // and the cheat sheet is jot's help, so it earns it. Ctrl+H is the
+        // letter-row twin (F-keys are not dependable on Asahi), listed first;
+        // no text box binds it.
+        {"General", "win.cheat-sheet",   {"<Ctrl>h", "F1"}, "",
+         "Cheat sheet: everything jot does, one line each"},
         // No About row: it had F1, which every GNOME app reserves for HELP, and
         // pressing it expecting help and getting a credits window teaches that
         // jot's keys are not the ones you already know (s016c). A row with no

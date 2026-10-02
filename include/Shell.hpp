@@ -67,6 +67,7 @@ namespace jot {
 
 class AboutWindow;
 class ShortcutsDialog;
+class CheatSheetWindow;
 class PreferencesWindow;
 class TreePane;
 class EditorPane;
@@ -165,6 +166,7 @@ private:
     void on_test_notify();                       // category: handler: four notifications, one field apart (log mode)
     void on_about();                             // category: handler: open the About window (dialog-lifetime exemplar)
     void on_preferences();                       // category: handler: open the preferences window
+    void on_cheat_sheet();                       // category: handler: the cheat sheet (s030; renders from core::cheat_sheet)
     void on_shortcuts();                         // category: handler: keyboard reference (renders from core::shortcut_registry)
     void on_toggle_tree();                       // category: handler: show/hide the tree
     void on_toggle_drawer();                     // category: handler: show/hide the metadata drawer
@@ -460,6 +462,7 @@ private:
 
     // The About window: a hide-on-close singleton, built lazily on first open.
     std::unique_ptr<AboutWindow>     m_about;
+    std::unique_ptr<CheatSheetWindow> m_cheat_sheet;   // s030: core::cheat_sheet()'s GTK consumer (same lifetime stone)
     std::unique_ptr<ShortcutsDialog> m_shortcuts;   // shortcut registry's GTK consumer (same lifetime stone)
     // The preferences window (s014). Same hide-on-close singleton stone, and the
     // first home the three desktop toggles have had that is not the Today

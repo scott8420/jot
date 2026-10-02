@@ -97,6 +97,9 @@ add_library(jot_core STATIC
     # s029: where a note can go -- the legal targets "Move to..." offers,
     # ranked for what was typed. The model decides legality, not the picker.
     src/core/Filing.cpp
+    # s030: the running cheat sheet -- every verb, one line each. Keys come
+    # from the shortcut registry; the selftest fails on a keyed verb with no line.
+    src/core/CheatSheet.cpp
     # WHAT the desktop is told, decided in core and nowhere else (s009). The
     # backend that writes it is Desktop.cpp, over in the app target with
     # libecal; this half is a pure function of the model and an instant, so it
@@ -207,6 +210,7 @@ add_executable(jot
     src/Desktop.cpp
     src/JotsFolderDialog.cpp
     src/ShortcutsDialog.cpp
+    src/CheatSheetWindow.cpp
     # s014: the preferences window, and the GSettings half of the capture hotkey
     # (core/Hotkey.cpp decides what to write; this performs it).
     src/PreferencesWindow.cpp

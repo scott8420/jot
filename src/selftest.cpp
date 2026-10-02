@@ -32,6 +32,7 @@
 #include "core/Import.hpp"
 #include "core/Inbox.hpp"
 #include "core/Filing.hpp"
+#include "core/CheatSheet.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1909,6 +1910,116 @@ int main() {
                 }
             check("shortcuts: a doc-only row binds nothing but still displays keys",
                   ok && saw_doc_only);
+        }
+    }
+
+    // -- Cheat sheet (s030): the running reference ------------------------------
+    // "Every milestone adds its lines" is a rule; these make it a failing test.
+    // A keyed verb with no line, a line naming a verb that does not exist, a key
+    // written here by hand that the registry would say differently -- each one
+    // is a sheet that lies to the person reading it.
+    {
+        const auto& cs = core::cheat_sheet();
+        const auto& secs = core::cheat_sections();
+        check("cheat: the sheet is populated", cs.size() >= 40, std::to_string(cs.size()) + " lines");
+
+        {
+            const auto miss = core::cheat_missing_actions();
+            std::string all;
+            for (const auto& a : miss) all += a + " ";
+            check("cheat: every keyed verb has a line (Diagnostics aside)", miss.empty(), all);
+        }
+        {
+            const auto unk = core::cheat_unknown_actions();
+            std::string all;
+            for (const auto& a : unk) all += a + " ";
+            check("cheat: every action a line names is a registered verb", unk.empty(), all);
+        }
+
+        // Sections: each line's section is a known one, sections are contiguous
+        // and come in cheat_sections() order, and none is empty.
+        {
+            bool known = true, ordered = true;
+            int last = -1;
+            std::vector<int> count(secs.size(), 0);
+            for (const auto& l : cs) {
+                const auto it = std::find(secs.begin(), secs.end(), l.section);
+                if (it == secs.end()) { known = false; continue; }
+                const int at = static_cast<int>(it - secs.begin());
+                if (at < last) ordered = false;
+                last = at;
+                ++count[static_cast<std::size_t>(at)];
+            }
+            check("cheat: every line is in a known section", known);
+            check("cheat: sections are contiguous and in reading order", ordered);
+            check("cheat: no section is empty",
+                  std::find(count.begin(), count.end(), 0) == count.end());
+        }
+
+        // Every line can be read: something in the left column, something it does.
+        {
+            bool ok = true;
+            std::string bad;
+            for (const auto& l : cs)
+                if (l.display_how().empty() || l.what.empty()) { ok = false; bad = l.what; }
+            check("cheat: every line has a how and a what", ok, bad);
+        }
+
+        // Keys come from the registry, not from this file: Move shows Ctrl+M
+        // because the registry says so, and an action line never repeats a key
+        // literally (a literal would be the copy that drifts).
+        {
+            const core::CheatLine* move = nullptr;
+            bool literal_dup = false;
+            for (const auto& l : cs) {
+                if (l.action == "win.move-to") move = &l;
+                if (!l.action.empty() && !l.keys.empty() &&
+                    l.keys.find("Ctrl") != std::string::npos)
+                    literal_dup = true;
+            }
+            check("cheat: Move's key is read from the registry",
+                  move && move->display_how() == "Ctrl+M", move ? move->display_how() : "none");
+            check("cheat: no action line also spells a key by hand", !literal_dup);
+        }
+        {
+            core::CheatLine both{"Help", "win.import-md-folder", "Main menu", "x", ""};
+            check("cheat: an unkeyed verb shows its literal how", both.display_how() == "Main menu",
+                  both.display_how());
+            core::CheatLine two{"Help", "win.move-to", "or here", "x", ""};
+            check("cheat: a key plus a second way are joined",
+                  two.display_how() == "Ctrl+M  or  or here", two.display_how());
+        }
+
+        // The sheet's own key: Ctrl+H (the letter twin, first) and F1, GNOME's help.
+        {
+            bool found = false;
+            for (const auto& s2 : core::shortcut_registry())
+                if (s2.action == "win.cheat-sheet" && s2.accels.size() == 2 &&
+                    s2.accels[0] == "<Ctrl>h" && s2.accels[1] == "F1")
+                    found = true;
+            check("cheat: Ctrl+H / F1 open the cheat sheet", found);
+            check("cheat: Ctrl+H takes nothing from a text box",
+                  !core::steals_text_editing("<Ctrl>h"));
+        }
+
+        // The filter: every word must hit, case-blind, across how / what / where
+        // / section; empty shows all.
+        {
+            const core::CheatLine* move = nullptr;
+            for (const auto& l : cs)
+                if (l.action == "win.move-to") move = &l;
+            check("cheat: an empty query shows every line",
+                  std::all_of(cs.begin(), cs.end(),
+                              [](const core::CheatLine& l) { return core::cheat_matches(l, "  "); }));
+            check("cheat: found by its key, any case", move && core::cheat_matches(*move, "ctrl+M"));
+            check("cheat: found by its section and a word",
+                  move && core::cheat_matches(*move, "INBOX  file"));
+            check("cheat: found by its 'where' line", move && core::cheat_matches(*move, "recent"));
+            check("cheat: every word must hit", move && !core::cheat_matches(*move, "inbox zebra"));
+            int due = 0;
+            for (const auto& l : cs)
+                if (core::cheat_matches(l, "due")) ++due;
+            check("cheat: 'due' finds more than one line", due >= 2, std::to_string(due));
         }
     }
 

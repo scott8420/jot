@@ -1,5 +1,6 @@
 #include "Shell.hpp"
 #include "AboutWindow.hpp"
+#include "CheatSheetWindow.hpp"
 #include "ShortcutsDialog.hpp"
 #include "PreferencesWindow.hpp"
 #include "DrawerPane.hpp"
@@ -449,6 +450,16 @@ void Shell::on_recent_clear() {  // handler: empty the recents list
 }
 
 // ── windows ─────────────────────────────────────────────────────────────────
+
+void Shell::on_cheat_sheet() {  // handler: open the cheat sheet (s030)
+    // Same lifetime stone as the shortcuts window. The content is not written
+    // here either: core::cheat_sheet() is the list, and its keys come from the
+    // shortcut registry, so the sheet cannot advertise a key jot does not bind.
+    if (!m_cheat_sheet) m_cheat_sheet = std::make_unique<CheatSheetWindow>();
+    m_cheat_sheet->show(*this);
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("cheat sheet: open, {} lines", m_cheat_sheet->visible_lines());
+}
 
 void Shell::on_shortcuts() {  // handler: open the keyboard reference
     // Same lifetime stone as About: build once, re-present. The window's CONTENT

@@ -141,6 +141,15 @@ list, dimmed, until **Clean Up** (the button, View > Clean Up Inbox, or
 `Ctrl+Shift+K`) takes them off. Nothing moves or is deleted by Clean Up.
 The note menu's **In Inbox** puts any note on the list by hand.
 
+## The cheat sheet
+
+**Ctrl+H** (or **F1**, or main menu > Cheat sheet) opens one window with
+everything jot does, a line each: the keys, the drags, the markdown marks,
+the views and the command line. Type to narrow it -- "inbox", "due",
+"ctrl+m". Escape clears the search; a second Escape closes it. Its keys are
+read from the same registry jot binds them from, so it cannot show a key
+jot does not answer to.
+
 ## Dated todos on the desktop
 
 Tick **Show dated todos on the desktop** at the bottom of the Today
