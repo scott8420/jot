@@ -554,8 +554,10 @@ void Shell::apply_layout_state() {  // helper: the one place layout changes
         m_act_toggle_live->set_state(Glib::Variant<bool>::create(m_prefs.live_preview));
     if (m_editor) m_editor->set_live(m_prefs.live_preview);   // s022
     if (m_editor) m_editor->set_reading(m_prefs.reading);   // s021
-    m_reading_toggle.set_tooltip_text(m_prefs.reading ? "Back to the source (Ctrl+E)"
-                                                      : "Reading view (Ctrl+E)");
+    // s034: the three-way control is a view of the two flags above.
+    if (m_act_view_mode)
+        m_act_view_mode->set_state(Glib::Variant<Glib::ustring>::create(
+            m_prefs.reading ? "reading" : (m_prefs.live_preview ? "live" : "source")));
 
     m_tree_toggle.set_tooltip_text(m_prefs.show_tree ? "Hide the side pane (Ctrl+[ or F9)"
                                                      : "Show the side pane (Ctrl+[ or F9)");

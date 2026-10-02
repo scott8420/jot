@@ -56,6 +56,11 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
         "toggle-reading", sigc::mem_fun(*this, &Shell::on_toggle_reading), m_prefs.reading);
     m_act_toggle_live = add_action_bool(
         "toggle-live", sigc::mem_fun(*this, &Shell::on_toggle_live), m_prefs.live_preview);
+    // s034. The header's three-way view control. Derived from the two bools
+    // above by apply_layout_state(), so it is never a second source of truth.
+    m_act_view_mode = add_action_radio_string(
+        "view-mode", sigc::mem_fun(*this, &Shell::on_view_mode),
+        m_prefs.reading ? "reading" : (m_prefs.live_preview ? "live" : "source"));
     // s009. Stateful for the same reason the two above are: the menu item and
     // the Today footer's check box are TWO CONSUMERS of one piece of state, and
     // the action is the thing they both read. A bool on the Shell with two

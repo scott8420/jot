@@ -268,20 +268,26 @@ private:
     // anybody needs offered.
     widgets::Box         m_order_row;
     widgets::Label       m_order_label;
-    widgets::CheckButton m_order_none;
-    widgets::CheckButton m_order_seq;
-    widgets::CheckButton m_order_par;
-    widgets::CheckButton m_order_list;   // s031: single actions
+    // s034: joined icon toggles (one group, exactly one pressed) instead of
+    // four radios, with the pressed one's meaning spelled out under them.
+    widgets::Box          m_order_buttons;
+    widgets::ToggleButton m_order_none;
+    widgets::ToggleButton m_order_seq;
+    widgets::ToggleButton m_order_par;
+    widgets::ToggleButton m_order_list;   // s031: single actions
+    widgets::Label        m_order_says;   // s034: what the pressed one means
 
     // s031. Where this project stands. Shown on the same terms as Children --
     // a node with children, or one already carrying a state -- because a leaf
     // note being "on hold" is not a thing anybody needs offered.
     widgets::Box         m_state_row;
     widgets::Label       m_state_label;
-    widgets::CheckButton m_state_active;
-    widgets::CheckButton m_state_hold;
-    widgets::CheckButton m_state_done;
-    widgets::CheckButton m_state_drop;
+    widgets::Box          m_state_buttons;   // s034, as Children
+    widgets::ToggleButton m_state_active;
+    widgets::ToggleButton m_state_hold;
+    widgets::ToggleButton m_state_done;
+    widgets::ToggleButton m_state_drop;
+    widgets::Label        m_state_says;
 
     widgets::Label    m_uuid;
     widgets::Button   m_copy_link;

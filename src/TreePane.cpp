@@ -343,10 +343,10 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         const char* icon = nullptr;
         const char* tip = nullptr;
         if (ps == core::ProjectState::OnHold) {
-            icon = "media-playback-pause-symbolic";
+            icon = "jot-state-hold-symbolic";      // s034: jot's own, the drawer's mark
             tip = "On hold: nothing in it is offered";
         } else if (ps == core::ProjectState::Dropped) {
-            icon = "action-unavailable-symbolic";
+            icon = "jot-state-dropped-symbolic";   // s034: as above
             tip = "Dropped: kept, but out of every list";
         }
         if (icon) {

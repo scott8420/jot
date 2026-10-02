@@ -66,12 +66,9 @@ void Shell::build_shell() {  // zone: window + header + paned body
     m_note_menu_button.set_menu_model(menus::note_menu());
     header->pack_end(m_note_menu_button);
 
-    // s021: Source / Reading. The eye is "look, don't touch"; pressed means
-    // Reading. It stays at the right: it is about the note, not the panes.
-    m_reading_toggle.set_icon_name("view-reveal-symbolic");
-    m_reading_toggle.set_tooltip_text("Reading view (Ctrl+E)");
-    m_reading_toggle.set_action_name("win.toggle-reading");
-    header->pack_end(m_reading_toggle);
+    // s021 / s034: Source | Live | Reading. It stays at the right where the
+    // eye was: it is about the note, not the panes.
+    build_view_modes(*header);
 
     // The title is a BUTTON, because the jots folder's location is a thing you
     // need to see and act on, not decoration. update_jots_title() fills it.
@@ -268,6 +265,41 @@ void Shell::build_pane_toggles(Gtk::HeaderBar& header) {  // zone: the focus-mod
     pair->append(m_drawer_toggle);
 
     header.pack_start(*pair);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// build_view_modes -- how the note looks, as one control (s034).
+//
+// Until s034 this was two things for one question: an eye in the header
+// (Reading on/off) and a check item in the View menu (Live Preview on/off).
+// Three views, two switches, and the one people use most -- Live -- was the one
+// you could not see. CANON, "one concept, one widget -- and the widget shows
+// the state": three joined buttons, exactly one pressed.
+//
+// The two bools stay the model (prefs, Ctrl+E, Ctrl+Shift+E, the menu checks
+// all unchanged). The string action is a VIEW of them: apply_layout_state()
+// derives it, on_view_mode() maps a click back onto them. Reading keeps the
+// Live flag as it was, so Ctrl+E out of Reading lands in the editing view you
+// came from, as it always has.
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::build_view_modes(Gtk::HeaderBar& header) {  // zone: Source | Live | Reading
+    auto* trio = Gtk::make_managed<widgets::Box>("shell.view_modes",
+                                                 Gtk::Orientation::HORIZONTAL, 0);
+    trio->add_css_class("linked");
+    struct M { widgets::ToggleButton& b; const char* icon; const char* target; const char* tip; };
+    for (const M& m : {M{m_mode_source,  "jot-view-source-symbolic",  "source",
+                         "Source: every mark on screen"},
+                       M{m_mode_live,    "jot-view-live-symbolic",    "live",
+                         "Live Preview: marks show only where the cursor is (Ctrl+Shift+E)"},
+                       M{m_mode_reading, "jot-view-reading-symbolic", "reading",
+                         "Reading: the note without its marks (Ctrl+E)"}}) {
+        m.b.set_icon_name(m.icon);
+        m.b.set_tooltip_text(m.tip);
+        m.b.set_action_name("win.view-mode");
+        m.b.set_action_target_value(Glib::Variant<Glib::ustring>::create(m.target));
+        trio->append(m.b);
+    }
+    header.pack_end(*trio);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

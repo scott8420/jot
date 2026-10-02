@@ -156,7 +156,7 @@ endif()
 find_program(GLIB_COMPILE_RESOURCES glib-compile-resources REQUIRED)
 set(JOT_GRESOURCE_XML "${CMAKE_CURRENT_SOURCE_DIR}/resources/jot.gresource.xml")
 set(JOT_RESOURCES_C   "${CMAKE_CURRENT_BINARY_DIR}/jot-resources.c")
-file(GLOB JOT_RESOURCE_FILES
+file(GLOB JOT_RESOURCE_FILES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/scalable/apps/*.svg")
 add_custom_command(
     OUTPUT  "${JOT_RESOURCES_C}"

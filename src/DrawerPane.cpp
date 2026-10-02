@@ -1,6 +1,7 @@
 #include "DrawerPane.hpp"
 
 #include <cstdio>
+#include <functional>
 #include <memory>
 #include "Log.hpp"
 #include "core/Markdown.hpp"
@@ -151,16 +152,20 @@ DrawerPane::DrawerPane(std::string_view name)
       m_avail("drawer.avail"),
       m_order_row("drawer.order_row", Gtk::Orientation::VERTICAL, 2),
       m_order_label("drawer.order_label"),
+      m_order_buttons("drawer.order_buttons", Gtk::Orientation::HORIZONTAL, 0),
       m_order_none("drawer.order_none"),
       m_order_seq("drawer.order_seq"),
       m_order_par("drawer.order_par"),
       m_order_list("drawer.order_list"),
+      m_order_says("drawer.order_says"),
       m_state_row("drawer.state_row", Gtk::Orientation::VERTICAL, 2),
       m_state_label("drawer.state_label"),
+      m_state_buttons("drawer.state_buttons", Gtk::Orientation::HORIZONTAL, 0),
       m_state_active("drawer.state_active"),
       m_state_hold("drawer.state_hold"),
       m_state_done("drawer.state_done"),
       m_state_drop("drawer.state_drop"),
+      m_state_says("drawer.state_says"),
       m_uuid("drawer.uuid"),
       m_copy_link("drawer.copy_link") {
     m_column.set_margin(14);
@@ -393,75 +398,93 @@ void DrawerPane::build_task_block() {
     // ── Children (in the Structure section) ─────────────────────────────────
     // Sequential vs Parallel is the whole GTD engine, and it is a statement
     // about the CHILDREN, so it lives on the parent and not on any of them.
-    // Radio rather than a dropdown: three options, all of which want to be
-    // readable without opening anything, and the middle one is the one people
-    // never discover.
+    //
+    // s034 (Scott: "one concept, one widget -- and the widget shows the
+    // state"): joined icon toggles in one group, exactly one pressed, drawn as
+    // what they mean -- an empty box, steps going down, bars side by side,
+    // loose squares. The radio text did a job the icons cannot do alone, so
+    // the pressed one's meaning is the line under the row: readable without
+    // opening anything, which is why it was never a dropdown.
     m_order_label.set_text("Children");
     m_order_label.set_xalign(0.0f);
     m_order_label.add_css_class("dim-label");
     m_order_label.add_css_class("caption-heading");
     m_order_row.append(m_order_label);
 
-    m_order_none.set_label("Unordered");
-    m_order_seq.set_label("Sequential \u2014 one at a time, in order");
-    m_order_par.set_label("Parallel \u2014 all available at once");
-    m_order_list.set_label("Single actions \u2014 loose todos, no order, no end");
-    m_order_seq.set_group(m_order_none);
-    m_order_par.set_group(m_order_none);
-    m_order_list.set_group(m_order_none);
-    auto order_write = [this](core::Status st) {
-        return [this, st]() {
-            if (m_loading || !m_src || m_id.empty()) return;
-            m_src->set_status(m_id, st);
-        };
+    struct Pick { widgets::ToggleButton& b; const char* icon; const char* says; };
+    const auto says_line = [](widgets::Label& l) {
+        l.set_xalign(0.0f);
+        l.set_wrap(true);
+        l.add_css_class("dim-label");
+        l.add_css_class("caption");
     };
-    m_order_none.signal_toggled().connect([this, order_write]() {
-        if (m_order_none.get_active()) order_write(core::Status::None)();
-    });
-    m_order_seq.signal_toggled().connect([this, order_write]() {
-        if (m_order_seq.get_active()) order_write(core::Status::Sequential)();
-    });
-    m_order_par.signal_toggled().connect([this, order_write]() {
-        if (m_order_par.get_active()) order_write(core::Status::Parallel)();
-    });
-    m_order_row.append(m_order_none);
-    m_order_row.append(m_order_seq);
-    m_order_list.signal_toggled().connect([this, order_write]() {
-        if (m_order_list.get_active()) order_write(core::Status::SingleActions)();
-    });
-    m_order_row.append(m_order_par);
-    m_order_row.append(m_order_list);
+    // Each button writes the model when pressed by a person (not while the
+    // pane is filling) and always updates the line, so the line is right
+    // after a fill as well as after a click.
+    const auto joined = [](widgets::Box& box, widgets::Label& says,
+                           std::initializer_list<Pick> picks,
+                           std::function<void(int)> write) {
+        box.add_css_class("linked");
+        box.set_halign(Gtk::Align::START);
+        widgets::ToggleButton* first = nullptr;
+        int i = 0;
+        for (const Pick& p : picks) {
+            p.b.set_icon_name(p.icon);
+            p.b.set_tooltip_text(p.says);
+            if (first) p.b.set_group(*first); else first = &p.b;
+            const std::string line = p.says;
+            p.b.signal_toggled().connect([&b = p.b, &says, line, write, i]() {
+                if (!b.get_active()) return;
+                says.set_text(line);
+                write(i);
+            });
+            box.append(p.b);
+            ++i;
+        }
+    };
+
+    joined(m_order_buttons, m_order_says,
+           {{m_order_none, "jot-order-none-symbolic",       "Unordered — no statement about the children"},
+            {m_order_seq,  "jot-order-sequential-symbolic", "Sequential — one at a time, in order"},
+            {m_order_par,  "jot-order-parallel-symbolic",   "Parallel — all available at once"},
+            {m_order_list, "jot-order-single-symbolic",     "Single actions — loose todos, no order, no end"}},
+           [this](int i) {
+               static constexpr core::Status st[] = {core::Status::None, core::Status::Sequential,
+                                                     core::Status::Parallel, core::Status::SingleActions};
+               if (m_loading || !m_src || m_id.empty()) return;
+               m_src->set_status(m_id, st[i]);
+           });
+    says_line(m_order_says);
+    m_order_row.append(m_order_buttons);
+    m_order_row.append(m_order_says);
     m_order_row.set_margin_top(6);
     m_structure.body->append(m_order_row);   // after the rebuilt rows, held
 
     // ── Status (s031) ───────────────────────────────────────────────────────
-    // Radio for the same reason as Children: four options, each readable
-    // without opening anything. core::set_project_state is the one writer, so
-    // "Completed" on a todo is its tick and the two can never disagree.
+    // core::set_project_state is the one writer, so "Completed" on a todo is
+    // its tick and the two can never disagree. s034: joined, as Children, with
+    // the marks the tree draws -- pause for held, the strike for completed,
+    // no-entry for dropped (the tree now draws these same jot icons).
     m_state_label.set_text("Status");
     m_state_label.set_xalign(0.0f);
     m_state_label.add_css_class("dim-label");
     m_state_label.add_css_class("caption-heading");
     m_state_row.append(m_state_label);
-    m_state_active.set_label("Active");
-    m_state_hold.set_label("On hold \u2014 nothing in it is offered");
-    m_state_done.set_label("Completed \u2014 everything in it is done");
-    m_state_drop.set_label("Dropped \u2014 kept, but out of every list");
-    m_state_hold.set_group(m_state_active);
-    m_state_done.set_group(m_state_active);
-    m_state_drop.set_group(m_state_active);
-    auto state_write = [this](widgets::CheckButton& b, core::ProjectState st) {
-        b.signal_toggled().connect([this, &b, st]() {
-            if (!b.get_active() || m_loading || !m_src || m_id.empty()) return;
-            core::set_project_state(*m_src, m_id, st);
-        });
-    };
-    state_write(m_state_active, core::ProjectState::Active);
-    state_write(m_state_hold, core::ProjectState::OnHold);
-    state_write(m_state_done, core::ProjectState::Completed);
-    state_write(m_state_drop, core::ProjectState::Dropped);
-    for (auto* b : {&m_state_active, &m_state_hold, &m_state_done, &m_state_drop})
-        m_state_row.append(*b);
+    joined(m_state_buttons, m_state_says,
+           {{m_state_active, "jot-state-active-symbolic",  "Active — its steps are offered"},
+            {m_state_hold,   "jot-state-hold-symbolic",    "On hold — nothing in it is offered"},
+            {m_state_done,   "jot-state-done-symbolic",    "Completed — everything in it is done"},
+            {m_state_drop,   "jot-state-dropped-symbolic", "Dropped — kept, but out of every list"}},
+           [this](int i) {
+               static constexpr core::ProjectState st[] = {
+                   core::ProjectState::Active, core::ProjectState::OnHold,
+                   core::ProjectState::Completed, core::ProjectState::Dropped};
+               if (m_loading || !m_src || m_id.empty()) return;
+               core::set_project_state(*m_src, m_id, st[i]);
+           });
+    says_line(m_state_says);
+    m_state_row.append(m_state_buttons);
+    m_state_row.append(m_state_says);
     m_state_row.set_margin_top(6);
     m_structure.body->append(m_state_row);
 }

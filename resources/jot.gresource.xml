@@ -15,5 +15,16 @@
     <file preprocess="xml-stripblanks" alias="jot-logo-symbolic.svg">icons/scalable/apps/jot-logo-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-pane-left-symbolic.svg">icons/scalable/apps/jot-pane-left-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-pane-right-symbolic.svg">icons/scalable/apps/jot-pane-right-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-order-single-symbolic.svg">icons/scalable/apps/jot-order-single-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-order-sequential-symbolic.svg">icons/scalable/apps/jot-order-sequential-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-order-parallel-symbolic.svg">icons/scalable/apps/jot-order-parallel-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-order-none-symbolic.svg">icons/scalable/apps/jot-order-none-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-state-hold-symbolic.svg">icons/scalable/apps/jot-state-hold-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-state-dropped-symbolic.svg">icons/scalable/apps/jot-state-dropped-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-state-done-symbolic.svg">icons/scalable/apps/jot-state-done-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-state-active-symbolic.svg">icons/scalable/apps/jot-state-active-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-view-source-symbolic.svg">icons/scalable/apps/jot-view-source-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-view-reading-symbolic.svg">icons/scalable/apps/jot-view-reading-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-view-live-symbolic.svg">icons/scalable/apps/jot-view-live-symbolic.svg</file>
   </gresource>
 </gresources>

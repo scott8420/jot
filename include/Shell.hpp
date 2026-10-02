@@ -173,6 +173,8 @@ private:
     void on_toggle_drawer();                     // category: handler: show/hide the metadata drawer
     void on_toggle_reading();                    // category: handler: s021 Source <-> Reading
     void on_toggle_live();                       // category: handler: s022 Live Preview on/off
+    void on_view_mode(const Glib::ustring& m);   // category: handler: s034 Source | Live | Reading, the joined control
+    void build_view_modes(Gtk::HeaderBar& header);  // category: zone: s034 the three-way view control
     void on_import_markdown();                   // category: handler: s021b Notes -> Import Markdown Files...
     void on_import_folder();                     // category: handler: s021c Notes -> Import Markdown Folder...
     core::NodeId import_file(const std::string& path, const core::NodeId& parent,
@@ -299,7 +301,12 @@ private:
     // apply_layout_state() can set them without re-entering their own handlers.
     widgets::ToggleButton m_tree_toggle;
     widgets::ToggleButton m_drawer_toggle;
-    widgets::ToggleButton m_reading_toggle;      // s021
+    // s034: Source | Live | Reading, one joined control where the eye was.
+    // Three ToggleButtons on ONE stateful string action (win.view-mode), the
+    // way the Notes | Inbox | Today tabs are -- pressed says which view is up.
+    widgets::ToggleButton m_mode_source;
+    widgets::ToggleButton m_mode_live;
+    widgets::ToggleButton m_mode_reading;
     bool m_applying_layout = false;
 
     // Layout state, persisted. A pane you can hide has to come back the way you
@@ -458,6 +465,7 @@ private:
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_drawer;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_reading;   // s021
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_live;      // s022
+    Glib::RefPtr<Gio::SimpleAction> m_act_view_mode;        // s034: "source" | "live" | "reading"
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_desktop;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_notify;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_background;

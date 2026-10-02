@@ -589,6 +589,20 @@ void Shell::on_toggle_live() {  // handler
     apply_layout_state();
 }
 
+// s034 -- a click on Source | Live | Reading. Maps the pick onto the two flags
+// and lets the one writer do the rest. Reading leaves Live as it was (see
+// build_view_modes).
+void Shell::on_view_mode(const Glib::ustring& m) {  // handler
+    if (m_applying_layout) return;
+    if (m == "reading") {
+        m_prefs.reading = true;
+    } else {
+        m_prefs.reading = false;
+        m_prefs.live_preview = (m == "live");
+    }
+    apply_layout_state();
+}
+
 // A double-click in Reading, or a capture, wants to type. Place the cursor
 // first (the editor maps the click back to the source), then let the one
 // writer flip the rest.
