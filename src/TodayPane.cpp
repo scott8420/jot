@@ -51,6 +51,10 @@ std::string when_line(const core::NodeSource& src, const core::Node& n,
         if (due != n.task.due) out += " (from a parent)";
     }
     if (n.task.flagged) out += out.empty() ? "Flagged" : "  \u00b7  Flagged";
+    // s031. Overdue and Flagged still list a todo whose project is on hold;
+    // the row says so, or it reads as a thing you can do now.
+    if (core::availability(src, n.id, now) == core::Avail::OnHold)
+        out += out.empty() ? "On hold" : "  \u00b7  On hold";
     return out;
 }
 

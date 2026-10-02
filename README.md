@@ -141,6 +141,17 @@ list, dimmed, until **Clean Up** (the button, View > Clean Up Inbox, or
 `Ctrl+Shift+K`) takes them off. Nothing moves or is deleted by Clean Up.
 The note menu's **In Inbox** puts any note on the list by hand.
 
+## Projects
+
+Any note with notes under it is a project. **Note details > Structure**
+says how its children run -- Sequential, Parallel, or **Single actions** (a
+list of loose todos, all available) -- and where it stands: **Active**,
+**On hold** (its todos leave Today and Available; a late or flagged one
+still shows, marked On hold), **Completed** (everything inside counts as
+done) or **Dropped** (kept, but out of every list and off the calendar). The
+note menu's **Project** submenu sets the same thing. On a project that is
+itself a todo, Completed is its tick.
+
 ## The cheat sheet
 
 **Ctrl+H** (or **F1**, or main menu > Cheat sheet) opens one window with

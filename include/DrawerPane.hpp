@@ -262,6 +262,17 @@ private:
     widgets::CheckButton m_order_none;
     widgets::CheckButton m_order_seq;
     widgets::CheckButton m_order_par;
+    widgets::CheckButton m_order_list;   // s031: single actions
+
+    // s031. Where this project stands. Shown on the same terms as Children --
+    // a node with children, or one already carrying a state -- because a leaf
+    // note being "on hold" is not a thing anybody needs offered.
+    widgets::Box         m_state_row;
+    widgets::Label       m_state_label;
+    widgets::CheckButton m_state_active;
+    widgets::CheckButton m_state_hold;
+    widgets::CheckButton m_state_done;
+    widgets::CheckButton m_state_drop;
 
     widgets::Label    m_uuid;
     widgets::Button   m_copy_link;

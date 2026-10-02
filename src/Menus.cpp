@@ -19,6 +19,14 @@ Glib::RefPtr<Gio::Menu> note_menu() {
     todo->append("Done", "win.toggle-done");
     todo->append("Flagged", "win.toggle-flag");
     todo->append("In Inbox", "win.toggle-inbox");   // s028
+    // s031. Where a project stands. A submenu, not four more rows here: most
+    // notes are not projects, and the menu should not shout at every one.
+    auto project = Gio::Menu::create();
+    project->append("Active", "win.project-state::active");
+    project->append("On Hold", "win.project-state::on-hold");
+    project->append("Completed", "win.project-state::completed");
+    project->append("Dropped", "win.project-state::dropped");
+    todo->append_submenu("Project", project);
     menu->append_section(todo);
 
     auto name = Gio::Menu::create();

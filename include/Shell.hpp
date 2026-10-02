@@ -144,6 +144,7 @@ private:
     void on_rename_note();                       // category: handler: rename in the tree (F2)
     void on_left_view(const Glib::ustring& which);  // category: handler: Notes | Inbox | Today
     void on_clean_up();                          // category: handler: s028 clear processed Inbox marks
+    void on_project_state(const Glib::ustring& which);   // category: handler: s031 Active / On hold / Completed / Dropped
     void on_toggle_inbox();                      // category: handler: s028 the selection in / out of the Inbox
     void on_move_to();                           // category: handler: s029 "Move to..." on the selection
     void open_move(const core::NodeId& id);      // category: handler: s029 the picker, for any note (Inbox rows too)
@@ -437,6 +438,7 @@ private:
     // s029. "Move to..." -- greyed on no selection or a protected note, the
     // two cases where the picker would have nothing to offer.
     Glib::RefPtr<Gio::SimpleAction> m_act_move_to;
+    Glib::RefPtr<Gio::SimpleAction> m_act_project_state;   // s031, radio: the selection's project state
 
     // Which half of the left pane is showing. A stateful STRING action, so the
     // two tab buttons and the View menu's radio items draw from one place --

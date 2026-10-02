@@ -50,7 +50,25 @@ using NodeId = std::string;
 // It is independent of `is_task`: a plain NOTE called "Taxes" is the natural
 // container for a sequence of todos, and requiring the container to be a todo
 // itself would put a checkbox on every project heading.
-enum class Status { None, Sequential, Parallel };
+//
+// s031: SingleActions -- OmniFocus's single-action list. A parent that is a
+// bag of loose todos rather than a project with an end: every child is
+// available (as Parallel), and it has no "next action" to show, because
+// nothing in it comes first.
+enum class Status { None, Sequential, Parallel, SingleActions };
+
+// s031. Where a project STANDS -- on the parent, like Status, and like Status
+// independent of is_task, because a plain note called "Kitchen" is the natural
+// project and must be able to go on hold without growing a checkbox.
+//
+//   Active    -- the default; nothing changes.
+//   OnHold    -- paused: nothing inside it is offered (Today, Available, the
+//                due notification), but a date or a flag still shows it.
+//   Completed -- finished: everything inside counts as done. On a TODO this is
+//                stored as `done` (see core::set_project_state) so a project
+//                never has two ways to be finished.
+//   Dropped   -- given up on: kept, read, searchable, but out of every list.
+enum class ProjectState { Active, OnHold, Completed, Dropped };
 
 // The optional fields that make a node a todo. D2 says a node is a todo when it
 // HAS them and a note when it does not -- and since C++ has no absent `bool`,
@@ -69,6 +87,7 @@ struct Task {
     std::int64_t defer   = 0;      // do not surface it before this
     bool         flagged = false;  // "this one, today"
     Status       status  = Status::None;   // how THIS node's children run
+    ProjectState project = ProjectState::Active;   // s031: where THIS project stands
 
     bool operator==(const Task&) const = default;
 };

@@ -102,6 +102,11 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // s029. Move to...: the selection's picker. The Inbox rows reach the same
     // picker through signal_move, for the row's own note.
     m_act_move_to = add_action("move-to", sigc::mem_fun(*this, &Shell::on_move_to));
+    // s031. Where the selected project stands. A stateful STRING, like
+    // left-view, so the note menu draws four radio items and the dot sits on
+    // the state the model reports (update_note_actions is the only writer).
+    m_act_project_state = add_action_radio_string(
+        "project-state", sigc::mem_fun(*this, &Shell::on_project_state), "active");
 
     // Which half of the left pane shows. Stateful string, exactly like the two
     // pane toggles are stateful bools -- the tab buttons and the View menu's

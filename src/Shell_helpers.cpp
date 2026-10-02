@@ -467,6 +467,19 @@ void Shell::update_note_actions() {  // helper: grey what the selection can't do
     tick(m_act_protect,     n && n->protect);
     if (m_act_toggle_inbox) m_act_toggle_inbox->set_enabled(n != nullptr);
     tick(m_act_toggle_inbox, n && n->inbox);
+
+    // s031. The Project submenu's dot: the model's word for the selection.
+    if (m_act_project_state) {
+        m_act_project_state->set_enabled(n != nullptr && !n->protect);
+        const char* word = "active";
+        if (n) switch (core::project_state(*n)) {
+            case core::ProjectState::OnHold:    word = "on-hold";   break;
+            case core::ProjectState::Completed: word = "completed"; break;
+            case core::ProjectState::Dropped:   word = "dropped";   break;
+            case core::ProjectState::Active:    break;
+        }
+        m_act_project_state->set_state(Glib::Variant<Glib::ustring>::create(word));
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

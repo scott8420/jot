@@ -52,6 +52,11 @@ std::vector<Projected> project(const NodeSource& src, const TaskIndex& tasks,
         const Node* n = src.find(id);
         if (!n || !n->task.is_task) continue;   // the index holds membership; trust but check
         if (n->task.done) continue;             // the card answers "what is on", not "what was"
+        // s031: nor what you gave up on, nor what a finished project took with
+        // it. On hold still projects -- a due date is a fact about a day
+        // whatever jot thinks of the task's readiness (the s009 rule).
+        const Avail a = availability(src, id, now);
+        if (a == Avail::Dropped || a == Avail::Done) continue;
 
         const std::int64_t due = effective_due(src, id);
         if (due == 0) continue;                 // no day, nothing to put on the grid
@@ -71,7 +76,7 @@ std::vector<Projected> project(const NodeSource& src, const TaskIndex& tasks,
         p.all_day = (due == day_end(due));
         p.start   = p.all_day ? day_start(due) : due;
 
-        p.detail = detail_for(src, *n, availability(src, id, now));
+        p.detail = detail_for(src, *n, a);
         out.push_back(std::move(p));
     }
     return out;

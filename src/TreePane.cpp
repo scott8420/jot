@@ -287,8 +287,19 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         // tree is the note tree, and a done task is still a note you may want
         // to read. Markup, so the escape is explicit -- a title containing an
         // ampersand would otherwise take the label out with it.
-        if (n.task.is_task && n.task.done) {
+        //
+        // s031: a completed or dropped PROJECT reads the same way -- finished
+        // with, still a note. On hold is only dimmed: it is coming back.
+        const core::ProjectState ps = core::project_state(n);
+        if ((n.task.is_task && n.task.done) || ps == core::ProjectState::Completed ||
+            ps == core::ProjectState::Dropped) {
             label->set_markup("<s>" + Glib::Markup::escape_text(text) + "</s>");
+            label->add_css_class("dim-label");
+        } else if (ps == core::ProjectState::OnHold ||
+                   (m_src && !core::stopped_by(*m_src, n.id).empty())) {
+            // Held itself, or inside a project that is not active: dimmed, so
+            // a branch that has gone quiet in Today looks quiet here too.
+            label->set_text(text);
             label->add_css_class("dim-label");
         } else {
             label->set_text(text);
@@ -310,6 +321,30 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         star->set_from_icon_name("starred-symbolic");
         star->set_tooltip_text("Flagged");
         box->append(*star);
+    }
+
+    // s031. The project's word, as a mark you can see without opening it --
+    // the reason a whole branch has gone quiet in Today is otherwise invisible
+    // from the tree. Completed needs no mark: the strike says it.
+    {
+        const core::ProjectState ps = core::project_state(n);
+        const char* icon = nullptr;
+        const char* tip = nullptr;
+        if (ps == core::ProjectState::OnHold) {
+            icon = "media-playback-pause-symbolic";
+            tip = "On hold: nothing in it is offered";
+        } else if (ps == core::ProjectState::Dropped) {
+            icon = "action-unavailable-symbolic";
+            tip = "Dropped: kept, but out of every list";
+        }
+        if (icon) {
+            auto* mark = Gtk::make_managed<widgets::Image>(widgets::unregistered,
+                                                           "tree.state." + n.id);
+            mark->set_from_icon_name(icon);
+            mark->set_tooltip_text(tip);
+            mark->add_css_class("dim-label");
+            box->append(*mark);
+        }
     }
 
     if (n.protect) {

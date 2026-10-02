@@ -33,7 +33,9 @@ namespace jot::core {
 // short-circuits, which is also roughly "how far from doable".
 enum class Avail {
     NotTask,     // not a todo at all
-    Done,        // ticked, or inside a finished parent task
+    Done,        // ticked, or inside a finished parent task / completed project
+    Dropped,     // s031: it, or a project it is in, was dropped
+    OnHold,      // s031: it, or a project it is in, is on hold
     Deferred,    // its own defer date, or an ancestor's, is in the future
     Blocked,     // an ancestor is Sequential and something earlier is unfinished
     Available    // do it now
@@ -70,6 +72,25 @@ Avail availability(const NodeSource& src, const NodeId& id, std::int64_t now);
 // The first incomplete TASK child of a parent; empty if it has none. What a
 // Sequential parent's next action is, and what the drawer shows on a parent.
 NodeId next_action(const NodeSource& src, const NodeId& parent);
+
+// ── project state (s031) ────────────────────────────────────────────────────
+// Where a node stands AS A PROJECT. One reading for both kinds of container:
+// a done todo reads Completed, so the drawer and the menu never show a ticked
+// project as Active.
+ProjectState project_state(const Node& n);
+
+// The one writer. On a TODO, Completed is `done` (and any other state unticks
+// it); on a note it is the stored word. So a project has exactly one way to be
+// finished, and "Completed" in the menu and the tick in the tree cannot
+// disagree. Refused (false) on an unknown or protected node.
+bool set_project_state(NodeSource& src, const NodeId& id, ProjectState s);
+
+const char* project_state_name(ProjectState s);   // "Active", "On hold", ...
+
+// The nearest node -- `id` itself or an ancestor -- whose project state is not
+// Active (Completed counts, including a done todo above `id`). Empty when the
+// whole chain is active. What the drawer names when it says WHY.
+NodeId stopped_by(const NodeSource& src, const NodeId& id);
 
 // ── dates, at the surface's edge ────────────────────────────────────────────
 // Stored as epoch seconds; typed and shown as local text. Both directions live

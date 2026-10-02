@@ -47,6 +47,8 @@ const char* avail_name(Avail a) {
     switch (a) {
         case Avail::NotTask:   return "Not a todo";
         case Avail::Done:      return "Done";
+        case Avail::Dropped:   return "Dropped";
+        case Avail::OnHold:    return "On hold";
         case Avail::Deferred:  return "Deferred";
         case Avail::Blocked:   return "Blocked";
         case Avail::Available: return "Available";
@@ -85,6 +87,45 @@ NodeId next_action(const NodeSource& src, const NodeId& parent) {
     return {};
 }
 
+// ── project state (s031) ────────────────────────────────────────────────────
+
+ProjectState project_state(const Node& n) {
+    if (n.task.is_task && n.task.done) return ProjectState::Completed;
+    return n.task.project;
+}
+
+bool set_project_state(NodeSource& src, const NodeId& id, ProjectState s) {
+    const Node* n = src.find(id);
+    if (!n || n->protect) return false;
+    Task t = n->task;
+    if (t.is_task) {
+        // A todo is finished by its tick and by nothing else.
+        t.done    = (s == ProjectState::Completed);
+        t.project = (s == ProjectState::Completed) ? ProjectState::Active : s;
+    } else {
+        t.project = s;
+    }
+    if (t == n->task) return true;   // already so: no write, no `modified` bump
+    return src.set_task(id, t);
+}
+
+const char* project_state_name(ProjectState s) {
+    switch (s) {
+        case ProjectState::Active:    return "Active";
+        case ProjectState::OnHold:    return "On hold";
+        case ProjectState::Completed: return "Completed";
+        case ProjectState::Dropped:   return "Dropped";
+    }
+    return "?";
+}
+
+NodeId stopped_by(const NodeSource& src, const NodeId& id) {
+    if (const Node* n = src.find(id); n && project_state(*n) != ProjectState::Active) return id;
+    for (const auto& a : ancestors_of(src, id))
+        if (const Node* p = src.find(a); p && project_state(*p) != ProjectState::Active) return a;
+    return {};
+}
+
 // ── the engine ──────────────────────────────────────────────────────────────
 
 Avail availability(const NodeSource& src, const NodeId& id, std::int64_t now) {
@@ -96,10 +137,24 @@ Avail availability(const NodeSource& src, const NodeId& id, std::int64_t now) {
     // alternative -- leaving steps of a completed project available forever --
     // is the one way a wrong answer here is loud rather than silent, and it is
     // still wrong.
-    for (const auto& a : ancestors_of(src, id)) {
+    //
+    // s031: the project word, on the node or any ancestor. Completed is Done
+    // (above any other reason); then Dropped; then On hold. The strongest
+    // reason in the chain wins, wherever in the chain it sits -- a dropped
+    // project inside a held area is dropped, not merely paused.
+    const auto chain = ancestors_of(src, id);
+    bool dropped = n->task.project == ProjectState::Dropped;
+    bool held    = n->task.project == ProjectState::OnHold;
+    if (n->task.project == ProjectState::Completed) return Avail::Done;
+    for (const auto& a : chain) {
         const Node* p = src.find(a);
-        if (p && p->task.is_task && p->task.done) return Avail::Done;
+        if (!p) continue;
+        if (project_state(*p) == ProjectState::Completed) return Avail::Done;
+        dropped = dropped || p->task.project == ProjectState::Dropped;
+        held    = held || p->task.project == ProjectState::OnHold;
     }
+    if (dropped) return Avail::Dropped;
+    if (held)    return Avail::OnHold;
 
     if (effective_defer(src, id) > now) return Avail::Deferred;
 
@@ -263,14 +318,16 @@ std::vector<NodeId> TaskIndex::query(const NodeSource& src, Filter f,
                 break;
             case Filter::Overdue:
                 // Deliberately not gated on availability: a late task you
-                // cannot start yet is the one you most need to see.
-                keep = a != Avail::Done && due != 0 && due < now;
+                // cannot start yet is the one you most need to see. (s031: On
+                // hold still shows -- late is late; Dropped does not -- you
+                // said you will not do it.)
+                keep = a != Avail::Done && a != Avail::Dropped && due != 0 && due < now;
                 break;
             case Filter::Scheduled:
-                keep = a != Avail::Done && due > today_ends;
+                keep = a != Avail::Done && a != Avail::Dropped && due > today_ends;
                 break;
             case Filter::Flagged:
-                keep = a != Avail::Done && n->task.flagged;
+                keep = a != Avail::Done && a != Avail::Dropped && n->task.flagged;
                 break;
         }
         if (keep) out.push_back(id);

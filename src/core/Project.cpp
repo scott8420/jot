@@ -43,6 +43,7 @@ const char* status_name(Status s) {
     switch (s) {
         case Status::Sequential: return "sequential";
         case Status::Parallel:   return "parallel";
+        case Status::SingleActions: return "single";   // s031
         case Status::None:       break;
     }
     return "none";
@@ -50,7 +51,28 @@ const char* status_name(Status s) {
 Status status_from(const std::string& s) {
     if (s == "sequential") return Status::Sequential;
     if (s == "parallel")   return Status::Parallel;
+    if (s == "single")     return Status::SingleActions;
     return Status::None;
+}
+
+// s031. The project state, the same way: a word, absent when Active, and an
+// unknown word reads as Active -- a file from a later jot must not pause or
+// drop somebody's project because this one cannot read the word.
+const char* project_name(ProjectState p) {
+    switch (p) {
+        case ProjectState::OnHold:    return "on-hold";
+        case ProjectState::Completed: return "completed";
+        case ProjectState::Dropped:   return "dropped";
+        case ProjectState::Active:    break;
+    }
+    return "";
+}
+
+ProjectState project_from(const std::string& s) {
+    if (s == "on-hold")   return ProjectState::OnHold;
+    if (s == "completed") return ProjectState::Completed;
+    if (s == "dropped")   return ProjectState::Dropped;
+    return ProjectState::Active;
 }
 
 // Write through a temp file and rename. A rename within one filesystem is
@@ -428,6 +450,7 @@ bool Project::load_project(std::vector<Node>& out) const {
         n.task.defer   = e.value("defer", std::int64_t{0});
         n.task.flagged = e.value("flagged", false);
         n.task.status  = status_from(e.value("status", std::string{}));
+        n.task.project = project_from(e.value("project", std::string{}));   // s031
         n.inbox        = e.value("inbox", false);   // s028; absent == processed
         if (!n.id.empty()) out.push_back(std::move(n));
     }
@@ -510,6 +533,8 @@ bool Project::save_project() const {
             if (n->task.defer != 0)            e["defer"]   = n->task.defer;
             if (n->task.flagged)               e["flagged"] = true;
             if (n->task.status != Status::None) e["status"] = status_name(n->task.status);
+            if (n->task.project != ProjectState::Active)
+                e["project"] = project_name(n->task.project);             // s031, same rule
             if (n->inbox)                      e["inbox"]   = true;   // s028, same rule
             j["nodes"].push_back(std::move(e));
         }

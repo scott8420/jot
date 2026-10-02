@@ -1913,6 +1913,194 @@ int main() {
         }
     }
 
+    // -- Project status (s031) --------------------------------------------------
+    // On hold, Dropped and Completed are statements about a CONTAINER that its
+    // contents obey. The failure this guards is the silent one: a todo still in
+    // Today after you paused its project is noise you learn to ignore; a todo
+    // missing from Today because a far ancestor was dropped by mistake is a task
+    // you do not do. Both directions are pinned here.
+    {
+        using core::Avail;
+        using core::ProjectState;
+        const std::int64_t now = 1'800'000'000;
+        core::MemoryNodes m;
+        const auto area = m.create("", "Home");
+        const auto proj = m.create(area, "Kitchen");          // a NOTE as the project
+        const auto t1 = m.create(proj, "measure the wall");
+        const auto t2 = m.create(proj, "order the shelf");
+        for (const auto& id : {t1, t2}) m.make_task(id, true);
+        m.set_due(t2, now - 3600);                            // overdue
+        m.set_flagged(t1, true);
+        core::TaskIndex ix;
+        ix.rebuild(m);
+        auto has = [](const std::vector<core::NodeId>& v, const core::NodeId& id) {
+            return std::find(v.begin(), v.end(), id) != v.end();
+        };
+
+        check("project: a new note is Active",
+              core::project_state(*m.find(proj)) == ProjectState::Active);
+        check("project: an active project's todos are available",
+              core::availability(m, t1, now) == Avail::Available &&
+                  core::availability(m, t2, now) == Avail::Available);
+
+        // On hold.
+        check("project: On hold is written",
+              core::set_project_state(m, proj, ProjectState::OnHold));
+        check("project: ...its todos are On hold",
+              core::availability(m, t1, now) == Avail::OnHold &&
+                  core::availability(m, t2, now) == Avail::OnHold);
+        check("project: ...and leave Available and Today",
+              !has(ix.query(m, core::Filter::Available, now), t1) &&
+                  !has(ix.query(m, core::Filter::Today, now), t1));
+        check("project: ...but late is late (Overdue) and a flag still shows",
+              has(ix.query(m, core::Filter::Overdue, now), t2) &&
+                  has(ix.query(m, core::Filter::Flagged, now), t1));
+        check("project: stopped_by names the held project", core::stopped_by(m, t1) == proj);
+        check("project: Active is no reason", core::stopped_by(m, area).empty());
+        {
+            int writes = 0;
+            m.on_changed([&](core::NodeSource::Change, const core::NodeId&) { ++writes; });
+            core::set_project_state(m, proj, ProjectState::OnHold);
+            check("project: setting the state it already has writes nothing", writes == 0,
+                  std::to_string(writes));
+            m.on_changed(nullptr);
+        }
+
+        // Dropped, and precedence: a dropped project inside a held area.
+        core::set_project_state(m, area, ProjectState::OnHold);
+        core::set_project_state(m, proj, ProjectState::Dropped);
+        check("project: dropped inside held reads Dropped",
+              core::availability(m, t1, now) == Avail::Dropped);
+        check("project: Dropped leaves Overdue and Flagged too",
+              !has(ix.query(m, core::Filter::Overdue, now), t2) &&
+                  !has(ix.query(m, core::Filter::Flagged, now), t1));
+        check("project: stopped_by names the NEAREST stop", core::stopped_by(m, t1) == proj);
+        {
+            const auto pj = core::project(m, ix, now);
+            bool t2_there = false;
+            for (const auto& p : pj) t2_there = t2_there || p.id == t2;
+            check("project: a dropped todo leaves the desktop calendar", !t2_there);
+        }
+        core::set_project_state(m, proj, ProjectState::Active);   // area still held
+        {
+            const auto pj = core::project(m, ix, now);
+            bool t2_there = false;
+            for (const auto& p : pj) t2_there = t2_there || p.id == t2;
+            check("project: a held todo stays on the calendar (a date is a fact)", t2_there);
+        }
+        check("project: held from two levels up still holds",
+              core::availability(m, t1, now) == Avail::OnHold && core::stopped_by(m, t1) == area);
+        core::set_project_state(m, area, ProjectState::Active);
+
+        // Completed, on a note: everything inside counts as done.
+        core::set_project_state(m, proj, ProjectState::Completed);
+        check("project: a completed note's todos are Done",
+              core::availability(m, t1, now) == Avail::Done &&
+                  has(ix.query(m, core::Filter::Done, now), t2));
+        check("project: ...and not Overdue", !has(ix.query(m, core::Filter::Overdue, now), t2));
+
+        // Back to Active: everything returns, nothing was lost.
+        core::set_project_state(m, proj, ProjectState::Active);
+        check("project: Active brings every todo back, dates and flags intact",
+              core::availability(m, t1, now) == Avail::Available && m.find(t1)->task.flagged &&
+                  m.find(t2)->task.due == now - 3600);
+
+        // Completed on a TODO is its tick -- one way to be finished.
+        const auto tp = m.create("", "Paint the hall");
+        const auto tk = m.create(tp, "buy paint");
+        m.make_task(tp, true);
+        m.make_task(tk, true);
+        core::set_project_state(m, tp, ProjectState::Completed);
+        check("project: Completed on a todo ticks it; the stored word stays Active",
+              m.find(tp)->task.done && m.find(tp)->task.project == ProjectState::Active);
+        check("project: ...it reads Completed",
+              core::project_state(*m.find(tp)) == ProjectState::Completed);
+        check("project: ...its step is Done", core::availability(m, tk, now) == Avail::Done);
+        core::set_project_state(m, tp, ProjectState::OnHold);
+        check("project: another state on a ticked todo unticks it",
+              !m.find(tp)->task.done &&
+                  core::project_state(*m.find(tp)) == ProjectState::OnHold &&
+                  core::availability(m, tk, now) == Avail::OnHold);
+        check("project: a todo on hold is itself On hold",
+              core::availability(m, tp, now) == Avail::OnHold);
+
+        // make_task keeps the container's word; a completed note made a todo
+        // becomes a ticked todo, not a todo with two finishes.
+        m.make_task(tp, false);
+        check("project: un-making a todo keeps its project state",
+              m.find(tp)->task.project == ProjectState::OnHold && !m.find(tp)->task.is_task);
+        core::set_project_state(m, tp, ProjectState::Completed);
+        m.make_task(tp, true);
+        check("project: a completed note made a todo is a ticked todo",
+              m.find(tp)->task.done && m.find(tp)->task.project == ProjectState::Active);
+
+        // Protected: refused, like every other task edit on a locked note.
+        const auto locked = m.create("", "locked");
+        m.set_protect(locked, true);
+        check("project: a protected note's state is refused",
+              !core::set_project_state(m, locked, ProjectState::Dropped) &&
+                  m.find(locked)->task.project == ProjectState::Active);
+
+        // Single actions: every item available, nothing comes first.
+        const auto errands = m.create("", "Errands");
+        const auto e1 = m.create(errands, "post office");
+        const auto e2 = m.create(errands, "hardware store");
+        m.make_task(e1, true);
+        m.make_task(e2, true);
+        m.set_status(errands, core::Status::SingleActions);
+        check("project: a single-action list makes every item available",
+              core::availability(m, e1, now) == Avail::Available &&
+                  core::availability(m, e2, now) == Avail::Available);
+
+        check("project: the words", std::string(core::project_state_name(ProjectState::OnHold)) ==
+                                            "On hold" &&
+                                        std::string(core::avail_name(Avail::Dropped)) == "Dropped");
+    }
+
+    // The words survive the disk, and only non-defaults are written.
+    {
+        namespace fs = std::filesystem;
+        const std::string dir = (fs::temp_directory_path() / "jot_selftest_project").string();
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        core::NodeId held, dropped, done_note, list, plain;
+        {
+            core::Project v;
+            v.open(dir);
+            held = v.create("", "held");
+            dropped = v.create("", "dropped");
+            done_note = v.create("", "finished");
+            list = v.create("", "errands");
+            plain = v.create("", "plain");
+            core::set_project_state(v, held, core::ProjectState::OnHold);
+            core::set_project_state(v, dropped, core::ProjectState::Dropped);
+            core::set_project_state(v, done_note, core::ProjectState::Completed);
+            v.set_status(list, core::Status::SingleActions);
+            v.flush();
+        }
+        std::ifstream f(fs::path(dir) / "jot.json");
+        const std::string js((std::istreambuf_iterator<char>(f)), {});
+        std::size_t n_keys = 0;
+        for (std::size_t at = 0; (at = js.find("\"project\"", at)) != std::string::npos; ++at) ++n_keys;
+        check("project/jots: only the three non-active nodes write the key", n_keys == 3, js);
+        check("project/jots: written as words",
+              js.find("\"on-hold\"") != std::string::npos &&
+                  js.find("\"dropped\"") != std::string::npos &&
+                  js.find("\"completed\"") != std::string::npos &&
+                  js.find("\"single\"") != std::string::npos);
+        {
+            core::Project v;
+            v.open(dir);
+            check("project/jots: every state survives a reopen",
+                  v.find(held)->task.project == core::ProjectState::OnHold &&
+                      v.find(dropped)->task.project == core::ProjectState::Dropped &&
+                      v.find(done_note)->task.project == core::ProjectState::Completed &&
+                      v.find(list)->task.status == core::Status::SingleActions &&
+                      v.find(plain)->task.project == core::ProjectState::Active);
+        }
+        fs::remove_all(dir, ec);
+    }
+
     // -- Cheat sheet (s030): the running reference ------------------------------
     // "Every milestone adds its lines" is a rule; these make it a failing test.
     // A keyed verb with no line, a line naming a verb that does not exist, a key

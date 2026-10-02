@@ -237,12 +237,25 @@ bool NodeSource::set_status(const NodeId& id, Status s) {
 }
 bool NodeSource::make_task(const NodeId& id, bool on) {
     return edit_task(*this, id, [&](Task& t) {
-        if (on) { t.is_task = true; return; }
-        // Clear everything EXCEPT status: status describes the children, and
-        // a note that stops being a todo is still their container.
-        const Status keep = t.status;
+        if (on) {
+            t.is_task = true;
+            // s031: a completed note-project becomes a DONE todo -- a todo is
+            // finished by `done`, never by the project word (one way, not two).
+            if (t.project == ProjectState::Completed) {
+                t.done = true;
+                t.project = ProjectState::Active;
+            }
+            return;
+        }
+        // Clear everything EXCEPT status and project state: both describe the
+        // node as a CONTAINER, and a note that stops being a todo is still
+        // their container. (`done` goes with the rest: un-making a ticked
+        // todo gives a plain note, not a "completed" one.)
+        const Status       keep    = t.status;
+        const ProjectState project = t.project;
         t = Task{};
-        t.status = keep;
+        t.status  = keep;
+        t.project = project;
     });
 }
 

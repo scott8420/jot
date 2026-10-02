@@ -136,6 +136,21 @@ void Shell::on_clean_up() {  // handler: clear processed Inbox marks
 // s028. The note menu's "In Inbox": put a note on the Inbox to deal with later,
 // or take it off by hand. Allowed on a protected note -- the mark is about your
 // processing, not the note's content.
+// s031. A project's state, from the note menu's Project submenu. core decides
+// what Completed means on a todo (its tick); this only names the word.
+void Shell::on_project_state(const Glib::ustring& which) {  // handler: set the selection's project state
+    const auto id = m_tree->selected();
+    if (id.empty() || !m_store) return;
+    core::ProjectState s = core::ProjectState::Active;
+    if (which == "on-hold")        s = core::ProjectState::OnHold;
+    else if (which == "completed") s = core::ProjectState::Completed;
+    else if (which == "dropped")   s = core::ProjectState::Dropped;
+    const bool ok = core::set_project_state(*m_store, id, s);
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("project state: {} -> {}{}", id, core::project_state_name(s), ok ? "" : " (refused)");
+    update_note_actions();   // the radio dot follows the model, not the click
+}
+
 void Shell::on_toggle_inbox() {  // handler: selection in / out of the Inbox
     const auto id = m_tree->selected();
     const core::Node* n = id.empty() ? nullptr : m_store->find(id);

@@ -55,7 +55,7 @@ std::string CheatLine::display_how() const {
 
 const std::vector<std::string>& cheat_sections() {
     static const std::vector<std::string> kSections = {
-        "Capture", "Inbox", "Notes", "Todos", "Today", "Writing",
+        "Capture", "Inbox", "Notes", "Todos", "Projects", "Today", "Writing",
         "Files and pictures", "Views", "Command line", "Jots folders", "Help",
     };
     return kSections;
@@ -113,10 +113,26 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Todos", "", "Due / Defer", "Give it dates, in note details",
          "2026-10-09, 2026-10-09 14:30, today, tomorrow. Defer hides it until then. "
          "Both pass down to the notes under it."},
-        {"Todos", "", "Sequential / Parallel", "On a parent: one step at a time, or all at once",
-         "Note details › Structure. Sequential offers only the first step not done."},
         {"Todos", "", "Drag it up", "Set priority: the order IS the priority",
          "There is no priority number."},
+
+        // ── Projects (s031) ─────────────────────────────────────────────────
+        {"Projects", "", "Any note with notes under it",
+         "Is a project: its todos are the steps", "It need not be a todo itself."},
+        {"Projects", "", "Sequential / Parallel", "One step at a time, or all at once",
+         "Note details › Structure › Children. Sequential offers only the first step not done."},
+        {"Projects", "", "Single actions",
+         "A list of loose todos: all available, nothing comes first",
+         "Note details › Structure › Children. For errands, not for a plan."},
+        {"Projects", "", "⋮ › Project › On Hold",
+         "Pause a project: its todos leave Today and Available",
+         "A late or flagged one still shows, marked On hold. Also Note details › Structure › Status."},
+        {"Projects", "", "⋮ › Project › Dropped",
+         "Give up on it: kept, but out of every list and the calendar",
+         "Struck through in the tree. Active brings everything back."},
+        {"Projects", "", "⋮ › Project › Completed",
+         "Finish it: everything inside counts as done",
+         "On a project that is itself a todo, this is the same as ticking it."},
 
         // ── Today ───────────────────────────────────────────────────────────
         {"Today", "", "Today tab", "What you can actually do now",

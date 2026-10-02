@@ -147,6 +147,13 @@ DrawerPane::DrawerPane(std::string_view name)
       m_order_none("drawer.order_none"),
       m_order_seq("drawer.order_seq"),
       m_order_par("drawer.order_par"),
+      m_order_list("drawer.order_list"),
+      m_state_row("drawer.state_row", Gtk::Orientation::VERTICAL, 2),
+      m_state_label("drawer.state_label"),
+      m_state_active("drawer.state_active"),
+      m_state_hold("drawer.state_hold"),
+      m_state_done("drawer.state_done"),
+      m_state_drop("drawer.state_drop"),
       m_uuid("drawer.uuid"),
       m_copy_link("drawer.copy_link") {
     m_column.set_margin(14);
@@ -341,8 +348,10 @@ void DrawerPane::build_task_block() {
     m_order_none.set_label("Unordered");
     m_order_seq.set_label("Sequential \u2014 one at a time, in order");
     m_order_par.set_label("Parallel \u2014 all available at once");
+    m_order_list.set_label("Single actions \u2014 loose todos, no order, no end");
     m_order_seq.set_group(m_order_none);
     m_order_par.set_group(m_order_none);
+    m_order_list.set_group(m_order_none);
     auto order_write = [this](core::Status st) {
         return [this, st]() {
             if (m_loading || !m_src || m_id.empty()) return;
@@ -360,9 +369,44 @@ void DrawerPane::build_task_block() {
     });
     m_order_row.append(m_order_none);
     m_order_row.append(m_order_seq);
+    m_order_list.signal_toggled().connect([this, order_write]() {
+        if (m_order_list.get_active()) order_write(core::Status::SingleActions)();
+    });
     m_order_row.append(m_order_par);
+    m_order_row.append(m_order_list);
     m_order_row.set_margin_top(6);
     m_structure.body->append(m_order_row);   // after the rebuilt rows, held
+
+    // ── Status (s031) ───────────────────────────────────────────────────────
+    // Radio for the same reason as Children: four options, each readable
+    // without opening anything. core::set_project_state is the one writer, so
+    // "Completed" on a todo is its tick and the two can never disagree.
+    m_state_label.set_text("Status");
+    m_state_label.set_xalign(0.0f);
+    m_state_label.add_css_class("dim-label");
+    m_state_label.add_css_class("caption-heading");
+    m_state_row.append(m_state_label);
+    m_state_active.set_label("Active");
+    m_state_hold.set_label("On hold \u2014 nothing in it is offered");
+    m_state_done.set_label("Completed \u2014 everything in it is done");
+    m_state_drop.set_label("Dropped \u2014 kept, but out of every list");
+    m_state_hold.set_group(m_state_active);
+    m_state_done.set_group(m_state_active);
+    m_state_drop.set_group(m_state_active);
+    auto state_write = [this](widgets::CheckButton& b, core::ProjectState st) {
+        b.signal_toggled().connect([this, &b, st]() {
+            if (!b.get_active() || m_loading || !m_src || m_id.empty()) return;
+            core::set_project_state(*m_src, m_id, st);
+        });
+    };
+    state_write(m_state_active, core::ProjectState::Active);
+    state_write(m_state_hold, core::ProjectState::OnHold);
+    state_write(m_state_done, core::ProjectState::Completed);
+    state_write(m_state_drop, core::ProjectState::Dropped);
+    for (auto* b : {&m_state_active, &m_state_hold, &m_state_done, &m_state_drop})
+        m_state_row.append(*b);
+    m_state_row.set_margin_top(6);
+    m_structure.body->append(m_state_row);
 }
 
 // An entry -> the model. A field that does not parse is REFUSED and says so by
@@ -422,8 +466,25 @@ void DrawerPane::fill_task(const core::Node& n) {
         std::string why;
         switch (core::availability(*m_src, n.id, now)) {
             case core::Avail::Available: why = "Available now."; break;
-            case core::Avail::Done:      why = n.task.done ? "Done."
-                                                           : "Inside a finished todo."; break;
+            case core::Avail::Done: {
+                if (n.task.done) { why = "Done."; break; }
+                const core::NodeId by = core::stopped_by(*m_src, n.id);
+                const core::Node* b = by.empty() ? nullptr : m_src->find(by);
+                why = b ? "Done \u2014 \"" + titled(b) + "\" is completed."
+                        : "Inside a finished todo.";
+                break;
+            }
+            case core::Avail::Dropped:
+            case core::Avail::OnHold: {
+                // Name the project, because the fix is THERE, not here.
+                const core::NodeId by = core::stopped_by(*m_src, n.id);
+                const core::Node* b = by.empty() ? nullptr : m_src->find(by);
+                const bool drop = core::availability(*m_src, n.id, now) == core::Avail::Dropped;
+                if (by == n.id)  why = drop ? "Dropped." : "On hold.";
+                else if (b)      why = std::string(drop ? "Dropped" : "On hold") + " \u2014 \"" +
+                                       titled(b) + "\" is " + (drop ? "dropped." : "on hold.");
+                break;
+            }
             case core::Avail::Deferred:
                 why = "Deferred until " +
                       core::format_date(core::effective_defer(*m_src, n.id)) + ".";
@@ -453,7 +514,19 @@ void DrawerPane::fill_task(const core::Node& n) {
     switch (n.task.status) {
         case core::Status::Sequential: m_order_seq.set_active(true);  break;
         case core::Status::Parallel:   m_order_par.set_active(true);  break;
+        case core::Status::SingleActions: m_order_list.set_active(true); break;
         case core::Status::None:       m_order_none.set_active(true); break;
+    }
+
+    // Status: on the same terms as Children, read through project_state so a
+    // ticked todo with children shows Completed.
+    const core::ProjectState ps = core::project_state(n);
+    m_state_row.set_visible(has_kids || n.task.project != core::ProjectState::Active);
+    switch (ps) {
+        case core::ProjectState::Active:    m_state_active.set_active(true); break;
+        case core::ProjectState::OnHold:    m_state_hold.set_active(true);   break;
+        case core::ProjectState::Completed: m_state_done.set_active(true);   break;
+        case core::ProjectState::Dropped:   m_state_drop.set_active(true);   break;
     }
 
     update_task_sensitivity(n);
@@ -473,6 +546,9 @@ void DrawerPane::update_task_sensitivity(const core::Node& n) {
     m_order_none.set_sensitive(on);
     m_order_seq.set_sensitive(on);
     m_order_par.set_sensitive(on);
+    m_order_list.set_sensitive(on);
+    for (auto* b : {&m_state_active, &m_state_hold, &m_state_done, &m_state_drop})
+        b->set_sensitive(on);
 }
 
 // One section: a header button over a folding body. Everything here is
