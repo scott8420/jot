@@ -27,8 +27,10 @@ void init();
 void set_level(Area area, spdlog::level::level_enum level);
 
 // ── the consumer that makes the above a fact ────────────────────────────────
-// `JOT_DEBUG=drawer,tree ./build/jot` raises those areas to DEBUG; `all` raises
-// every one, and `trace:<area>` goes one louder.
+// Every area starts at WARN (s029: the console was chatter). `JOT_DEBUG=
+// drawer,tree ./build/jot` raises those areas to DEBUG; `all` raises every
+// one; `info:<area>` / `info:all` is the old INFO default, and `trace:<area>`
+// goes one louder.
 //
 // This exists because set_level() had NO CONSUMER from s001 until s006 -- a
 // per-area logging facility that nothing could actually switch, which is the

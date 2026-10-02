@@ -71,6 +71,16 @@ Prefs load_prefs(const std::string& file) {
             for (auto e = it->begin(); e != it->end(); ++e)
                 if (e.value().is_boolean()) p.drawer_open[e.key()] = e.value().get<bool>();
         }
+        // An object of string arrays; same tolerance -- a wrong-typed entry drops.
+        if (auto it = j.find("move_recent"); it != j.end() && it->is_object()) {
+            p.move_recent.clear();
+            for (auto e = it->begin(); e != it->end(); ++e) {
+                if (!e.value().is_array()) continue;
+                auto& list = p.move_recent[e.key()];
+                for (const auto& id : e.value())
+                    if (id.is_string()) list.push_back(id.get<std::string>());
+            }
+        }
     } catch (const std::exception&) {
         return Prefs{};                            // unparseable -- defaults, never throw
     }
@@ -99,6 +109,7 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     j["drop_links"]    = p.drop_links;
     j["announced"]     = p.announced;
     j["drawer_open"]   = p.drawer_open;
+    j["move_recent"]   = p.move_recent;
     std::ofstream f(file);
     if (!f) return false;
     f << j.dump(2) << "\n";

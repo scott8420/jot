@@ -157,18 +157,30 @@ void Shell::on_move_to() {  // handler: Move to... on the selection
 void Shell::open_move(const core::NodeId& id) {  // handler: the picker, for any note
     const core::Node* n = (id.empty() || !m_store) ? nullptr : m_store->find(id);
     if (!n || n->protect) return;
+    // Recent belongs to THIS jots folder (prefs, keyed by its path); the
+    // scratch buffer has no path and so no Recent.
+    const std::string folder = m_project ? m_project->dir() : std::string{};
+    std::vector<core::NodeId> recent;
+    if (!folder.empty())
+        if (auto it = m_prefs.move_recent.find(folder); it != m_prefs.move_recent.end())
+            recent = it->second;
     // One at a time; the old one is hidden (modal), so destroying it here is
     // not destroying a widget from inside its own event.
     m_move_dialog.reset();
     m_move_dialog = std::make_unique<MoveDialog>(
-        *this, *m_store, id, m_move_recent, [this, id](const core::NodeId& target) {
+        *this, *m_store, id, std::move(recent), [this, id, folder](const core::NodeId& target) {
             std::string why;
             if (!m_store || !core::can_move(*m_store, id, target, &why)) {
                 if (auto lg = log::get(log::Area::Shell)) lg->warn("move to: refused ({})", why);
                 return;
             }
             const bool ok = m_store->move(id, target, -1);
-            if (ok) core::remember_target(m_move_recent, target);
+            if (ok && !folder.empty() && !target.empty()) {
+                auto& list = m_prefs.move_recent[folder];
+                core::remember_target(list, target);
+                // Saved now, not at quit: a background jot may never quit cleanly.
+                core::save_prefs(m_prefs_file, m_prefs);
+            }
             if (auto lg = log::get(log::Area::Shell))
                 lg->info("move to: {} {}", id, ok ? "moved" : "no change");
         });

@@ -95,6 +95,14 @@ struct Prefs {
     // growing for the life of the jots folder.
     std::vector<std::string> announced;
 
+    // s029: Move to...'s Recent -- the places filed into lately, newest first,
+    // PER JOTS FOLDER (keyed by its path). Node ids are only meaningful inside
+    // the folder that minted them, so one flat list would let a second folder
+    // push the first one's places out of a five-slot list for nothing. A
+    // folder that is moved or renamed starts a fresh Recent; a deleted note
+    // is filtered out when the picker reads the list (core::recent_targets).
+    std::map<std::string, std::vector<std::string>> move_recent;
+
     // ── the window itself ──────────────────────────────────────────────────
     // SIZE AND MAXIMIZED ONLY, AND NOT POSITION. GTK4 removed window
     // positioning outright -- there is no `gtk_window_move`, and Wayland gives

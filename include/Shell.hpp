@@ -471,10 +471,9 @@ private:
     std::unique_ptr<JotsFolderDialog> m_name_dialog;
 
     // s029. The Move picker, rebuilt per use (the note it moves is fixed at
-    // construction), and the places filed into lately -- most recent first,
-    // this run only. Ids, so a renamed project is still the same place.
+    // construction). Its Recent list lives in m_prefs.move_recent, per jots
+    // folder; the scratch buffer has no folder and keeps none.
     std::unique_ptr<MoveDialog> m_move_dialog;
-    std::vector<core::NodeId>   m_move_recent;
 
     // Set only by guard_scratch's continuation, so the second close_request
     // (the one that actually closes) doesn't ask again. Nothing else may

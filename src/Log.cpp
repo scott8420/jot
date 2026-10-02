@@ -44,7 +44,11 @@ void init() {
     for (int i = 0; i < kAreaCount; ++i) {
         const auto area = static_cast<Area>(i);
         auto lg = std::make_shared<spdlog::logger>(area_name(area), sink);
-        lg->set_level(spdlog::level::info);   // default INFO; raise one area to TRACE to debug
+        // s029 (Scott: "a lot of log chatter in the console"): WARN by default
+        // -- a user's terminal hears about problems and nothing else. The
+        // narration is still all there for a diagnostic run:
+        // JOT_DEBUG=info:all (the old default), =all (DEBUG), =trace:<area>.
+        lg->set_level(spdlog::level::warn);
         a[static_cast<std::size_t>(i)] = lg;
     }
 }
@@ -76,6 +80,9 @@ void apply_debug_env(const char* value) {
         if (item.rfind("trace:", 0) == 0) {
             level = spdlog::level::trace;
             item = item.substr(6);
+        } else if (item.rfind("info:", 0) == 0) {
+            level = spdlog::level::info;
+            item = item.substr(5);
         }
 
         if (item == "all") {

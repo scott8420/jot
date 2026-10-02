@@ -644,6 +644,25 @@ int main() {
         check("prefs: a drawer_open that is not an object is ignored",
               core::load_prefs(file).drawer_open.empty());
 
+        // s029: Move to...'s Recent, per jots folder, survives a restart.
+        {
+            core::Prefs mp;
+            mp.move_recent["/a/Work.jots"] = {"id3", "id1"};
+            mp.move_recent["/b/Home.jots"] = {"id9"};
+            core::save_prefs(file, mp);
+            const core::Prefs mr = core::load_prefs(file);
+            check("prefs: move recents round-trip, per folder, in order",
+                  mr.move_recent.size() == 2 &&
+                      mr.move_recent.at("/a/Work.jots") == std::vector<std::string>{"id3", "id1"} &&
+                      mr.move_recent.at("/b/Home.jots") == std::vector<std::string>{"id9"});
+            check("prefs: a first run has no move recents", d.move_recent.empty());
+            { std::ofstream f(file); f << R"({"move_recent":{"/a":["x",7,"y"],"/b":"no"},"show_tree":false})"; }
+            const core::Prefs mm = core::load_prefs(file);
+            check("prefs: a wrong-typed move recent drops alone",
+                  mm.move_recent.size() == 1 &&
+                      mm.move_recent.at("/a") == std::vector<std::string>{"x", "y"} && !mm.show_tree);
+        }
+
         // A size can outlive the monitor it was stored on, and a window wider
         // than any display is one you cannot reach the edges of to fix.
         {

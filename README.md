@@ -241,13 +241,15 @@ write plus a sibling index, made by the model, never by the drop
 handler. That is the defect Notr had and the reason drag
 landed in the first milestone rather than a later one.
 
-`JOT_STRESS=5000 ./build/jot` loads a synthetic set instead of the
-fixtures, and every tree rebuild logs its row count and milliseconds to
-the `tree` log area. That is the D6 instrument.
+`JOT_STRESS=5000 JOT_DEBUG=info:tree ./build/jot` loads a synthetic set
+instead of the fixtures, and every tree rebuild logs its row count and
+milliseconds to the `tree` log area. That is the D6 instrument.
 
-`JOT_DEBUG=drawer,tree ./build/jot` raises those log areas to DEBUG
-(`all` for every area, `trace:<area>` for one louder). The
-instrumentation is always in the binary; this is the switch.
+The console is quiet by default: warnings and errors only. `JOT_DEBUG`
+turns the narration on -- `info:all` for what jot used to print by
+default, `drawer,tree` for those areas at DEBUG, `all` for every area at
+DEBUG, `trace:<area>` for one louder. The instrumentation is always in the
+binary; this is the switch.
 
 What the Cairn spine underneath carries: mandatory widget naming with a live registry,
 a split class with the header as its index, per-area runtime-toggleable
