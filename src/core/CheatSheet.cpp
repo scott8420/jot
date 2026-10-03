@@ -55,7 +55,7 @@ std::string CheatLine::display_how() const {
 
 const std::vector<std::string>& cheat_sections() {
     static const std::vector<std::string> kSections = {
-        "Capture", "Inbox", "Notes", "Todos", "Projects", "Today", "Writing",
+        "Capture", "Inbox", "Notes", "Todos", "Projects", "Today", "Tags", "Writing",
         "Files and pictures", "Views", "Command line", "Jots folders", "Help",
     };
     return kSections;
@@ -75,7 +75,7 @@ const std::vector<CheatLine>& cheat_sheet() {
 
         // ── Inbox ───────────────────────────────────────────────────────────
         {"Inbox", "", "Inbox tab", "Everything captured and not dealt with yet",
-         "Side pane: Notes | Inbox | Today. The tab counts what is waiting."},
+         "Side pane: Notes | Inbox | Today | Tags. The tab counts what is waiting."},
         {"Inbox", "win.move-to", "", "Move: file the note — type where it goes, Enter",
          "Also Move… on an Inbox row, and ⋮ › Move to… — "
          "your recent places come first."},
@@ -98,8 +98,8 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Paste it into another note. The link survives a rename and a move."},
         {"Notes", "", "Ctrl+click a link", "Follow it",
          "In Source and Live Preview. In Reading a plain click follows it."},
-        {"Notes", "", "#tag", "Tag a note: type the tag anywhere in its text",
-         "Tags show in note details."},
+        {"Notes", "", "#tag", "Tag a note: Note details › Tags, or type #tag anywhere in its text",
+         "The Tags tab gathers them."},
         {"Notes", "win.toggle-protect", "", "Protect: lock a note against edits, moves and deletes",
          "⋮ › Protected."},
         {"Notes", "", "Delete (in the tree)", "Delete the note and everything under it",
@@ -151,6 +151,20 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Today", "", "Calendar", "Dated todos in GNOME's top-bar calendar",
          "Today pane › Show dated todos on the desktop. One way: jot writes, the "
          "calendar only shows."},
+        // ── Tags (s035) ─────────────────────────────────────────────────────
+        {"Tags", "win.show-tags", "Tags tab", "Pick a #tag: its todos you can do, the ones waiting, its notes",
+         "From all over the tree. Press the chip again to let it go. Done ones are folded at the foot."},
+        {"Tags", "", "Find a tag", "Type over the chips to narrow them; Enter picks the one that matches",
+         "ho finds #home and #phone. Esc clears. Ctrl+Shift+T again (or with nothing to pick) lands in it."},
+        {"Tags", "", "Note details › Tags", "Add a tag: type it and press Enter, or pick from ▾",
+         "It goes on the note's tag line, the band at the bottom. × takes it off. Ctrl+Z undoes either."},
+        {"Tags", "", "Click a tag", "Jump to that tag's list",
+         "A chip in note details, Ctrl+click a #tag in the note, or a plain click in Reading."},
+        {"Tags", "", "#home/garden", "Nest a tag with a slash",
+         "Picking #home shows #home/garden too. #Home and #home are the same tag."},
+        {"Tags", "", "Contexts", "Use tags as places or moods: #errands, #calls, #low-energy",
+         "A tag on a project is not passed to its steps -- tag the steps you do there."},
+
 
         // ── Writing ─────────────────────────────────────────────────────────
         {"Writing", "", "Format bar", "Buttons above the note that write the markdown for you",

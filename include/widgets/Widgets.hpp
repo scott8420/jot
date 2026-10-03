@@ -7,9 +7,11 @@
 #include <gtkmm/checkbutton.h>
 #include <gtkmm/entry.h>
 #include <gtkmm/expander.h>
+#include <gtkmm/flowbox.h>
 #include <gtkmm/image.h>
 #include <gtkmm/label.h>
 #include <gtkmm/listbox.h>
+#include <gtkmm/searchentry.h>
 #include <gtkmm/menubutton.h>
 #include <gtkmm/paned.h>
 #include <gtkmm/popover.h>
@@ -31,6 +33,7 @@ using Calendar       = Named<Gtk::Calendar>;
 using CheckButton    = Named<Gtk::CheckButton>;
 using Entry          = Named<Gtk::Entry>;
 using Expander       = Named<Gtk::Expander>;
+using FlowBox        = Named<Gtk::FlowBox>;
 using Image          = Named<Gtk::Image>;
 using Label          = Named<Gtk::Label>;
 using ListBox        = Named<Gtk::ListBox>;
@@ -39,6 +42,7 @@ using Paned          = Named<Gtk::Paned>;
 using Popover        = Named<Gtk::Popover>;
 using PopoverMenu    = Named<Gtk::PopoverMenu>;
 using ScrolledWindow = Named<Gtk::ScrolledWindow>;
+using SearchEntry    = Named<Gtk::SearchEntry>;   // s036
 using Separator      = Named<Gtk::Separator>;
 using Stack          = Named<Gtk::Stack>;
 using StackSidebar   = Named<Gtk::StackSidebar>;

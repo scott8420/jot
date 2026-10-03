@@ -1,4 +1,5 @@
 #include "EditorPane.hpp"
+#include "core/Tags.hpp"
 #include "Log.hpp"
 
 #include "core/Enclosures.hpp"
@@ -433,6 +434,18 @@ void EditorPane::build_tags() {
     m_codeblock_tag->property_family() = "monospace";
     m_codeblock_tag->property_scale() = 0.92;
 
+    // s035b: the tag line (core::find_tag_line) as a band -- a callout across
+    // the foot of the note, in Live Preview and Reading. Green from the tags'
+    // own colour at low alpha, so it reads on a light and a dark theme alike.
+    for (auto* which : {&m_tagline_tag, &m_read_tagline_tag}) {
+        auto buf = which == &m_tagline_tag ? m_body.get_buffer() : m_read.get_buffer();
+        *which = buf->create_tag(which == &m_tagline_tag ? "md-tagline" : "md-tagline-read");
+        (*which)->property_paragraph_background_rgba() = rgba(0.42, 0.56, 0.36, 0.14);
+        (*which)->property_pixels_above_lines() = 6;
+        (*which)->property_pixels_below_lines() = 6;
+        (*which)->property_left_margin() = 16;
+    }
+
     // s023: room at the left of a bullet / task line whose mark is hidden, so
     // the drawn glyph has somewhere to sit. The view's own margin is 10.
     m_hang_tag = m_body.get_buffer()->create_tag("md-hang");
@@ -496,11 +509,11 @@ void EditorPane::make_tags(const Glib::RefPtr<Gtk::TextBuffer>& buf,
                 tag->property_foreground_rgba() = rgba(0.26, 0.52, 0.88);
                 break;
             case core::Style::Tag:
-                // A tag reads as a label, not as a link: no underline, because
-                // clicking one does nothing yet. D4 is open, so the body is the
-                // only place a tag lives and the drawer only reports what it
-                // finds here. When a tag becomes clickable this gets the
-                // underline and that will be the visible half of the answer.
+                // A tag reads as a label, not as a link. s035 made it clickable
+                // (Ctrl+click here, a plain click in Reading -> the Tags view)
+                // and it still gets NO underline: a line of #tags underlined
+                // reads as a row of links to somewhere else, and a tag is a word
+                // in your own text. Reading shows the hand on hover.
                 tag->property_foreground_rgba() = rgba(0.42, 0.56, 0.36);
                 tag->property_weight() = Pango::Weight::SEMIBOLD;
                 break;
@@ -545,6 +558,7 @@ void EditorPane::restyle() {
     if (m_codeblock_tag) buf->remove_tag(m_codeblock_tag, b, e);
     if (m_hidden_tag) buf->remove_tag(m_hidden_tag, b, e);
     if (m_hang_tag) buf->remove_tag(m_hang_tag, b, e);
+    if (m_tagline_tag) buf->remove_tag(m_tagline_tag, b, e);
     for (const auto& [h, tag] : m_room_tags) buf->remove_tag(tag, b, e);
 
     // include_hidden_chars=TRUE, and since s022 it matters: Live Preview's
@@ -579,6 +593,7 @@ void EditorPane::restyle() {
             }
     m_reveal_first = m_reveal_last = -1;   // force: the scan is new
     apply_live();
+    apply_tagline();
     m_styling = false;
     if (m_reading) render_reading();   // s021: the view follows the source
 }
@@ -609,9 +624,44 @@ void EditorPane::set_live(bool on) {
     const bool was = m_styling;
     m_styling = true;
     apply_live();
+    apply_tagline();
     m_styling = was;
     if (auto lg = log::get(log::Area::Editor))
         lg->info("view: live preview {} (note={})", on ? "on" : "off", m_id);
+}
+
+// s035b. Source shows the tag line as the text it is; Live Preview draws it
+// as a band. Whole line plus its newline, so the tint spans the width.
+void EditorPane::apply_tagline() {
+    auto buf = m_body.get_buffer();
+    if (!buf || !m_tagline_tag) return;
+    buf->remove_tag(m_tagline_tag, buf->begin(), buf->end());
+    if (!m_live) return;
+    const core::TagLine tl = core::find_tag_line(m_text);
+    if (!tl.found) return;
+    auto lb = buf->get_iter_at_offset(tl.cp_begin);
+    auto le = buf->get_iter_at_offset(tl.cp_end);
+    if (!le.is_end()) le.forward_line();
+    buf->apply_tag(m_tagline_tag, lb, le);
+}
+
+std::string EditorPane::body_text() const {
+    auto buf = m_body.get_buffer();
+    return buf ? buf->get_text(/*include_hidden_chars=*/true).raw() : std::string();
+}
+
+bool EditorPane::apply_outside_edit(const core::FmtEdit& ed) {
+    if (!ed.ok || m_id.empty() || !m_body.get_editable()) return false;
+    auto buf = m_body.get_buffer();
+    const int cur = buf->get_insert()->get_iter().get_offset();
+    const int removed = ed.cp_end - ed.cp_begin;
+    const int added = static_cast<int>(Glib::ustring(ed.text).size());
+    int keep = cur;
+    if (cur >= ed.cp_end) keep = cur - removed + added;
+    else if (cur > ed.cp_begin) keep = ed.cp_begin;
+    core::FmtEdit e = ed;
+    e.sel_begin = e.sel_end = keep;
+    return apply_edit(e);
 }
 
 void EditorPane::apply_live() {
@@ -895,6 +945,14 @@ void EditorPane::on_body_press(int n_press, double x, double y) {
         m_press->set_state(Gtk::EventSequenceState::CLAIMED);
         if (auto lg = log::get(log::Area::Editor)) lg->info("editor: ctrl+click follow {}", lk.target);
         m_sig_link.emit(lk.target);
+        return;
+    }
+    // s035: a #tag follows the same way, to the Tags view.
+    for (const auto& tg : m_scan.tags) {
+        if (off < tg.cp_begin || off >= tg.cp_end) continue;
+        m_press->set_state(Gtk::EventSequenceState::CLAIMED);
+        if (auto lg = log::get(log::Area::Editor)) lg->info("editor: ctrl+click tag #{}", tg.name);
+        m_sig_tag.emit(tg.name);
         return;
     }
 }
@@ -1336,6 +1394,17 @@ void EditorPane::render_reading() {
                       rb->get_iter_at_offset(sp.cp_end));
     }
 
+    // s035b: the tag line's band, mapped into the rendered text.
+    if (m_read_tagline_tag) {
+        const core::TagLine tl = core::find_tag_line(body->get_text(true).raw());
+        if (tl.found) {
+            auto lb = rb->get_iter_at_offset(core::rendered_cp(m_rendered, tl.cp_begin));
+            auto le = rb->get_iter_at_offset(core::rendered_cp(m_rendered, tl.cp_end));
+            if (!le.is_end()) le.forward_line();
+            rb->apply_tag(m_read_tagline_tag, lb, le);
+        }
+    }
+
     // Anchors from the END, so replacing one never disturbs the next. Each
     // is a placeholder deleted and an anchor created in the same place.
     for (auto a = m_rendered.anchors.rbegin(); a != m_rendered.anchors.rend(); ++a) {
@@ -1427,8 +1496,22 @@ void EditorPane::on_read_click(int n_press, double x, double y) {
                 m_sig_link.emit(lk.target);
                 return;
             }
+        // s035: a tag keeps its hash in Reading (core::render), so the rendered
+        // offset maps back to the source scan's tag ranges.
+        if (const std::string tg = tag_at_read(off); !tg.empty()) {
+            if (auto lg = log::get(log::Area::Editor)) lg->info("reading: tag #{}", tg);
+            m_sig_tag.emit(tg);
+        }
         return;
     }
+}
+
+std::string EditorPane::tag_at_read(int off) const {
+    if (off < 0) return {};
+    const int src = core::source_cp(m_rendered, off);
+    for (const auto& tg : m_scan.tags)
+        if (src >= tg.cp_begin && src < tg.cp_end) return tg.name;
+    return {};
 }
 
 void EditorPane::on_read_motion(double x, double y) {
@@ -1437,6 +1520,7 @@ void EditorPane::on_read_motion(double x, double y) {
     if (off >= 0) {
         for (const auto& bx : m_rendered.boxes) hot = hot || off == bx.cp;
         for (const auto& lk : m_rendered.links) hot = hot || (off >= lk.cp_begin && off < lk.cp_end);
+        hot = hot || !tag_at_read(off).empty();   // s035
     }
     // The C call: gtkmm 4.10 does not wrap set_cursor_from_name.
     gtk_widget_set_cursor_from_name(GTK_WIDGET(m_read.gobj()), hot ? "pointer" : "text");

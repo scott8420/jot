@@ -5,6 +5,7 @@
 #include "TreePane.hpp"
 #include "TodayPane.hpp"
 #include "InboxPane.hpp"
+#include "TagsPane.hpp"
 #include "core/Inbox.hpp"
 #include "Log.hpp"
 #include "core/Prefs.hpp"
@@ -254,6 +255,15 @@ void Shell::save_scratch(const std::string& target) {
     m_drawer->set_source(m_store.get(), &m_links);
     m_drawer->set_jots_dir(m_project ? m_project->dir() : std::string{});
     m_drawer->set_attach(attach_store());
+    // s035: the three list views and the task index follow the swap too. Until
+    // s035 only tree / editor / drawer were re-pointed here, so Today and the
+    // Inbox kept reading the store that had just been destroyed.
+    m_tasks.rebuild(*m_store);
+    m_today->set_source(m_store.get(), &m_tasks);
+    m_inbox->set_source(m_store.get());
+    m_tags->set_source(m_store.get());
+    queue_inbox_refresh();
+    queue_desktop_sync();
     note_recent(target);
     update_jots_title();
 
@@ -427,6 +437,15 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     m_drawer->set_source(m_store.get(), &m_links);
     m_drawer->set_jots_dir(m_project ? m_project->dir() : std::string{});
     m_drawer->set_attach(attach_store());
+    // s035: the three list views and the task index follow the swap too. Until
+    // s035 only tree / editor / drawer were re-pointed here, so Today and the
+    // Inbox kept reading the store that had just been destroyed.
+    m_tasks.rebuild(*m_store);
+    m_today->set_source(m_store.get(), &m_tasks);
+    m_inbox->set_source(m_store.get());
+    m_tags->set_source(m_store.get());
+    queue_inbox_refresh();
+    queue_desktop_sync();
     note_recent(dir);
     update_jots_title();
 
@@ -504,6 +523,24 @@ void Shell::queue_inbox_refresh() {  // helper: Inbox pane + count + greying, on
         if (m_act_clean_up) m_act_clean_up->set_enabled(c.ready > 0);
         update_note_actions();   // the In Inbox tick, if the selection's mark moved
     });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// queue_tags_refresh -- the Tags pane, debounced (s035).
+//
+// Tags live in BODIES, so unlike the Inbox a keystroke can change the pane:
+// typing #errands makes a chip. Every change re-arms a short timer, so a burst
+// of typing costs one rescan when it stops -- and only while the pane is the
+// one showing. Switching to it refreshes it at once (on_left_view), so a pane
+// that was skipped while hidden is never seen stale.
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::queue_tags_refresh() {  // helper: Tags pane, debounced, only while showing
+    if (!m_tags || m_left_stack.get_visible_child_name() != "tags") return;
+    m_tags_refresh.disconnect();
+    m_tags_refresh = Glib::signal_timeout().connect([this]() {
+        if (m_tags) m_tags->refresh();
+        return false;
+    }, 400);
 }
 
 std::string Shell::prefs_file() const {  // helper: XDG path for the layout pump

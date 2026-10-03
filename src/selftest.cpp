@@ -33,6 +33,7 @@
 #include "core/Inbox.hpp"
 #include "core/Filing.hpp"
 #include "core/CheatSheet.hpp"
+#include "core/Tags.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1186,6 +1187,206 @@ int main() {
         check("hotkey: a stranger's command is not mistaken for ours",
               !core::looks_like_capture_command("/usr/bin/scanner --capture") &&
                   !core::looks_like_capture_command("/opt/jot/jot --help"));
+    }
+
+
+    // -- Tags as contexts (s035): a filter over inline #tags --------------------
+    // The body is the source; these are queries. Pinned: case folds, nesting
+    // rolls up (and only downward), no inheritance, and a todo lands in exactly
+    // one of available / waiting / finished.
+    {
+        const std::int64_t now = 1'800'000'000;
+        check("tags: the key folds case and drops a trailing slash",
+              core::tag_key("Home/Garden/") == "home/garden" && core::tag_key("ERRANDS") == "errands");
+        check("tags: nested is under its parent",
+              core::tag_under("home/garden", "home") && core::tag_under("home", "home"));
+        check("tags: a longer word is not nested",
+              !core::tag_under("homework", "home") && !core::tag_under("home", "home/garden"));
+        check("tags: an empty filter matches nothing", !core::tag_under("home", ""));
+
+        // s036: the search over the chips. Folded like a key, matched anywhere,
+        // Enter picks the exact key or the lone match and nothing else.
+        check("tags search: the query folds case, spaces and leading #s",
+              core::tag_query("  ##HoMe/G ") == "home/g" && core::tag_query("") == "");
+        check("tags search: matches anywhere in the key",
+              core::tag_matches("home", "ho") && core::tag_matches("phone", "ho") &&
+              core::tag_matches("home/garden", "gard") && !core::tag_matches("errands", "ho"));
+        check("tags search: an empty query matches every chip",
+              core::tag_matches("errands", "") && core::tag_matches("", ""));
+        {
+            std::vector<core::TagInfo> L(4);
+            L[0].key = "errands"; L[1].key = "home"; L[2].key = "home/garden"; L[3].key = "phone";
+            check("tags search: Enter picks the lone match",
+                  core::tag_pick(L, "err") == "errands" && core::tag_pick(L, "#GARD") == "home/garden");
+            check("tags search: Enter picks the exact key over the others it also matches",
+                  core::tag_pick(L, "home") == "home" && core::tag_pick(L, "Home ") == "home");
+            check("tags search: several, none or empty picks nothing",
+                  core::tag_pick(L, "ho").empty() && core::tag_pick(L, "zzz").empty() &&
+                  core::tag_pick(L, "  #").empty() && core::tag_pick({}, "home").empty());
+        }
+
+        core::MemoryNodes m;
+        const auto proj = m.create("", "Saturday");
+        m.set_body(proj, "Things for the weekend #Errands");
+        m.set_status(proj, core::Status::Sequential);
+        const auto a = m.create(proj, "bank");
+        const auto b = m.create(proj, "hardware store");
+        for (const auto& id : {a, b}) m.make_task(id, true);
+        m.set_body(a, "deposit #errands #errands");          // twice: one tag
+        m.set_body(b, "screws #errands #home/garden");
+        const auto c = m.create("", "seeds");
+        m.make_task(c, true);
+        m.set_body(c, "#home/garden later");
+        m.set_defer(c, now + 86400 * 3);
+        const auto d = m.create("", "milk");
+        m.make_task(d, true);
+        m.set_body(d, "#errands");
+        m.set_done(d, true);
+        const auto e = m.create("", "plain note");
+        m.set_body(e, "about the `#notatag` and #Home");
+        const auto f = m.create("", "homework");
+        m.set_body(f, "#homework");
+
+        check("tags: a node's keys are deduped, folded, in text order", [&] {
+            const auto k = core::node_tag_keys(*m.find(b));
+            return k.size() == 2 && k[0] == "errands" && k[1] == "home/garden";
+        }());
+        check("tags: a hash in a code span is not a key",
+              core::node_tag_keys(*m.find(e)) == std::vector<std::string>{"home"});
+
+        const auto list = core::tag_list(m, now);
+        auto info = [&](const std::string& k) -> const core::TagInfo* {
+            for (const auto& t : list) if (t.key == k) return &t;
+            return nullptr;
+        };
+        check("tags: the list is sorted, parents before their nests", [&] {
+            std::vector<std::string> ks;
+            for (const auto& t : list) ks.push_back(t.key);
+            return ks == std::vector<std::string>{"errands", "home", "home/garden", "homework"};
+        }());
+        const auto* er = info("errands");
+        check("tags: the name is the first spelling in tree order",
+              er && er->name == "Errands");
+        check("tags: counts are distinct nodes -- one note, two todos open, one available",
+              er && er->notes == 1 && er->open == 2 && er->available == 1,
+              er ? std::to_string(er->notes) + "/" + std::to_string(er->open) + "/" +
+                       std::to_string(er->available) : "missing");
+        const auto* ho = info("home");
+        check("tags: a parent rolls up its nests", ho && ho->written && ho->notes == 1 && ho->open == 2);
+        const auto* hg = info("home/garden");
+        check("tags: a nest has depth 1", hg && hg->depth == 1 && hg->open == 2 && hg->available == 0);
+
+        auto mem = core::tag_members(m, "errands", now);
+        check("tags: available is the sequence's first step",
+              mem.available == std::vector<core::NodeId>{a});
+        check("tags: the second step waits", mem.waiting == std::vector<core::NodeId>{b});
+        check("tags: the project note is listed as a note", mem.notes == std::vector<core::NodeId>{proj});
+        check("tags: a done todo is counted, not listed", mem.finished == 1);
+        check("tags: the filter folds case too",
+              core::tag_members(m, "ERRANDS", now).available.size() == 1);
+
+        mem = core::tag_members(m, "home", now);
+        check("tags: #home shows #home/garden's nodes, in tree order",
+              mem.waiting == std::vector<core::NodeId>{b, c} &&
+                  mem.notes == std::vector<core::NodeId>{e});
+        check("tags: #home does not take #homework", [&] {
+            for (const auto& id : mem.notes) if (id == f) return false;
+            return true;
+        }());
+        mem = core::tag_members(m, "home/garden", now);
+        check("tags: #home/garden does not show plain #home", mem.notes.empty());
+
+        check("tags: no inheritance -- the project's tag is not its steps'", [&] {
+            m.set_body(a, "deposit");
+            const auto k = core::tag_members(m, "errands", now);
+            return k.available.empty() && k.notes == std::vector<core::NodeId>{proj};
+        }());
+        check("tags: why a todo waits",
+              core::waiting_reason(m, b, now).rfind("Blocked", 0) == 0 &&
+                  core::waiting_reason(m, c, now).rfind("Deferred until ", 0) == 0 &&
+                  core::waiting_reason(m, a, now).empty());
+
+        core::MemoryNodes empty;
+        check("tags: an empty folder has no tags", core::tag_list(empty, now).empty());
+    }
+
+
+    // -- The tag line (s035b): tags edited in Note details, kept as text -------
+    {
+        auto apply = [](std::string body, const core::FmtEdit& ed) {
+            // Codepoint offsets; these bodies are ASCII except where noted.
+            auto byte_at = [&](int cp) {
+                std::size_t i = 0; int c = 0;
+                while (i < body.size() && c < cp) {
+                    ++i;
+                    while (i < body.size() && (static_cast<unsigned char>(body[i]) & 0xC0) == 0x80) ++i;
+                    ++c;
+                }
+                return i;
+            };
+            const auto b = byte_at(ed.cp_begin), e = byte_at(ed.cp_end);
+            return body.substr(0, b) + ed.text + body.substr(e);
+        };
+        check("tagline: a last line of only tags is the tag line",
+              core::find_tag_line("Buy screws\n\n#errands #home/garden").found &&
+                  core::find_tag_line("Buy screws\n\n#errands #home/garden\n\n").names.size() == 2);
+        check("tagline: a sentence that mentions a tag is not",
+              !core::find_tag_line("Go to the shop #errands").found);
+        check("tagline: a heading is not", !core::find_tag_line("x\n\n# errands").found);
+        check("tagline: a tag inside code is not", !core::find_tag_line("x\n\n`#errands`").found);
+
+        check("tagline: clean drops the hash and spaces",
+              core::clean_tag_name("  #Home garden ") == "Home-garden");
+        check("tagline: clean refuses a digit start and junk",
+              core::clean_tag_name("#1st").empty() && core::clean_tag_name("a b!c").empty() &&
+                  core::clean_tag_name("   ").empty());
+        check("tagline: clean keeps nesting", core::clean_tag_name("home/garden/") == "home/garden");
+
+        std::string body = "Buy screws";
+        auto ed = core::tag_add_edit(body, "errands");
+        body = apply(body, ed);
+        check("tagline: the first add makes the line after a blank one",
+              ed.ok && body == "Buy screws\n\n#errands", body);
+        ed = core::tag_add_edit(body, "#home/garden");
+        body = apply(body, ed);
+        check("tagline: the next add joins the line", ed.ok && body == "Buy screws\n\n#errands #home/garden", body);
+        check("tagline: a tag already carried (any case) is not added again",
+              !core::tag_add_edit(body, "Errands").ok);
+        check("tagline: a tag in the text counts as carried",
+              !core::tag_add_edit("see #idea here", "idea").ok);
+        check("tagline: an add to a body ending in a newline makes one blank line",
+              apply("a\n", core::tag_add_edit("a\n", "x")) == "a\n\n#x");
+        check("tagline: an add to an empty body is just the line",
+              apply("", core::tag_add_edit("", "x")) == "#x" &&
+                  apply("\n\n", core::tag_add_edit("\n\n", "x")) == "#x");
+        check("tagline: an add puts the cursor after the new tag",
+              core::tag_add_edit("ab", "x").sel_begin == 6);
+        check("tagline: a list's last item keeps its own line",
+              apply("- [ ] one", core::tag_add_edit("- [ ] one", "x")) == "- [ ] one\n\n#x");
+
+        ed = core::tag_remove_edit(body, "ERRANDS");
+        body = apply(body, ed);
+        check("tagline: remove takes one tag, any case", ed.ok && body == "Buy screws\n\n#home/garden", body);
+        ed = core::tag_remove_edit(body, "home/garden");
+        body = apply(body, ed);
+        check("tagline: removing the last one takes the line and the blank before it",
+              ed.ok && body == "Buy screws", body);
+        check("tagline: a tag in the text is not removable from here",
+              !core::tag_remove_edit("see #idea here", "idea").ok);
+        check("tagline: a note of only a tag line empties",
+              apply("#a", core::tag_remove_edit("#a", "a")).empty());
+        check("tagline: offsets are codepoints",
+              apply("café", core::tag_add_edit("café", "x")) == "café\n\n#x");
+
+        // And the Tags view reads the line like any other text.
+        core::MemoryNodes m;
+        const auto n = m.create("", "n");
+        m.set_body(n, "Buy screws\n\n#errands");
+        m.make_task(n, true);
+        m.set_done(n, true);
+        const auto mem = core::tag_members(m, "errands", 1'800'000'000);
+        check("tagline: a done todo is in the Done list", mem.done == std::vector<core::NodeId>{n} &&
+                                                              mem.finished == 1);
     }
 
     std::cout << "-----------------------------------------------\n";

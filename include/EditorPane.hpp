@@ -67,6 +67,13 @@ public:
     // ARCHITECTURE warns about, wearing a smaller hat.
     void focus_capture();
     core::NodeId current() const { return m_id; }
+    // s035b: an edit to the body from OUTSIDE the text (Note details' tag
+    // field) -- one undo step, like typing it, and the cursor stays where you
+    // left it (moved along if the edit was before it). False when the note is
+    // not editable (protected, none loaded) or the edit is not ok.
+    bool apply_outside_edit(const core::FmtEdit& ed);
+    // The body as the buffer has it now, marks and all.
+    std::string body_text() const;
 
     // ── enclosures in (s016b) ───────────────────────────────────────────────
     // The editor RECOGNISES an image arriving -- a drop of files from Files, or
@@ -110,6 +117,9 @@ public:
     // A link's target, clicked in the reading view. The Shell knows what a
     // jot: link, an attachment and a web address each mean.
     sigc::signal<void(std::string)>& signal_link_activated() { return m_sig_link; }
+    // s035: a #tag clicked -- Ctrl+click in Source / Live, a plain click in
+    // Reading, the same gestures a link takes. The name, without the hash.
+    sigc::signal<void(std::string)>& signal_tag_activated() { return m_sig_tag; }
     // Where an image's bytes are, for a target as written (`attachments/p.png`,
     // `file:///...`). Empty = not ours to draw. Set by the Shell, which knows
     // the store.
@@ -201,6 +211,8 @@ private:
     Glib::RefPtr<Gtk::EventControllerMotion> m_read_motion;
     sigc::signal<void(int)>         m_sig_edit;
     sigc::signal<void(std::string)> m_sig_link;
+    sigc::signal<void(std::string)> m_sig_tag;    // s035
+    std::string tag_at_read(int rendered_cp) const;   // s035: the tag under a Reading offset, or ""
     std::function<std::string(const std::string&)> m_resolve;
 
     Glib::RefPtr<Gtk::GestureClick> m_click;
@@ -210,6 +222,9 @@ private:
     sigc::signal<void(std::string, int)>              m_sig_pasted;
     std::map<core::Style, Glib::RefPtr<Gtk::TextTag>> m_tags;
     Glib::RefPtr<Gtk::TextTag> m_codeblock_tag;   // s021b: Source's full-width tint on fenced lines
+    Glib::RefPtr<Gtk::TextTag> m_tagline_tag;     // s035b: the tag line's band, Live Preview only
+    Glib::RefPtr<Gtk::TextTag> m_read_tagline_tag;   // s035b: and in Reading
+    void apply_tagline();                         // s035b: band on / off by the view
 
     // s022: Live Preview. One `invisible` tag over the hidden marks; the lines
     // it last left bare, so a cursor move within them costs nothing.

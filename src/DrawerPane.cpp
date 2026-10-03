@@ -1,4 +1,5 @@
 #include "DrawerPane.hpp"
+#include "core/Tags.hpp"
 
 #include <cstdio>
 #include <functional>
@@ -93,7 +94,7 @@ constexpr SectionSpec kSections[] = {
     {"structure", "Structure",   true,  false},
     {"links",     "Links",       true,  true },
     {"backlinks", "Linked from", true,  true },
-    {"tags",      "Tags",        true,  true },
+    {"tags",      "Tags",        true,  false},   // s035b: always -- it holds the field
     {"enclosures","Enclosures",  true,  true },
     {"file",      "File",        false, false},
     {"identity",  "Identity",    false, false},
@@ -113,7 +114,11 @@ void install_section_css() {
         ".drawer-section-head { padding: 3px 4px 3px 0; min-height: 0; }"
         // s019: Modified on a linked enclosure. GTK's own theme has no label
         // .warning (libadwaita does); @warning_color is in both.
-        ".drawer-modified { color: @warning_color; }");
+        ".drawer-modified { color: @warning_color; }"
+        // s035: a tag chip -- a link-sized flat button, not a dialog button.
+        ".jot-drawer-tag { padding: 1px 4px; min-height: 0; min-width: 0;"
+        "  color: rgb(107, 143, 92); font-weight: 600; }"   // the editor's tag colour
+        ".jot-drawer-tag-x { padding: 0 4px; min-height: 0; min-width: 0; }");
     gtk_style_context_add_provider_for_display(
         display->gobj(), GTK_STYLE_PROVIDER(css->gobj()),
         GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -208,6 +213,7 @@ DrawerPane::DrawerPane(std::string_view name)
              &m_tags,     &m_enclosures, &m_file,  &m_identity};
 
     build_task_block();
+    build_tag_field();   // s035b
 
     // ── Identity: folded away, not removed ──────────────────────────────────
     // The uuid is a developer's correlation key -- it matches a line in the log
@@ -1173,25 +1179,173 @@ void DrawerPane::fill_backlinks(const core::Node& n) {
     if (m_backlinks.rows->get_first_child()) m_backlinks.frame->set_visible(true);
 }
 
-// Tags. READ-ONLY -- D4 is open and an editor is a commitment to a storage
-// location. What is drawn here is exactly what the body says, deduped.
+// Tags (s035b). Each tag the note carries, as a chip. A tag on the TAG LINE
+// (the note's last line, only tags) has an x -- Note details owns that line.
+// A tag written anywhere else is marked "in text": you remove it where you
+// wrote it. Clicking a chip's name opens the Tags view on it (s035).
 void DrawerPane::fill_tags(const core::Node& n) {
     const core::Scan sc = core::scan(n.body);
-    if (sc.tags.empty()) return;
+    const core::TagLine tl = core::find_tag_line(n.body);
 
-    std::vector<std::string> names;
-    for (const auto& t : sc.tags)
-        if (std::find(names.begin(), names.end(), t.name) == names.end())
-            names.push_back(t.name);
-
-    std::string line;
-    for (const auto& t : names) {
-        if (!line.empty()) line += "   ";
-        line += "#" + t;
+    std::vector<std::string> keys, names;
+    std::vector<bool> on_line;
+    for (const auto& t : sc.tags) {
+        const std::string k = core::tag_key(t.name);
+        if (k.empty() || std::find(keys.begin(), keys.end(), k) != keys.end()) continue;
+        keys.push_back(k);
+        names.push_back(t.name);
+        bool line = false;
+        if (tl.found)
+            for (const auto& ln : tl.names) line = line || core::tag_key(ln) == k;
+        on_line.push_back(line);
     }
-    m_tags.rows->append(*fact_row(line, false));
+    if (m_tag_entry) m_tag_entry->set_sensitive(!n.protect);
     set_count(m_tags, names.size());
     m_tags.frame->set_visible(true);
+    if (names.empty()) return;
+
+    auto* flow = Gtk::make_managed<widgets::FlowBox>(widgets::unregistered, "drawer.tags.flow");
+    flow->set_selection_mode(Gtk::SelectionMode::NONE);
+    flow->set_max_children_per_line(20);
+    flow->set_column_spacing(2);
+    flow->set_row_spacing(2);
+    flow->set_halign(Gtk::Align::START);
+    for (std::size_t i = 0; i < names.size(); ++i) {
+        auto* chip = Gtk::make_managed<widgets::Box>(widgets::unregistered,
+                                                     "drawer.tagchip." + keys[i],
+                                                     Gtk::Orientation::HORIZONTAL, 0);
+        chip->set_halign(Gtk::Align::START);
+        auto* b = Gtk::make_managed<widgets::Button>(widgets::unregistered,
+                                                     "drawer.tag." + keys[i]);
+        b->set_label("#" + names[i]);
+        b->set_has_frame(false);
+        b->add_css_class("jot-drawer-tag");
+        const std::string name = names[i];
+        b->signal_clicked().connect([this, name]() { m_sig_tag.emit(name); });
+        chip->append(*b);
+        if (on_line[i] && !n.protect) {
+            b->set_tooltip_text("Show everything tagged #" + name);
+            auto* x = Gtk::make_managed<widgets::Button>(widgets::unregistered,
+                                                         "drawer.tag_remove." + keys[i]);
+            x->set_label("×");
+            x->set_has_frame(false);
+            x->add_css_class("jot-drawer-tag-x");
+            x->set_tooltip_text("Take #" + name + " off this note");
+            x->signal_clicked().connect([this, name]() { m_sig_tag_remove.emit(name); });
+            chip->append(*x);
+        } else {
+            b->set_tooltip_text(on_line[i] ? "Show everything tagged #" + name
+                                           : "Written in the text -- remove it there.\n"
+                                             "Click to show everything tagged #" + name);
+            if (!on_line[i]) {
+                auto* where = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                                "drawer.tag_intext." + keys[i]);
+                where->set_text("in text");
+                where->add_css_class("dim-label");
+                where->add_css_class("caption");
+                chip->append(*where);
+            }
+        }
+        flow->append(*chip);
+    }
+    m_tags.rows->append(*flow);
+}
+
+// s035b. The field under the chips: type a tag and press Enter, or pick one
+// from the list of every tag in the folder (the ▾). The same shape as the
+// Repeat field (s033b), entry and list joined.
+void DrawerPane::build_tag_field() {
+    m_tag_add_row = Gtk::make_managed<widgets::Box>("drawer.tag_add_row",
+                                                    Gtk::Orientation::HORIZONTAL, 0);
+    m_tag_add_row->add_css_class("linked");
+    m_tag_add_row->set_margin_top(4);
+    m_tag_entry = Gtk::make_managed<widgets::Entry>("drawer.tag_entry");
+    m_tag_entry->set_placeholder_text("Add a tag…");
+    m_tag_entry->set_tooltip_text("Type a tag and press Enter, or pick one from the list. "
+                                  "It goes on the note's tag line, at the bottom.");
+    m_tag_entry->set_hexpand(true);
+    m_tag_entry->signal_activate().connect([this]() { commit_tag_entry(); });
+    m_tag_entry->signal_changed().connect([this]() { m_tag_entry->remove_css_class("error"); });
+    m_tag_add_row->append(*m_tag_entry);
+
+    auto* mb = Gtk::make_managed<widgets::MenuButton>("drawer.tag_pick");
+    mb->set_icon_name("pan-down-symbolic");
+    mb->set_tooltip_text("Pick one of your tags");
+    m_tag_pick_pop = Gtk::make_managed<widgets::Popover>("drawer.tag_pick.popover");
+    auto* scroll = Gtk::make_managed<widgets::ScrolledWindow>("drawer.tag_pick.scroll");
+    scroll->set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
+    scroll->set_propagate_natural_height(true);
+    scroll->set_max_content_height(320);
+    m_tag_pick_col = Gtk::make_managed<widgets::Box>("drawer.tag_pick.column",
+                                                     Gtk::Orientation::VERTICAL, 0);
+    m_tag_pick_col->set_margin(4);
+    scroll->set_child(*m_tag_pick_col);
+    m_tag_pick_pop->set_child(*scroll);
+    // Filled each time it opens: the folder's tags change as you type notes,
+    // and what is in the field narrows the list.
+    m_tag_pick_pop->signal_show().connect([this]() { fill_tag_picks(); });
+    mb->set_popover(*m_tag_pick_pop);
+    m_tag_add_row->append(*mb);
+
+    m_tags.body->append(*m_tag_add_row);
+}
+
+void DrawerPane::fill_tag_picks() {
+    while (auto* c = m_tag_pick_col->get_first_child()) m_tag_pick_col->remove(*c);
+    if (!m_src) return;
+    const core::Node* n = m_src->find(m_id);
+    std::vector<std::string> mine;
+    if (n) mine = core::node_tag_keys(*n);
+    std::string want = core::tag_key(core::clean_tag_name(std::string(m_tag_entry->get_text())));
+
+    int shown = 0;
+    for (const auto& t : core::tag_list(*m_src, static_cast<std::int64_t>(std::time(nullptr)))) {
+        if (std::find(mine.begin(), mine.end(), t.key) != mine.end()) continue;
+        // s035b: only tags someone WROTE. #home/garden is one entry, not two --
+        // its implied parent #home is a way to browse (the Tags tab), not a
+        // tag to hand out.
+        if (!t.written) continue;
+        if (!want.empty() && t.key.find(want) == std::string::npos) continue;
+        auto* b = Gtk::make_managed<widgets::Button>(widgets::unregistered,
+                                                     "drawer.tag_pick." + t.key);
+        b->set_has_frame(false);
+        auto* l = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                    "drawer.tag_pick.l." + t.key);
+        l->set_text("#" + t.name);
+        l->set_xalign(0.0f);
+        b->set_child(*l);
+        const std::string name = t.name;
+        b->signal_clicked().connect([this, name]() {
+            m_tag_pick_pop->popdown();
+            m_tag_entry->set_text("");
+            m_sig_tag_add.emit(name);
+        });
+        m_tag_pick_col->append(*b);
+        ++shown;
+    }
+    if (shown == 0) {
+        auto* l = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.tag_pick.none");
+        l->set_text(want.empty() ? "No other tags yet.\nType one and press Enter."
+                                 : "No tag like that yet.\nPress Enter to make it.");
+        l->add_css_class("dim-label");
+        l->set_margin(8);
+        m_tag_pick_col->append(*l);
+    }
+}
+
+void DrawerPane::commit_tag_entry() {
+    if (m_loading || !m_src || m_id.empty()) return;
+    const std::string typed = m_tag_entry->get_text();
+    if (typed.find_first_not_of(" \t#") == std::string::npos) { m_tag_entry->set_text(""); return; }
+    const std::string name = core::clean_tag_name(typed);
+    if (name.empty()) {
+        // Same contract as the date fields: red, nothing written.
+        m_tag_entry->add_css_class("error");
+        m_tag_entry->set_tooltip_text("A tag starts with a letter; then letters, digits, - _ or /");
+        return;
+    }
+    m_tag_entry->set_text("");
+    m_sig_tag_add.emit(name);
 }
 
 // Where the note sits. This is what the s005 status line carried, and the

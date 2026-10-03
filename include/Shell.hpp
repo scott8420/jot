@@ -74,6 +74,7 @@ class EditorPane;
 class DrawerPane;
 class TodayPane;
 class InboxPane;
+class TagsPane;
 
 class Shell : public Gtk::ApplicationWindow {
 public:
@@ -142,7 +143,10 @@ private:
     void on_toggle_done();                       // category: handler: tick/untick the selection
     void on_toggle_flag();                       // category: handler: flag/unflag the selection
     void on_rename_note();                       // category: handler: rename in the tree (F2)
-    void on_left_view(const Glib::ustring& which);  // category: handler: Notes | Inbox | Today
+    void on_left_view(const Glib::ustring& which);  // category: handler: Notes | Inbox | Today | Tags
+    void on_show_tag(const std::string& tag);   // category: handler: s035 a #tag clicked -> the Tags view, picked
+    void on_show_tags();                         // category: handler: s035 Ctrl+Shift+T -> the Tags view
+    void on_tag_edit(bool add, const std::string& name);  // category: handler: s035b Note details adds / removes on the tag line
     void on_clean_up();                          // category: handler: s028 clear processed Inbox marks
     void on_project_state(const Glib::ustring& which);   // category: handler: s031 Active / On hold / Completed / Dropped
     void on_toggle_inbox();                      // category: handler: s028 the selection in / out of the Inbox
@@ -228,6 +232,7 @@ private:
     void queue_drawer_refresh();                 // category: helper: coalesce index + drawer to one idle
     void queue_tree_rebuild();                   // category: helper: rebuild the tree on an idle, never inside a gesture
     void queue_inbox_refresh();                  // category: helper: s028 Inbox pane + tab count + Clean Up greying, on an idle
+    void queue_tags_refresh();                   // category: helper: s035 the Tags pane, debounced, only while it is showing
     void remember_window_geometry();             // category: helper: size + maximized -> prefs, at close
     void refresh_tasks(bool rebuild_index, const core::NodeId& id = {});  // category: helper: ONE writer for the task index + Today
     void queue_desktop_sync();                   // category: helper: arm the debounce; the only way a sync starts
@@ -286,6 +291,7 @@ private:
     widgets::ToggleButton       m_tab_notes;
     widgets::ToggleButton       m_tab_inbox;     // s028
     widgets::ToggleButton       m_tab_today;
+    widgets::ToggleButton       m_tab_tags;      // s035
     widgets::Stack              m_left_stack;
 
     widgets::Paned              m_paned_left;
@@ -295,6 +301,7 @@ private:
     std::unique_ptr<DrawerPane> m_drawer;
     std::unique_ptr<TodayPane>  m_today;
     std::unique_ptr<InboxPane>  m_inbox;      // s028
+    std::unique_ptr<TagsPane>   m_tags;       // s035
 
     // The two toggles. BOTH OFF is the focus mode -- the note alone on screen,
     // which is the front door ARCHITECTURE describes. They are held so
@@ -322,6 +329,7 @@ private:
     bool m_drawer_refresh_queued = false;
     bool m_tree_rebuild_queued   = false;
     bool m_inbox_refresh_queued  = false;   // s028
+    sigc::connection m_tags_refresh;         // s035: the debounce; tags live in bodies, so keystrokes count
 
     // Which nodes are todos, in document order. Owned here for the same reason
     // the link index is: the Shell is the only thing that sees every write.

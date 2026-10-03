@@ -95,6 +95,7 @@ add_library(jot_core STATIC
     # s028: what is waiting to be processed, and Clean Up. A query over a mark,
     # not a place -- the node stays where it is in the tree.
     src/core/Inbox.cpp
+    src/core/Tags.cpp
     # s029: where a note can go -- the legal targets "Move to..." offers,
     # ranked for what was typed. The model decides legality, not the picker.
     src/core/Filing.cpp
@@ -197,6 +198,8 @@ add_executable(jot
     src/TodayPane.cpp
     # s028. What is waiting to be processed; a query over the Inbox mark.
     src/InboxPane.cpp
+    # s035: tags as contexts -- chips over core::tag_list, rows over tag_members.
+    src/TagsPane.cpp
     # s029. "Move to...": a picker you type into, over core/Filing.
     src/MoveDialog.cpp
     src/Shell_zones.cpp

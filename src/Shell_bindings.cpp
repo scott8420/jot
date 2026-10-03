@@ -5,6 +5,7 @@
 #include "TreePane.hpp"
 #include "TodayPane.hpp"
 #include "InboxPane.hpp"
+#include "TagsPane.hpp"
 #include "Log.hpp"
 #include "core/Recents.hpp"
 
@@ -107,6 +108,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // s029. Move to...: the selection's picker. The Inbox rows reach the same
     // picker through signal_move, for the row's own note.
     m_act_move_to = add_action("move-to", sigc::mem_fun(*this, &Shell::on_move_to));
+    add_action("show-tags", sigc::mem_fun(*this, &Shell::on_show_tags));   // s035
     // s031. Where the selected project stands. A stateful STRING, like
     // left-view, so the note menu draws four radio items and the dot sits on
     // the state the model reports (update_note_actions is the only writer).
@@ -164,6 +166,11 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     m_today->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));
     m_inbox->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));   // s028
     m_inbox->signal_move().connect(sigc::mem_fun(*this, &Shell::open_move));      // s029
+    m_tags->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));    // s035
+    m_drawer->signal_tag().connect(sigc::mem_fun(*this, &Shell::on_show_tag));    // s035
+    m_drawer->signal_tag_add().connect([this](std::string n) { on_tag_edit(true, n); });      // s035b
+    m_drawer->signal_tag_remove().connect([this](std::string n) { on_tag_edit(false, n); });  // s035b
+    m_editor->signal_tag_activated().connect(sigc::mem_fun(*this, &Shell::on_show_tag));   // s035
     // The footer used to carry three check boxes that asked these actions to
     // flip. s016a moved the switches to Preferences alone; the footer keeps the
     // status lines and a button onto win.preferences, so there is nothing here

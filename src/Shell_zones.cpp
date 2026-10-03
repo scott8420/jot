@@ -4,6 +4,7 @@
 #include "TreePane.hpp"
 #include "TodayPane.hpp"
 #include "InboxPane.hpp"
+#include "TagsPane.hpp"
 #include "Log.hpp"
 #include "Menus.hpp"
 
@@ -213,9 +214,18 @@ void Shell::build_left_pane() {  // zone: Notes | Today
     m_tab_today.set_tooltip_text("What is actually available to do");
     m_left_tabs.append(m_tab_today);
 
+    // s035. Tags as contexts: pick a #tag, see what you can do there.
+    m_tab_tags.set_label("Tags");
+    m_tab_tags.set_hexpand(true);
+    m_tab_tags.set_action_name("win.left-view");
+    m_tab_tags.set_action_target_value(Glib::Variant<Glib::ustring>::create("tags"));
+    m_tab_tags.set_tooltip_text("Pick a #tag: its todos and notes from all over (Ctrl+Shift+T)");
+    m_left_tabs.append(m_tab_tags);
+
     m_left_stack.add(*m_tree,  "notes");
     m_left_stack.add(*m_inbox, "inbox");
     m_left_stack.add(*m_today, "today");
+    m_left_stack.add(*m_tags,  "tags");    // s035
     m_left_stack.set_vexpand(true);
     m_left_stack.set_transition_type(Gtk::StackTransitionType::CROSSFADE);
     m_left_stack.set_transition_duration(120);
@@ -389,6 +399,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     view->append("Notes", "win.left-view::notes");
     view->append("Inbox", "win.left-view::inbox");
     view->append("Today", "win.left-view::today");
+    view->append("Tags", "win.left-view::tags");     // s035
     view->append("Clean Up Inbox", "win.clean-up");   // s028
     auto panes = Gio::Menu::create();
     panes->append("Side pane", "win.toggle-tree");

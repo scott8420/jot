@@ -196,7 +196,10 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         // twin is listed FIRST because a menu shows only the first accel, and
         // the menu should show the key that works on the machine jot runs on.
         {"View", "win.toggle-tree",     {"<Ctrl>bracketleft", "F9"}, "",
-         "Show or hide the side pane (Notes and Today)"},
+         "Show or hide the side pane (Notes, Inbox, Today, Tags)"},
+        // s035: tags as contexts. Picks the note's first tag if none is picked.
+        {"View", "win.show-tags",       {"<Ctrl><Shift>t"}, "",
+         "Tags: everything with a #tag, todos first"},
         {"View", "win.toggle-drawer",   {"<Ctrl>bracketright", "F10"}, "",
          "Show or hide note details"},
         // s021: Obsidian's key for the same flip. No F-key twin needed.

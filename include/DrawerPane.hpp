@@ -33,10 +33,9 @@
 //                  which the Shell owns and keeps current, because the answer
 //                  lives in every OTHER note's body and cannot be computed
 //                  from the one in front of you.
-//   Tags        -- READ-ONLY. D4 (where GTD state lives) is open, and an editor
-//                  is a commitment to a storage location. Showing what the body
-//                  already says commits nothing and is the cheapest way to look
-//                  at inline tags before deciding whether they are the answer.
+//   Tags        -- READ-ONLY: the body is the source (Scott, Oct 2026 -- inline
+//                  #tags, the Obsidian way). s035: each tag is a chip; a click
+//                  emits signal_tag and the Shell opens the Tags view on it.
 //   Structure   -- the parent's TITLE, the child count, the protected state.
 //                  This is what the s005 status line carried, and the status
 //                  line retires here rather than earlier: it existed to prove a
@@ -138,6 +137,13 @@ public:
     // "Copy link to this note" was pressed. The Shell owns the clipboard,
     // because a clipboard is a window-level thing.
     sigc::signal<void(core::NodeId)>& signal_copy_link() { return m_sig_copy_link; }
+    // s035: a tag chip clicked -- the tag's name as written, without the hash.
+    sigc::signal<void(std::string)>& signal_tag() { return m_sig_tag; }
+    // s035b: the tag field. A NAME already cleaned (core::clean_tag_name);
+    // the Shell turns it into an edit of the tag line, through the editor so
+    // it is one undo step.
+    sigc::signal<void(std::string)>& signal_tag_add()    { return m_sig_tag_add; }
+    sigc::signal<void(std::string)>& signal_tag_remove() { return m_sig_tag_remove; }
 
 private:
     // One collapsible section (s016a). The header is a flat button: arrow,
@@ -293,6 +299,19 @@ private:
     widgets::Button   m_copy_link;
 
     sigc::signal<void(core::NodeId)> m_sig_goto;
+    sigc::signal<void(std::string)>  m_sig_tag;   // s035
+    sigc::signal<void(std::string)>  m_sig_tag_add;      // s035b
+    sigc::signal<void(std::string)>  m_sig_tag_remove;   // s035b
+    // s035b: the add row lives in the Tags section's BODY, under its rows, and
+    // is HELD -- the rows are rebuilt on every refresh, and a field rebuilt
+    // under your typing would lose the focus and the text.
+    widgets::Box*     m_tag_add_row   = nullptr;
+    widgets::Entry*   m_tag_entry     = nullptr;
+    widgets::Box*     m_tag_pick_col  = nullptr;
+    widgets::Popover* m_tag_pick_pop  = nullptr;
+    void build_tag_field();
+    void fill_tag_picks();
+    void commit_tag_entry();
     sigc::signal<void(core::NodeId)> m_sig_copy_link;
     sigc::signal<void(std::string, bool)> m_sig_section;
     sigc::signal<void(std::string, std::string)> m_sig_enclosure;

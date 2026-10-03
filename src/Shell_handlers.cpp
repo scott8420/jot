@@ -8,7 +8,9 @@
 #include "TreePane.hpp"
 #include "TodayPane.hpp"
 #include "InboxPane.hpp"
+#include "TagsPane.hpp"
 #include "core/Inbox.hpp"
+#include "core/Tags.hpp"
 #include "core/Filing.hpp"
 #include "Log.hpp"
 #include "Registry.hpp"
@@ -110,19 +112,70 @@ void Shell::on_toggle_flag() {  // handler: flag/unflag the selection
 void Shell::on_rename_note() {  // handler: rename in the tree
     const auto id = m_tree->selected();
     if (id.empty()) return;
-    if (m_act_left_view) m_act_left_view->change_state(Glib::ustring("notes"));
+    on_left_view("notes");   // s035: was change_state, which lit the tab but left the stack where it was
     m_tree->begin_rename(id);
 }
 
 // Notes <-> Today. The action holds the state; this is the one writer of what
 // the stack shows, which is why the tab buttons and the menu items cannot
 // disagree about which view is up.
-void Shell::on_left_view(const Glib::ustring& which) {  // handler: Notes | Inbox | Today
+void Shell::on_left_view(const Glib::ustring& which) {  // handler: Notes | Inbox | Today | Tags
     if (m_act_left_view) m_act_left_view->set_state(Glib::Variant<Glib::ustring>::create(which));
-    const Glib::ustring page = (which == "today" || which == "inbox") ? which : "notes";
+    const Glib::ustring page =
+        (which == "today" || which == "inbox" || which == "tags") ? which : "notes";
     m_left_stack.set_visible_child(page);
     if (page == "today") m_today->refresh();   // it may have been away a while
     if (page == "inbox") m_inbox->refresh();   // ages ("3 h ago") move with the clock
+    if (page == "tags")  m_tags->refresh();    // s035: skipped while hidden, so never stale here
+}
+
+// s035. Ctrl+Shift+T: the Tags view, side pane shown if it was hidden. If the
+// note you are on carries a tag and nothing is picked yet, its first tag is
+// picked -- "show me this note's context" is why you pressed it from a note.
+void Shell::on_show_tags() {  // handler: Ctrl+Shift+T
+    // s036: pressed again while Tags is up, or with nothing to pick for you,
+    // it lands in the search over the chips -- the next thing you would do.
+    const bool was_up = m_prefs.show_tree && m_left_stack.get_visible_child_name() == "tags";
+    if (m_tags->selected().empty())
+        if (const core::Node* n = m_store->find(m_editor->current())) {
+            const auto keys = core::node_tag_keys(*n);
+            if (!keys.empty()) m_tags->select(keys.front());
+        }
+    if (!m_prefs.show_tree) {
+        m_prefs.show_tree = true;
+        apply_layout_state();
+    }
+    on_left_view("tags");   // the one writer of what the stack shows
+    if (was_up || m_tags->selected().empty()) m_tags->focus_search();
+}
+
+// s035b. Note details' tag field. core writes the edit to the tag line; the
+// EDITOR applies it, so it is one undo step like typing and the cursor stays
+// put. The body comes from the editor's buffer, not the store, so an edit
+// typed a moment ago and not yet written through is not lost.
+void Shell::on_tag_edit(bool add, const std::string& name) {  // handler: tag field
+    const core::NodeId id = m_editor->current();
+    if (id.empty() || !m_store->find(id)) return;
+    const std::string body = m_editor->body_text();
+    const core::FmtEdit ed = add ? core::tag_add_edit(body, name) : core::tag_remove_edit(body, name);
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("tag {} #{} on {}: {}", add ? "add" : "remove", name, id,
+                 ed.ok ? "edit" : "nothing to do");
+    if (!ed.ok) return;   // already carried, or not on the line: nothing to change
+    m_editor->apply_outside_edit(ed);
+    queue_drawer_refresh();
+}
+
+// s035. A #tag clicked -- in the drawer, Ctrl+click in the note, a plain click
+// in Reading. The Tags view comes up with that tag picked.
+void Shell::on_show_tag(const std::string& tag) {  // handler: a tag clicked
+    if (auto lg = log::get(log::Area::Shell)) lg->info("show tag #{}", tag);
+    m_tags->select(tag);
+    if (!m_prefs.show_tree) {
+        m_prefs.show_tree = true;
+        apply_layout_state();
+    }
+    on_left_view("tags");   // the one writer of what the stack shows
 }
 
 // s028. Clean Up: every processed Inbox mark cleared, in one go. core decides
@@ -229,6 +282,9 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
     // s028: any change but a keystroke can change the Inbox -- a capture, a
     // move (filed), a tick (done), a rename, the mark itself.
     if (what != C::Body) queue_inbox_refresh();
+    // s035: tags are in bodies, so every change counts -- debounced, and only
+    // while the Tags view is the one showing.
+    queue_tags_refresh();
 
     switch (what) {
         case C::Reload:
