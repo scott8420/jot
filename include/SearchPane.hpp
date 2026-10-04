@@ -26,6 +26,8 @@ public:
     explicit SearchPane(std::string_view name);
 
     void set_source(core::NodeSource* src);
+    // s038b: the saved perspectives, so the summary can name the one showing.
+    void set_perspectives(const std::vector<core::Perspective>* list) { m_persp = list; }
     void set_query(const std::string& q);   // re-runs the search
     void refresh();                         // same query, the model changed
     const std::string& query() const { return m_query; }
@@ -39,6 +41,7 @@ private:
     Gtk::Widget* hit_row(const core::SearchHit& h);
 
     core::NodeSource* m_src = nullptr;
+    const std::vector<core::Perspective>* m_persp = nullptr;   // s038b
     std::string       m_query;
     std::vector<core::SearchHit> m_hits;
 

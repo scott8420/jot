@@ -28,6 +28,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 namespace jot::core {
 
+// s038b: a saved Find query under a name -- OmniFocus's perspective. The query
+// is the whole of it (core/Search reads it); the name is how you ask for it.
+struct Perspective {
+    std::string name;
+    std::string query;
+    bool operator==(const Perspective&) const = default;
+};
+
 struct Prefs {
     // The two toggles. Both false is the FOCUS MODE -- the note alone on
     // screen, which is the front door ARCHITECTURE describes rather than a side
@@ -102,6 +110,12 @@ struct Prefs {
     // folder that is moved or renamed starts a fresh Recent; a deleted note
     // is filtered out when the picker reads the list (core::recent_targets).
     std::map<std::string, std::vector<std::string>> move_recent;
+
+    // s038b: perspectives -- named Find queries, sorted by name. APP-WIDE, not
+    // per jots folder: a query is words, tags and states, none of which is an
+    // id, so "Errands: #errands is:available" means the same in every folder
+    // and a second folder should not start without it.
+    std::vector<Perspective> perspectives;
 
     // ── the window itself ──────────────────────────────────────────────────
     // SIZE AND MAXIMIZED ONLY, AND NOT POSITION. GTK4 removed window

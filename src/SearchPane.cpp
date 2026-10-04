@@ -99,16 +99,28 @@ Gtk::Widget* SearchPane::hit_row(const core::SearchHit& h) {
 void SearchPane::refresh() {
     while (auto* c = m_column.get_first_child()) m_column.remove(*c);
     m_hits.clear();
-    if (!m_src || core::search_words(m_query).empty()) {
+    if (!m_src || !core::query_active(m_query)) {
         m_summary.set_text("");
         return;
     }
+    // s038b. A heading line when the query is more than words: the saved
+    // name if it is one, and how jot reads it -- so a filter typed by hand
+    // shows what it was taken to mean.
+    std::string head;
+    if (m_persp)
+        if (const core::Perspective* p = core::perspective_for(*m_persp, m_query))
+            head = "★ " + p->name;
+    const std::string reads = core::describe_query(m_query);
+    if (!reads.empty()) head += head.empty() ? reads : "  ·  " + reads;
+    if (!head.empty()) head += "\n";
+
     m_hits = core::search(*m_src, m_query, kCap);
     if (m_hits.empty()) {
         std::string q = m_query;   // as typed, minus the edge spaces a quote would show
         while (!q.empty() && q.front() == ' ') q.erase(q.begin());
         while (!q.empty() && q.back() == ' ') q.pop_back();
-        m_summary.set_text("No note has every word of “" + q + "”.  Esc clears.");
+        m_summary.set_text(head + (reads.empty() ? "No note has every word of “" + q + "”.  Esc clears."
+                                                 : std::string("Nothing matches.  Esc clears.")));
         return;
     }
     std::string s = m_hits.size() == 1 ? std::string("1 note") : std::to_string(m_hits.size()) + " notes";
@@ -116,7 +128,7 @@ void SearchPane::refresh() {
         const std::size_t all = core::search_count(*m_src, m_query);
         if (all > kCap) s = "The first " + std::to_string(kCap) + " of " + std::to_string(all) + " notes";
     }
-    m_summary.set_text(s + "  ·  Enter opens the first; Esc goes back to the tree");
+    m_summary.set_text(head + s + "  ·  Enter opens the first; Esc goes back to the tree");
     for (const auto& h : m_hits) m_column.append(*hit_row(h));
     if (auto lg = log::get(log::Area::Shell))
         lg->debug("search '{}': {} hits", m_query, m_hits.size());

@@ -11,6 +11,7 @@
 #include "TagsPane.hpp"
 #include "ProjectsPane.hpp"
 #include "SearchPane.hpp"
+#include "PerspectiveDialog.hpp"
 #include "core/Inbox.hpp"
 #include "core/Tags.hpp"
 #include "core/Review.hpp"
@@ -146,6 +147,75 @@ void Shell::on_find() {  // handler: Ctrl+F
     on_left_view("notes");
     m_find.grab_focus();
     m_find.select_region(0, -1);
+}
+
+// s038b. The filter menu's three controls each rewrite the field's text;
+// the results and the menu follow from the text (set_find_text). The Notes
+// tab comes forward, because the results are where the filter is seen.
+void Shell::on_find_show(const Glib::ustring& show) {  // handler: Show: ...
+    on_find();
+    set_find_text(core::query_set_show(m_find.get_text().raw(), show.raw()));
+}
+
+void Shell::on_find_due(const Glib::ustring& due) {  // handler: Due: ...
+    on_find();
+    set_find_text(core::query_set_due(m_find.get_text().raw(), due.raw()));
+}
+
+void Shell::on_find_flagged() {  // handler: Flagged only
+    on_find();
+    const std::string q = m_find.get_text().raw();
+    set_find_text(core::query_set_flagged(q, !core::query_flagged(q)));
+}
+
+// s038b. A perspective is its query: put it in the field and the results are
+// the view. Nothing else is remembered -- edit the text and it is a new query
+// (Save again to keep it under the same name).
+void Shell::on_open_perspective(const std::string& name) {  // handler: a perspective
+    const core::Perspective* p = core::perspective_named(m_prefs.perspectives, name);
+    if (!p) return;
+    on_find();
+    set_find_text(p->query);
+    if (auto lg = log::get(log::Area::Shell)) lg->info("perspective '{}': {}", p->name, p->query);
+}
+
+// s038b. Save as Perspective...: the field's text under a name. The name
+// offered is the one it already has, if it is a saved query, so "Save" after
+// a tweak is "Replace".
+void Shell::on_save_perspective() {  // handler: Save as Perspective...
+    const std::string q = m_find.get_text().raw();
+    if (!core::query_active(q)) return;   // greyed in the menu; Ctrl+J could still reach here
+    std::string suggested;
+    if (const core::Perspective* p = core::perspective_for(m_prefs.perspectives, q)) suggested = p->name;
+    m_persp_dialog.reset();
+    m_persp_dialog = std::make_unique<PerspectiveDialog>(
+        *this, q, core::describe_query(q), suggested,
+        [this](const std::string& n) { return core::perspective_named(m_prefs.perspectives, n) != nullptr; },
+        [this, q](const std::string& name) {
+            if (!core::perspective_save(m_prefs.perspectives, name, q)) return;
+            core::save_prefs(m_prefs_file, m_prefs);   // now, not at quit
+            build_find_menu();
+            if (m_search) m_search->refresh();          // the summary names it
+            if (auto lg = log::get(log::Area::Shell)) lg->info("perspective saved '{}': {}", name, q);
+        });
+    m_persp_dialog->present();
+}
+
+void Shell::on_delete_perspective() {  // handler: Delete This Perspective
+    const core::Perspective* p = core::perspective_for(m_prefs.perspectives, m_find.get_text().raw());
+    if (!p) return;
+    const std::string name = p->name;
+    core::perspective_remove(m_prefs.perspectives, name);
+    core::save_prefs(m_prefs_file, m_prefs);
+    build_find_menu();
+    if (m_search) m_search->refresh();   // the query stays in the field: Save brings it back
+    if (auto lg = log::get(log::Area::Shell)) lg->info("perspective deleted '{}'", name);
+}
+
+// s038b. Ctrl+J: the Find field, and its filter menu open on it.
+void Shell::on_perspectives() {  // handler: Ctrl+J
+    on_find();
+    m_find_menu.popup();
 }
 
 // s038. A search hit: open the note, the first match selected and in view.

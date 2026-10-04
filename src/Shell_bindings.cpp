@@ -115,6 +115,26 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     m_act_move_to = add_action("move-to", sigc::mem_fun(*this, &Shell::on_move_to));
     add_action("show-tags", sigc::mem_fun(*this, &Shell::on_show_tags));   // s035
     add_action("find", sigc::mem_fun(*this, &Shell::on_find));   // s038
+    // s038b. The filter menu. Show and Due are radios, Flagged a check -- all
+    // three set from the field's text by sync_find_actions(), and each writes
+    // the text, never a state of its own.
+    m_act_find_show = add_action_radio_string(
+        "find-show", sigc::mem_fun(*this, &Shell::on_find_show), "");
+    m_act_find_due = add_action_radio_string(
+        "find-due", sigc::mem_fun(*this, &Shell::on_find_due), "");
+    m_act_find_flagged = add_action_bool(
+        "find-flagged", sigc::mem_fun(*this, &Shell::on_find_flagged), false);
+    add_action_with_parameter(
+        "find-open", Glib::Variant<Glib::ustring>::variant_type(),
+        [this](const Glib::VariantBase& param) {
+            on_open_perspective(
+                Glib::VariantBase::cast_dynamic<Glib::Variant<Glib::ustring>>(param).get());
+        });
+    m_act_find_save = add_action("find-save", sigc::mem_fun(*this, &Shell::on_save_perspective));
+    m_act_find_save->set_enabled(false);
+    m_act_find_delete = add_action("find-delete", sigc::mem_fun(*this, &Shell::on_delete_perspective));
+    m_act_find_delete->set_enabled(false);
+    add_action("perspectives", sigc::mem_fun(*this, &Shell::on_perspectives));   // s038b Ctrl+J
     add_action("show-projects", sigc::mem_fun(*this, &Shell::on_show_projects));   // s037
     m_act_mark_reviewed = add_action("mark-reviewed", sigc::mem_fun(*this, &Shell::on_mark_reviewed));
     // s031. Where the selected project stands. A stateful STRING, like

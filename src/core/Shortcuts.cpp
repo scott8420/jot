@@ -212,6 +212,9 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         // text view binds it.
         {"View", "win.find",            {"<Ctrl>f"}, "",
          "Find: every note with these words, in its name or text"},
+        // s038b: perspectives -- J for jump. Nothing in a text view binds it.
+        {"View", "win.perspectives",    {"<Ctrl>j"}, "",
+         "Perspectives: the Find field's filter menu, open"},
         // s037: Review. P for Projects; pressed again, Review <-> All projects.
         {"View", "win.show-projects",   {"<Ctrl><Shift>p"}, "",
          "Projects: the ones due a review, or all of them by state"},

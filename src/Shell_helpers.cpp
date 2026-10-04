@@ -8,6 +8,7 @@
 #include "TagsPane.hpp"
 #include "ProjectsPane.hpp"
 #include "SearchPane.hpp"
+#include "core/Search.hpp"
 #include "core/Review.hpp"
 #include "core/Inbox.hpp"
 #include "Log.hpp"
@@ -562,6 +563,87 @@ void Shell::end_search() {  // helper: the Find field emptied, the tree back
     if (!m_find.get_text().empty()) m_find.set_text("");
     if (m_search) m_search->set_query("");
     m_notes_stack.set_visible_child("tree");
+}
+
+// s038b. The one writer of the Find field from code (the menu, a
+// perspective). The field's own search-changed is debounced; a click should
+// not wait for it, so the results and the menu are brought up now as well.
+void Shell::set_find_text(const std::string& q) {  // helper: the field, written
+    m_find.set_text(q);
+    m_find.set_position(-1);
+    m_search->set_query(q);
+    m_notes_stack.set_visible_child(core::query_active(q) ? "results" : "tree");
+    sync_find_actions();
+}
+
+// s038b. The menu is a VIEW over the field's text: what Show / Due / Flagged
+// display is read from the tokens, so typing `is:waiting` by hand moves the
+// radio, and the text and the menu cannot disagree (s034's derived-control
+// rule). Delete is offered only while the field holds a saved perspective.
+void Shell::sync_find_actions() {  // helper: the filter menu reads the field
+    if (!m_act_find_show) return;
+    const std::string q = m_find.get_text().raw();
+    m_act_find_show->set_state(Glib::Variant<Glib::ustring>::create(core::query_show(q)));
+    m_act_find_due->set_state(Glib::Variant<Glib::ustring>::create(core::query_due(q)));
+    m_act_find_flagged->set_state(Glib::Variant<bool>::create(core::query_flagged(q)));
+    m_act_find_delete->set_enabled(core::perspective_for(m_prefs.perspectives, q) != nullptr);
+    m_act_find_save->set_enabled(core::query_active(q));
+}
+
+// s038b. The filter menu. Rebuilt whole when the perspectives change -- it is
+// a handful of items, and a menu model edited in place is a second list to
+// keep in step with Prefs::perspectives.
+void Shell::build_find_menu() {  // helper: Show / Due / Flagged / Perspectives
+    auto radio = [](const Glib::RefPtr<Gio::Menu>& m, const char* label, const char* action,
+                    const char* target) {
+        auto item = Gio::MenuItem::create(label, "");
+        item->set_action_and_target(action, Glib::Variant<Glib::ustring>::create(target));
+        m->append_item(item);
+    };
+    m_find_model = Gio::Menu::create();
+
+    // Perspectives first: the saved views are what the menu is opened for
+    // most, and the save / delete verbs sit with them.
+    auto saved = Gio::Menu::create();
+    for (const auto& p : m_prefs.perspectives) {
+        auto item = Gio::MenuItem::create(p.name, "");
+        item->set_action_and_target("win.find-open", Glib::Variant<Glib::ustring>::create(p.name));
+        saved->append_item(item);
+    }
+    if (m_prefs.perspectives.empty()) saved->append("None saved yet", "win.find-none");   // no such action: greyed
+    m_find_model->append_section("Perspectives", saved);
+    auto verbs = Gio::Menu::create();
+    verbs->append("Save as Perspective…", "win.find-save");
+    verbs->append("Delete This Perspective", "win.find-delete");
+    m_find_model->append_section(verbs);
+
+    auto show = Gio::Menu::create();
+    radio(show, "Anything", "win.find-show", "");
+    radio(show, "Remaining todos", "win.find-show", "remaining");
+    radio(show, "Available", "win.find-show", "available");
+    radio(show, "Waiting", "win.find-show", "waiting");
+    radio(show, "Done", "win.find-show", "done");
+    radio(show, "Projects", "win.find-show", "project");
+    radio(show, "Notes (not todos)", "win.find-show", "note");
+    radio(show, "In the Inbox", "win.find-show", "inbox");
+    m_find_model->append_section("Show", show);
+
+    auto due = Gio::Menu::create();
+    radio(due, "Any time", "win.find-due", "");
+    radio(due, "Overdue", "win.find-due", "overdue");
+    radio(due, "Due by today", "win.find-due", "today");
+    radio(due, "Due within a week", "win.find-due", "week");
+    radio(due, "Has a due date", "win.find-due", "any");
+    radio(due, "No due date", "win.find-due", "none");
+    m_find_model->append_section("Due", due);
+
+    auto flag = Gio::Menu::create();
+    flag->append("Flagged only", "win.find-flagged");
+    m_find_model->append_section(flag);
+
+
+    m_find_menu.set_menu_model(m_find_model);
+    sync_find_actions();
 }
 
 // s037. The Projects pane, the same way: only while it is showing, and a

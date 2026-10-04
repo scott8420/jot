@@ -77,6 +77,7 @@ class InboxPane;
 class TagsPane;
 class ProjectsPane;
 class SearchPane;
+class PerspectiveDialog;
 
 class Shell : public Gtk::ApplicationWindow {
 public:
@@ -151,6 +152,17 @@ private:
     void on_search_open(const core::NodeId& id, int cp, int len);   // category: handler: s038 a search hit -> the note, the match selected
     void end_search();                           // category: helper: s038 empty the Find field, the tree back
     void queue_search_refresh();                 // category: helper: s038 results follow the model, debounced, only while showing
+    // s038b: perspectives -- the Find field's filter menu and saved queries.
+    void build_find_menu();                      // category: helper: s038b the filter menu, perspectives listed
+    void sync_find_actions();                    // category: helper: s038b the menu's radios read the field's text
+    void set_find_text(const std::string& q);    // category: helper: s038b the one writer of the field from code
+    void on_find_show(const Glib::ustring& show);   // category: handler: s038b Show: Anything / Remaining / ...
+    void on_find_due(const Glib::ustring& due);     // category: handler: s038b Due: any time / overdue / ...
+    void on_find_flagged();                      // category: handler: s038b Flagged only
+    void on_open_perspective(const std::string& name);   // category: handler: s038b its query in the field
+    void on_save_perspective();                  // category: handler: s038b Save as Perspective...
+    void on_delete_perspective();                // category: handler: s038b the one the field shows
+    void on_perspectives();                      // category: handler: s038b Ctrl+J: the filter menu, open
     void on_show_projects();                     // category: handler: s037 Ctrl+Shift+P -> Projects (again: Review <-> All)
     void on_mark_reviewed();
     void on_toggle_project();                    // category: handler: s037b the selection is / is not a project, on purpose
@@ -306,7 +318,9 @@ private:
     widgets::ToggleButton       m_tab_projects;  // s037
     // s038: the Notes page is the Find field over a Stack of tree | results.
     widgets::Box                m_notes_page;
+    widgets::Box                m_find_row;     // s038b: the field and its filter menu, one row
     widgets::SearchEntry        m_find;
+    widgets::MenuButton         m_find_menu;    // s038b
     widgets::Stack              m_notes_stack;
     widgets::Stack              m_left_stack;
 
@@ -481,6 +495,14 @@ private:
     // two tab buttons and the View menu's radio items draw from one place --
     // the same shape the two pane toggles use.
     Glib::RefPtr<Gio::SimpleAction> m_act_left_view;
+    // s038b: the filter menu's state is READ from the field's text by
+    // sync_find_actions(), never kept -- the text is the filter.
+    Glib::RefPtr<Gio::SimpleAction> m_act_find_show;
+    Glib::RefPtr<Gio::SimpleAction> m_act_find_due;
+    Glib::RefPtr<Gio::SimpleAction> m_act_find_flagged;
+    Glib::RefPtr<Gio::SimpleAction> m_act_find_delete;
+    Glib::RefPtr<Gio::SimpleAction> m_act_find_save;
+    Glib::RefPtr<Gio::Menu>         m_find_model;
 
     // Location actions: held because none of them is an offer when there is no
     // jots folder open (JOT_STRESS, or a first run still being answered).
@@ -517,6 +539,7 @@ private:
     // construction). Its Recent list lives in m_prefs.move_recent, per jots
     // folder; the scratch buffer has no folder and keeps none.
     std::unique_ptr<MoveDialog> m_move_dialog;
+    std::unique_ptr<PerspectiveDialog> m_persp_dialog;   // s038b
 
     // Set only by guard_scratch's continuation, so the second close_request
     // (the one that actually closes) doesn't ask again. Nothing else may

@@ -81,6 +81,17 @@ Prefs load_prefs(const std::string& file) {
                     if (id.is_string()) list.push_back(id.get<std::string>());
             }
         }
+        // s038b. An array of {name, query}; an entry missing either drops.
+        if (auto it = j.find("perspectives"); it != j.end() && it->is_array()) {
+            p.perspectives.clear();
+            for (const auto& e : *it) {
+                if (!e.is_object()) continue;
+                auto n = e.find("name");
+                auto q = e.find("query");
+                if (n == e.end() || q == e.end() || !n->is_string() || !q->is_string()) continue;
+                p.perspectives.push_back({n->get<std::string>(), q->get<std::string>()});
+            }
+        }
     } catch (const std::exception&) {
         return Prefs{};                            // unparseable -- defaults, never throw
     }
@@ -110,6 +121,9 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     j["announced"]     = p.announced;
     j["drawer_open"]   = p.drawer_open;
     j["move_recent"]   = p.move_recent;
+    j["perspectives"]  = nlohmann::json::array();
+    for (const auto& v : p.perspectives)
+        j["perspectives"].push_back({{"name", v.name}, {"query", v.query}});
     std::ofstream f(file);
     if (!f) return false;
     f << j.dump(2) << "\n";

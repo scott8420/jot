@@ -11,6 +11,7 @@
 #include "TagsPane.hpp"
 #include "ProjectsPane.hpp"
 #include "SearchPane.hpp"
+#include "PerspectiveDialog.hpp"
 #include "Log.hpp"
 
 #include <giomm/desktopappinfo.h>
@@ -47,7 +48,9 @@ Shell::Shell()
       m_tab_tags("shell.tab_tags"),
       m_tab_projects("shell.tab_projects"),
       m_notes_page("shell.notes_page", Gtk::Orientation::VERTICAL, 0),
+      m_find_row("shell.find_row", Gtk::Orientation::HORIZONTAL, 4),
       m_find("shell.find"),
+      m_find_menu("shell.find_menu"),
       m_notes_stack("shell.notes_stack"),
       m_left_stack("shell.left_stack"),
       m_paned_left("shell.paned_left", Gtk::Orientation::HORIZONTAL),
@@ -94,6 +97,7 @@ void Shell::build_ui() {
 
     bind_actions();    // bindings
     rebuild_recents_menu();
+    build_find_menu();   // s038b: needs the find-* actions and the prefs' perspectives
 
     m_tree->set_source(m_store.get());
     m_editor->set_source(m_store.get());
@@ -115,6 +119,7 @@ void Shell::build_ui() {
     m_tags->set_source(m_store.get());   // s035
     m_projects->set_source(m_store.get());   // s037
     m_search->set_source(m_store.get());     // s038
+    m_search->set_perspectives(&m_prefs.perspectives);   // s038b: the summary names a saved view
     queue_inbox_refresh();   // the tab's count and Clean Up's greying
 
     // The desktop footer, brought up to match the state the action already

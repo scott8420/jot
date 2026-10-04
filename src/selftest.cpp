@@ -1670,6 +1670,142 @@ int main() {
                   h[0].snippet.size() < 120 && h[0].snippet.rfind("…", 0) == 0);
     }
 
+    // -- s038b: the query language and perspectives -------------------------
+    {
+        const std::int64_t now = 1789300000;   // a fixed instant
+        core::MemoryNodes m;
+        const auto shop = m.create("", "Shopping");
+        m.set_body(shop, "Things to pick up.");
+        const auto milk = m.create(shop, "Milk");
+        m.make_task(milk, true);
+        m.set_body(milk, "#errands #store");
+        m.set_due(milk, core::day_end(now));                    // due today
+        const auto tyre = m.create(shop, "Tyre pressure");
+        m.make_task(tyre, true);
+        m.set_body(tyre, "#car");
+        m.set_due(tyre, now + 3 * 86400);                       // within the week
+        const auto late = m.create("", "Return the drill");
+        m.make_task(late, true);
+        m.set_body(late, "#errands");
+        m.set_due(late, now - 86400);                           // overdue
+        m.set_flagged(late, true);
+        const auto later = m.create("", "Paint the shed");
+        m.make_task(later, true);
+        m.set_body(later, "#home/garden someday");
+        m.set_defer(later, now + 10 * 86400);                   // waiting
+        const auto ticked = m.create("", "Post the letter");
+        m.make_task(ticked, true);
+        m.set_body(ticked, "#errands");
+        m.set_due(ticked, core::day_end(now));
+        m.set_done(ticked, true);
+        const auto idea = m.create("", "Garden ideas");
+        m.set_body(idea, "\n  Raised beds by the fence.\n#home");
+        m.set_inbox(idea, true);
+
+        auto ids = [&](const std::string& q) {
+            std::vector<core::NodeId> out;
+            for (const auto& h : core::search(m, q, 200, now)) out.push_back(h.id);
+            return out;
+        };
+        using V = std::vector<core::NodeId>;
+
+        check("query/tag: a tag is the tag, not the word (#errands)",
+              ids("#errands") == V{milk, late, ticked});
+        check("query/tag: nested and typed-so-far both count (#home, #gard -> no; #home/g)",
+              ids("#home") == V{later, idea} && ids("#home/g") == V{later});
+        check("query/and: two tags, both", ids("#errands #store") == V{milk});
+        check("query/or: either tag", ids("#store or #car") == V{milk, tyre});
+        check("query/or binds only its neighbours: (#car or #store) and is:flagged",
+              ids("#car or #store is:flagged").empty() &&
+                  ids("#car or #errands is:flagged") == V{late});
+        check("query/not: a minus excludes", ids("#errands -is:done") == V{milk, late});
+        check("query/is:remaining leaves out done", ids("is:remaining") == V{milk, tyre, late, later});
+        check("query/is:available", ids("is:available") == V{milk, tyre, late});
+        check("query/is:waiting: deferred", ids("is:waiting") == V{later});
+        check("query/is:done", ids("is:done") == V{ticked});
+        check("query/is:note and is:inbox", ids("is:note") == V{shop, idea} && ids("is:inbox") == V{idea});
+        check("query/is:flagged", ids("is:flagged") == V{late});
+        check("query/due:overdue", ids("due:overdue") == V{late});
+        check("query/due:today is due BY today (late included, done not)",
+              ids("due:today") == V{milk, late});
+        check("query/due:week", ids("due:week") == V{milk, tyre, late});
+        check("query/due:none: remaining todos with no date", ids("due:none") == V{later});
+        check("query/project: inferred from the todos under it", ids("is:project") == V{shop});
+        check("query/unknown is: is a word", ids("is:foo").empty() && !core::parse_query("is:foo").has_filters());
+        check("query/words still work with filters", ids("paint is:waiting") == V{later});
+        check("query/words alone: no filters", !core::parse_query("paint shed").has_filters() &&
+                                                    core::parse_query("paint or shed").has_filters());
+        {
+            auto h = core::search(m, "is:available", 200, now);
+            check("query/status line: a filter-only todo says where it stands",
+                  !h.empty() && h[0].id == milk && h[0].snippet == "Available · due today" &&
+                      h[0].cp_start == -1 && !h[0].in_name,
+                  h.empty() ? "" : h[0].snippet);
+            h = core::search(m, "is:inbox", 200, now);
+            check("query/status line: a note shows its first line of text",
+                  h.size() == 1 && h[0].snippet == "Raised beds by the fence.", h.empty() ? "" : h[0].snippet);
+            h = core::search(m, "#car", 200, now);
+            check("query/tag: the line it is on, the tag selected",
+                  h.size() == 1 && h[0].snippet == "#car" && h[0].cp_start == 0 && h[0].cp_len == 4);
+        }
+        check("query/active", core::query_active("is:done") && !core::query_active("  ") &&
+                                  !core::query_active("or"));   // `or` alone joins nothing
+        check("query/describe",
+              core::describe_query("#errands or #car is:available due:week -#someday") ==
+                  "#errands or #car · available todos · due within a week · not #someday",
+              core::describe_query("#errands or #car is:available due:week -#someday"));
+        check("query/describe: plain words say nothing extra", core::describe_query("paint shed").empty());
+
+        // The menu's view over the text, and its writers.
+        const std::string q = "#errands  is:available due:today";
+        check("query/menu reads", core::query_show(q) == "available" && core::query_due(q) == "today" &&
+                                      !core::query_flagged(q) && core::query_show("#a").empty());
+        check("query/menu writes show: replaces, keeps the rest",
+              core::query_set_show(q, "waiting") == "#errands due:today is:waiting");
+        check("query/menu writes show: anything removes it",
+              core::query_set_show(q, "") == "#errands due:today");
+        check("query/menu writes due", core::query_set_due(q, "week") == "#errands is:available due:week");
+        check("query/menu flag on / off",
+              core::query_set_flagged(q, true) == "#errands is:available due:today is:flagged" &&
+                  core::query_set_flagged("is:flagged #a", false) == "#a" &&
+                  core::query_flagged("x is:flagged"));
+        check("query/menu leaves or-ed and negated tokens alone",
+              core::query_set_show("is:done or is:dropped -is:inbox", "available") ==
+                  "is:done or is:dropped -is:inbox is:available" &&
+                  core::query_show("is:done or is:dropped").empty());
+
+        // Perspectives.
+        std::vector<core::Perspective> ps;
+        check("perspective/save refuses an empty name or query",
+              !core::perspective_save(ps, "  ", "#a") && !core::perspective_save(ps, "Errands", "   ") &&
+                  ps.empty());
+        core::perspective_save(ps, "Errands", "#errands   is:available");
+        core::perspective_save(ps, "car", "#car");
+        core::perspective_save(ps, "  Away  ", "#errands or #car");
+        check("perspective/sorted by name, case ignored, spacing tidied",
+              ps.size() == 3 && ps[0].name == "Away" && ps[1].name == "car" && ps[2].name == "Errands" &&
+                  ps[2].query == "#errands is:available");
+        core::perspective_save(ps, "ERRANDS", "#errands");
+        check("perspective/same name replaces", ps.size() == 3 && ps[2].name == "ERRANDS" &&
+                                                    ps[2].query == "#errands");
+        const core::Perspective* hit = core::perspective_for(ps, " #CAR ");
+        check("perspective/for: a query that reads the same is the same", hit && hit->name == "car");
+        check("perspective/named", core::perspective_named(ps, "away") &&
+                                       !core::perspective_named(ps, "nope"));
+        check("perspective/remove", core::perspective_remove(ps, "Car") && ps.size() == 2 &&
+                                        !core::perspective_remove(ps, "car"));
+
+        const std::string file =
+            (std::filesystem::temp_directory_path() / "jot_selftest_persp.json").string();
+        core::Prefs pp;
+        pp.perspectives = ps;
+        core::save_prefs(file, pp);
+        const core::Prefs back = core::load_prefs(file);
+        check("perspective/prefs round-trip", back.perspectives == ps);
+        check("perspective/first run has none", core::Prefs{}.perspectives.empty());
+        std::filesystem::remove(file);
+    }
+
     std::cout << "-----------------------------------------------\n";
 
     // -- Recents: list ops + JSON round-trip with prune -----------------------

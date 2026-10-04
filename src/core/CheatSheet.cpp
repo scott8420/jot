@@ -105,6 +105,19 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Above the tree. Any order, case ignored; #tag works. Names first, then the line each "
          "matched on. Click one: the note opens with the word selected. Enter opens the first; Esc "
          "brings the tree back."},
+        // ── Perspectives (s038b) ────────────────────────────────────────────
+        {"Notes", "win.perspectives", "Filter and perspectives",
+         "The funnel beside Find: show only remaining / available / waiting / done todos, "
+         "projects, notes or the Inbox; due by today or within a week; flagged",
+         "It writes words into the Find field -- the field is the filter, so you can type them too."},
+        {"Notes", "", "#a #b   #a or #b   -#a", "Find: both tags, either tag, not this tag",
+         "Words work the same way: paint or primer, -done. `or` joins only its two neighbours."},
+        {"Notes", "", "is:available  is:waiting  is:done  is:project  is:inbox  is:flagged",
+         "Find: what a note is -- also is:remaining, is:todo, is:note, is:dropped",
+         "due:overdue  due:today  due:week  due:any  due:none -- due BY: late ones count."},
+        {"Notes", "", "Save as Perspective…", "Keep the Find field's query under a name",
+         "The funnel › Perspectives opens it again. Same name replaces; Delete This Perspective "
+         "while it is showing."},
         {"Notes", "win.toggle-protect", "", "Protect: lock a note against edits, moves and deletes",
          "⋮ › Protected."},
         {"Notes", "", "Delete (in the tree)", "Delete the note and everything under it",

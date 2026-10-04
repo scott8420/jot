@@ -250,15 +250,28 @@ void Shell::build_left_pane() {  // zone: Notes | Today
     // the tree stands (a Stack, so the tree keeps its scroll and folds).
     m_find.set_placeholder_text("Find in all notes");
     m_find.set_tooltip_text("Every word, anywhere in a note's name or text (Ctrl+F). "
-                            "Enter opens the first; Esc goes back to the tree.");
-    m_find.set_margin_start(8);
-    m_find.set_margin_end(8);
-    m_find.set_margin_bottom(6);
+                            "Also #tag, is:available, due:week, or, -word -- the menu beside "
+                            "writes them. Enter opens the first; Esc goes back to the tree.");
+    m_find.set_hexpand(true);
     m_find.signal_search_changed().connect([this]() {
         const std::string q = m_find.get_text().raw();
         m_search->set_query(q);
-        m_notes_stack.set_visible_child(core::search_words(q).empty() ? "tree" : "results");
+        m_notes_stack.set_visible_child(core::query_active(q) ? "results" : "tree");
+        sync_find_actions();   // s038b: the menu shows what the text says
     });
+    // s038b. The filter menu: Show / Due / Flagged write tokens into the field,
+    // and the saved perspectives put theirs there. ONE control for one concept
+    // -- the field is the filter, and this is how to write one without
+    // learning the words (CANON: one concept, one widget).
+    m_find_menu.set_icon_name("jot-filter-symbolic");
+    m_find_menu.set_tooltip_text("Filter and perspectives (Ctrl+J)");
+    m_find_menu.set_has_frame(false);
+    m_find_menu.set_valign(Gtk::Align::CENTER);
+    m_find_row.set_margin_start(8);
+    m_find_row.set_margin_end(4);
+    m_find_row.set_margin_bottom(6);
+    m_find_row.append(m_find);
+    m_find_row.append(m_find_menu);
     m_find.signal_activate().connect([this]() {
         if (!m_search->open_first()) m_find.error_bell();
     });
@@ -269,7 +282,7 @@ void Shell::build_left_pane() {  // zone: Notes | Today
     m_notes_stack.add(*m_tree, "tree");
     m_notes_stack.add(*m_search, "results");
     m_notes_stack.set_vexpand(true);
-    m_notes_page.append(m_find);
+    m_notes_page.append(m_find_row);
     m_notes_page.append(m_notes_stack);
     m_left_stack.add(m_notes_page, "notes");
     m_left_stack.add(*m_inbox, "inbox");

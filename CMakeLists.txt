@@ -206,6 +206,7 @@ add_executable(jot
     src/SearchPane.cpp
     # s029. "Move to...": a picker you type into, over core/Filing.
     src/MoveDialog.cpp
+    src/PerspectiveDialog.cpp
     src/Shell_zones.cpp
     src/Shell_bindings.cpp
     src/Shell_handlers.cpp
