@@ -78,6 +78,13 @@ std::int64_t effective_due(const NodeSource& src, const NodeId& id) {
     return soonest;
 }
 
+bool effective_flagged(const NodeSource& src, const NodeId& id) {
+    if (const Node* n = src.find(id); n && n->task.flagged) return true;
+    for (const auto& a : ancestors_of(src, id))
+        if (const Node* p = src.find(a); p && p->task.flagged) return true;
+    return false;
+}
+
 NodeId next_action(const NodeSource& src, const NodeId& parent) {
     for (const auto& kid : src.children(parent)) {
         const Node* k = src.find(kid);
@@ -314,7 +321,7 @@ std::vector<NodeId> TaskIndex::query(const NodeSource& src, Filter f,
             case Filter::Available: keep = a == Avail::Available; break;
             case Filter::Today:
                 keep = a == Avail::Available &&
-                       ((due != 0 && due <= today_ends) || n->task.flagged);
+                       ((due != 0 && due <= today_ends) || effective_flagged(src, id));
                 break;
             case Filter::Overdue:
                 // Deliberately not gated on availability: a late task you
@@ -327,7 +334,7 @@ std::vector<NodeId> TaskIndex::query(const NodeSource& src, Filter f,
                 keep = a != Avail::Done && a != Avail::Dropped && due > today_ends;
                 break;
             case Filter::Flagged:
-                keep = a != Avail::Done && a != Avail::Dropped && n->task.flagged;
+                keep = a != Avail::Done && a != Avail::Dropped && effective_flagged(src, id);
                 break;
         }
         if (keep) out.push_back(id);

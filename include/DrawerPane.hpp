@@ -144,6 +144,8 @@ public:
     // it is one undo step.
     sigc::signal<void(std::string)>& signal_tag_add()    { return m_sig_tag_add; }
     sigc::signal<void(std::string)>& signal_tag_remove() { return m_sig_tag_remove; }
+    // s037: "Reviewed" pressed. The Shell marks it (and walks on, in Review).
+    sigc::signal<void()>& signal_reviewed() { return m_sig_reviewed; }
 
 private:
     // One collapsible section (s016a). The header is a flat button: arrow,
@@ -186,6 +188,8 @@ private:
     void build_task_block();
     void fill_task(const core::Node& n);
     void commit_date(core::DateKind kind);        // an entry -> the model
+    void commit_review();                         // s037: the Review entry -> the model
+    Gtk::Widget* review_picker();
     void commit_repeat();                         // s033: the Repeat entry -> the model
     // s033b: the dropdowns beside the fields. Each writes TEXT into its entry
     // and commits it, so a pick and a typed value take one road to the model.
@@ -241,6 +245,7 @@ private:
     widgets::Entry m_name;
 
     // In display order. Held by value; m_all points at them for the loops.
+    Section m_project_sec;   // s037b
     Section m_todo_sec, m_structure, m_links, m_backlinks, m_tags, m_enclosures, m_file,
             m_identity;
     std::vector<Section*> m_all;
@@ -294,6 +299,29 @@ private:
     widgets::ToggleButton m_state_done;
     widgets::ToggleButton m_state_drop;
     widgets::Label        m_state_says;
+
+    // s037. How often this project wants a look, when it had one, and the
+    // button that says it just did. Shown when core::is_project says so.
+    // s037b. The Project section: the switch, why it is (or is not) one when
+    // nobody said, and -- once it is -- its dates, Status and Review.
+    widgets::CheckButton m_proj_check;
+    widgets::Label       m_proj_why;
+    widgets::Box         m_proj_body;
+    widgets::Label       m_proj_dates_note;
+    // Flag, Due and Defer: ONE set of controls, shown with the todo when the
+    // note is one, else with the project. Re-homed between the two bodies at
+    // fill time (only when the home changes) -- two editors of one field would
+    // be two chances to disagree.
+    widgets::Box         m_when_box;
+    void place_when_box(bool in_task);
+
+    widgets::Box         m_review_row;
+    widgets::Label       m_review_label;
+    widgets::Box         m_review_line;
+    widgets::Entry       m_review_every;
+    widgets::Button      m_review_btn;
+    widgets::Label       m_review_says;
+    sigc::signal<void()> m_sig_reviewed;
 
     widgets::Label    m_uuid;
     widgets::Button   m_copy_link;

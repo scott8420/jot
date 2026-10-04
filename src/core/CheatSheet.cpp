@@ -75,7 +75,7 @@ const std::vector<CheatLine>& cheat_sheet() {
 
         // ── Inbox ───────────────────────────────────────────────────────────
         {"Inbox", "", "Inbox tab", "Everything captured and not dealt with yet",
-         "Side pane: Notes | Inbox | Today | Tags. The tab counts what is waiting."},
+         "Side pane: Notes | Inbox | Today | Tags | Projects. The tab counts what is waiting."},
         {"Inbox", "win.move-to", "", "Move: file the note — type where it goes, Enter",
          "Also Move… on an Inbox row, and ⋮ › Move to… — "
          "your recent places come first."},
@@ -121,8 +121,8 @@ const std::vector<CheatLine>& cheat_sheet() {
          "There is no priority number."},
 
         // ── Projects (s031) ─────────────────────────────────────────────────
-        {"Projects", "", "Any note with notes under it",
-         "Is a project: its todos are the steps", "It need not be a todo itself."},
+        {"Projects", "", "A note with todos under it",
+         "Is a project: its todos are the steps", "It need not be a todo itself. Or say so on purpose: Is a Project."},
         {"Projects", "", "Sequential / Parallel", "One step at a time, or all at once",
          "Note details › Structure › Children: the steps-going-down or the side-by-side button. Sequential offers only the first step not done."},
         {"Projects", "", "Single actions",
@@ -137,6 +137,28 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Projects", "", "⋮ › Project › Completed",
          "Finish it: everything inside counts as done",
          "On a project that is itself a todo, this is the same as ticking it."},
+
+        // ── Review (s037) ───────────────────────────────────────────────────
+        {"Projects", "win.show-projects", "Projects tab › Review",
+         "The projects due a look, the longest-waiting first",
+         "Each comes up once a week. Open it: is the next step right, is anything stuck, "
+         "should it go on hold? Then press ✓. Again: All projects."},
+        {"Projects", "win.mark-reviewed", "", "Mark Reviewed: this project has had its look",
+         "In Review the next one due opens, so you can go straight down the list. Also "
+         "⋮ › Project › Mark Reviewed, and Note details › Structure › Review."},
+        {"Projects", "win.new-project", "Projects tab › +", "New project: a note that is a project from the start",
+         "Name it in the tree, then Ctrl+Shift+N adds its first step."},
+        {"Projects", "win.toggle-project", "⋮ › Project › Is a Project",
+         "Say a note is a project, or never one",
+         "A set of reference notes can be a project. Untick a folder of todos and it never asks for "
+         "a review. Also Note details › Project."},
+        {"Projects", "", "Note details › Project", "A project's own Due, Defer and Flag",
+         "They pass down to the todos in it: its due is theirs, its flag puts them in Flagged."},
+        {"Projects", "", "Note details › Review", "How often a project wants a look",
+         "Every week unless you say: every 2 weeks, monthly, every 3 days -- or the ▾ list."},
+        {"Projects", "", "Projects tab › All projects", "Every project by where it stands",
+         "Active, On hold, then Completed and Dropped folded at the foot. A project is a note "
+         "with todos directly under it."},
 
         // ── Today ───────────────────────────────────────────────────────────
         {"Today", "", "Today tab", "What you can actually do now",

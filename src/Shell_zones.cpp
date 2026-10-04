@@ -5,6 +5,7 @@
 #include "TodayPane.hpp"
 #include "InboxPane.hpp"
 #include "TagsPane.hpp"
+#include "ProjectsPane.hpp"
 #include "Log.hpp"
 #include "Menus.hpp"
 
@@ -15,6 +16,8 @@
 
 #include <gdk/gdkkeysyms.h>
 #include <gtkmm/enums.h>
+#include <gtkmm/cssprovider.h>
+#include <gdkmm/display.h>
 
 // Shell_zones.cpp -- ZONES. Construction of the named regions: the window frame
 // and header, the paned tree|note body, and the menu model.
@@ -189,6 +192,17 @@ void Shell::build_capture_bar(Gtk::HeaderBar& header) {  // zone: the capture li
 void Shell::build_left_pane() {  // zone: Notes | Today
     m_left_tabs.add_css_class("linked");
     m_left_tabs.set_margin(8);
+    // s037: five tabs. The theme pads a button for a dialog (10 px a side);
+    // at 5 px the row is ~80 px narrower, and the row's width is the side
+    // pane's minimum -- the tabs, not the tree, decide how narrow it can go.
+    if (auto display = Gdk::Display::get_default()) {
+        auto css = Gtk::CssProvider::create();
+        css->load_from_data(".jot-left-tab { padding-left: 5px; padding-right: 5px; }\n");
+        gtk_style_context_add_provider_for_display(display->gobj(), GTK_STYLE_PROVIDER(css->gobj()),
+                                                   GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    }
+    for (auto* t : {&m_tab_notes, &m_tab_inbox, &m_tab_today, &m_tab_tags, &m_tab_projects})
+        t->add_css_class("jot-left-tab");
 
     m_tab_notes.set_label("Notes");
     m_tab_notes.set_hexpand(true);
@@ -222,10 +236,19 @@ void Shell::build_left_pane() {  // zone: Notes | Today
     m_tab_tags.set_tooltip_text("Pick a #tag: its todos and notes from all over (Ctrl+Shift+T)");
     m_left_tabs.append(m_tab_tags);
 
+    // s037. Review and every project by state: one tab, two ways to look.
+    m_tab_projects.set_label("Projects");
+    m_tab_projects.set_hexpand(true);
+    m_tab_projects.set_action_name("win.left-view");
+    m_tab_projects.set_action_target_value(Glib::Variant<Glib::ustring>::create("projects"));
+    m_tab_projects.set_tooltip_text("Review: the projects due a look -- and every project by state (Ctrl+Shift+P)");
+    m_left_tabs.append(m_tab_projects);
+
     m_left_stack.add(*m_tree,  "notes");
     m_left_stack.add(*m_inbox, "inbox");
     m_left_stack.add(*m_today, "today");
     m_left_stack.add(*m_tags,  "tags");    // s035
+    m_left_stack.add(*m_projects, "projects");   // s037
     m_left_stack.set_vexpand(true);
     m_left_stack.set_transition_type(Gtk::StackTransitionType::CROSSFADE);
     m_left_stack.set_transition_duration(120);
@@ -400,6 +423,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     view->append("Inbox", "win.left-view::inbox");
     view->append("Today", "win.left-view::today");
     view->append("Tags", "win.left-view::tags");     // s035
+    view->append("Projects", "win.left-view::projects");   // s037
     view->append("Clean Up Inbox", "win.clean-up");   // s028
     auto panes = Gio::Menu::create();
     panes->append("Side pane", "win.toggle-tree");

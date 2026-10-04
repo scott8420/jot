@@ -56,6 +56,8 @@ const char* avail_name(Avail a);       // "Available", "Blocked", ... for the UI
 // carries dates: a plain note is the natural project container (see Status).
 std::int64_t effective_defer(const NodeSource& src, const NodeId& id);
 std::int64_t effective_due(const NodeSource& src, const NodeId& id);
+// s037b: flagged itself, or inside a flagged project (OmniFocus's rule).
+bool         effective_flagged(const NodeSource& src, const NodeId& id);
 
 // ── the engine ──────────────────────────────────────────────────────────────
 // `now` is passed in rather than read from the clock so the selftest can stand

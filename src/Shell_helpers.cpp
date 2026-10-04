@@ -6,6 +6,8 @@
 #include "TodayPane.hpp"
 #include "InboxPane.hpp"
 #include "TagsPane.hpp"
+#include "ProjectsPane.hpp"
+#include "core/Review.hpp"
 #include "core/Inbox.hpp"
 #include "Log.hpp"
 #include "core/Prefs.hpp"
@@ -262,6 +264,7 @@ void Shell::save_scratch(const std::string& target) {
     m_today->set_source(m_store.get(), &m_tasks);
     m_inbox->set_source(m_store.get());
     m_tags->set_source(m_store.get());
+    m_projects->set_source(m_store.get());   // s037
     queue_inbox_refresh();
     queue_desktop_sync();
     note_recent(target);
@@ -444,6 +447,7 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     m_today->set_source(m_store.get(), &m_tasks);
     m_inbox->set_source(m_store.get());
     m_tags->set_source(m_store.get());
+    m_projects->set_source(m_store.get());   // s037
     queue_inbox_refresh();
     queue_desktop_sync();
     note_recent(dir);
@@ -486,8 +490,12 @@ void Shell::update_note_actions() {  // helper: grey what the selection can't do
     tick(m_act_protect,     n && n->protect);
     if (m_act_toggle_inbox) m_act_toggle_inbox->set_enabled(n != nullptr);
     tick(m_act_toggle_inbox, n && n->inbox);
+    if (m_act_toggle_project) m_act_toggle_project->set_enabled(n != nullptr && !n->protect);   // s037b
+    tick(m_act_toggle_project, n && core::is_project(*m_store, n->id));
 
     // s031. The Project submenu's dot: the model's word for the selection.
+    // s037: reviewing is about your attention, so a protected project may be marked.
+    if (m_act_mark_reviewed) m_act_mark_reviewed->set_enabled(n != nullptr && core::is_project(*m_store, n->id));
     if (m_act_project_state) {
         m_act_project_state->set_enabled(n != nullptr && !n->protect);
         const char* word = "active";
@@ -534,6 +542,18 @@ void Shell::queue_inbox_refresh() {  // helper: Inbox pane + count + greying, on
 // one showing. Switching to it refreshes it at once (on_left_view), so a pane
 // that was skipped while hidden is never seen stale.
 // ─────────────────────────────────────────────────────────────────────────────
+// s037. The Projects pane, the same way: only while it is showing, and a
+// burst of changes (a project's steps ticked one after another) costs one
+// rebuild. No keystroke can change it, so body edits do not arm it.
+void Shell::queue_projects_refresh() {  // helper: Projects pane, debounced, only while showing
+    if (!m_projects || m_left_stack.get_visible_child_name() != "projects") return;
+    m_projects_refresh.disconnect();
+    m_projects_refresh = Glib::signal_timeout().connect([this]() {
+        if (m_projects) m_projects->refresh();
+        return false;
+    }, 150);
+}
+
 void Shell::queue_tags_refresh() {  // helper: Tags pane, debounced, only while showing
     if (!m_tags || m_left_stack.get_visible_child_name() != "tags") return;
     m_tags_refresh.disconnect();

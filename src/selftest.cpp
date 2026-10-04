@@ -34,6 +34,7 @@
 #include "core/Filing.hpp"
 #include "core/CheatSheet.hpp"
 #include "core/Tags.hpp"
+#include "core/Review.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1387,6 +1388,239 @@ int main() {
         const auto mem = core::tag_members(m, "errands", 1'800'000'000);
         check("tagline: a done todo is in the Done list", mem.done == std::vector<core::NodeId>{n} &&
                                                               mem.finished == 1);
+    }
+
+
+    // -- s037: Review (road item 8) -------------------------------------------
+    // A project wants a look every week (or its own interval); Mark Reviewed
+    // starts the clock again and does not touch `modified`. What counts as a
+    // project here is a todo DIRECTLY under it, or a container setting --
+    // so a folder of folders does not ask for a weekly look.
+    {
+        std::tm tm{};
+        tm.tm_year = 2026 - 1900; tm.tm_mon = 9; tm.tm_mday = 5; tm.tm_hour = 12; tm.tm_isdst = -1;
+        const std::int64_t mon = static_cast<std::int64_t>(std::mktime(&tm));   // Mon 2026-10-05 12:00
+        const std::int64_t day = 24 * 3600;
+        std::int64_t clock = mon;
+        core::MemoryNodes m;
+        m.set_clock([&clock]() { return clock; });
+
+        const auto home    = m.create("", "Home");          // a folder: holds a project, no todo
+        const auto kitchen = m.create(home, "Kitchen");     // a project: a todo under it
+        const auto paint   = m.create(kitchen, "Paint");
+        const auto tiles   = m.create(kitchen, "Tiles");
+        m.make_task(paint, true);
+        m.make_task(tiles, true);
+        const auto recipes = m.create("", "Recipes");       // reference notes only
+        m.create(recipes, "Soup");
+        const auto garden  = m.create("", "Garden");        // said something as a container
+        m.set_status(garden, core::Status::Parallel);
+        const auto old     = m.create("", "Old plan");
+        const auto oldstep = m.create(old, "Step");
+        m.make_task(oldstep, true);
+        const auto inner   = m.create(old, "Inner");
+        m.make_task(m.create(inner, "Deep"), true);
+
+        check("review/project: a todo directly under it makes a project",
+              core::is_project(m, kitchen) && core::is_project(m, old) && core::is_project(m, inner));
+        check("review/project: a folder of projects is not one; reference notes are not",
+              !core::is_project(m, home) && !core::is_project(m, recipes));
+        check("review/project: a Children order alone makes one",
+              core::is_project(m, garden));
+        check("review/default: no interval reads as every week",
+              core::review_every(m.find(kitchen)->task).every == 1 &&
+                  core::review_every(m.find(kitchen)->task).unit == core::RepeatUnit::Week);
+
+        check("review/due: a project made today is not due today",
+              core::review_list(m, clock).empty());
+        check("review/when: made Monday, the next look is in 7 days",
+              core::review_when(*m.find(kitchen), clock) == "Next review Mon 12 Oct",
+              core::review_when(*m.find(kitchen), clock));
+
+        clock = mon + 7 * day;
+        auto due = core::review_list(m, clock);
+        check("review/due: a week on, every reviewable project is due, in document order",
+              due == std::vector<core::NodeId>{kitchen, garden, old, inner});
+        check("review/when: due today says so",
+              core::review_when(*m.find(kitchen), clock) == "Review today");
+
+        // Drop the old plan: it and the project inside it leave the list.
+        core::set_project_state(m, old, core::ProjectState::Dropped);
+        check("review/state: a dropped project, and one inside it, are not reviewed",
+              core::review_list(m, clock) == std::vector<core::NodeId>{kitchen, garden});
+        core::set_project_state(m, garden, core::ProjectState::OnHold);
+        check("review/state: an on-hold project IS reviewed -- that is what a review is for",
+              core::review_list(m, clock) == std::vector<core::NodeId>{kitchen, garden});
+
+        const std::int64_t mod_before = m.find(kitchen)->modified;
+        clock = mon + 7 * day + 3600;
+        check("review/mark: Mark Reviewed writes", core::mark_reviewed(m, kitchen, clock));
+        check("review/mark: it does not change `modified` -- a look is not an edit",
+              m.find(kitchen)->modified == mod_before);
+        check("review/mark: it leaves the list",
+              core::review_list(m, clock) == std::vector<core::NodeId>{garden});
+        check("review/when: the clock starts again from the look",
+              core::review_when(*m.find(kitchen), clock) == "Next review Mon 19 Oct",
+              core::review_when(*m.find(kitchen), clock));
+        check("review/when: reviewed_when names the day",
+              core::reviewed_when(*m.find(kitchen)) == "Reviewed 2026-10-12" &&
+                  core::reviewed_when(*m.find(garden)) == "Never reviewed");
+
+        // Its own interval. A week stores nothing (the default).
+        core::Repeat every;
+        core::repeat_parse("every 2 days", every);
+        check("review/every: an interval is stored", core::set_review_every(m, garden, every) &&
+                                                         m.find(garden)->task.review.every == 2);
+        core::mark_reviewed(m, garden, clock);
+        check("review/every: two days later it is due again",
+              core::review_list(m, clock + day).empty() &&
+                  core::review_list(m, clock + 2 * day) == std::vector<core::NodeId>{garden});
+        check("review/when: in N days, tomorrow",
+              core::review_when(*m.find(garden), clock + 0) == "Next review in 2 days" &&
+                  core::review_when(*m.find(garden), clock + day) == "Next review tomorrow",
+              core::review_when(*m.find(garden), clock));
+        check("review/when: overdue says since when",
+              core::review_when(*m.find(garden), clock + 3 * day) == "Review due since yesterday" &&
+                  core::review_when(*m.find(garden), clock + 4 * day) == "Review due since Wednesday",
+              core::review_when(*m.find(garden), clock + 3 * day));
+        core::repeat_parse("weekly", every);
+        check("review/every: weekly is the default, so it stores nothing",
+              core::set_review_every(m, garden, every) && !m.find(garden)->task.review.on());
+
+        check("review/next_up: the soonest not-yet-due project",
+              core::next_up(m, clock) == garden || core::next_up(m, clock) == kitchen);
+
+        // Un-todo a todo-project: the review fields stay with the container.
+        const auto tp = m.create("", "Todo project");
+        m.make_task(tp, true);
+        m.make_task(m.create(tp, "a step"), true);
+        core::mark_reviewed(m, tp, clock);
+        m.make_task(tp, false);
+        check("review/untodo: the last look survives un-tasking",
+              m.find(tp)->task.reviewed == clock);
+
+        // By state, and counts.
+        const auto by = core::projects_by_state(m);
+        check("review/by-state: each project under the strongest state in its chain",
+              by.active == std::vector<core::NodeId>{kitchen, tp} &&
+                  by.on_hold == std::vector<core::NodeId>{garden} &&
+                  by.dropped == std::vector<core::NodeId>{old, inner} &&
+                  by.completed.empty());
+        {
+            // A state alone makes one (a held note-project with only notes under
+            // it); inside a COMPLETED project, a project lists as Completed.
+            core::MemoryNodes q;
+            const auto idea = q.create("", "Someday idea");
+            q.create(idea, "a thought");
+            check("review/project: a non-Active state alone makes one",
+                  !core::is_project(q, idea) &&
+                      core::set_project_state(q, idea, core::ProjectState::OnHold) &&
+                      core::is_project(q, idea));
+            const auto done = q.create("", "Done thing");
+            const auto sub  = q.create(done, "Sub");
+            q.make_task(q.create(done, "x"), true);
+            q.make_task(q.create(sub, "y"), true);
+            core::set_project_state(q, done, core::ProjectState::Completed);
+            const auto qb = core::projects_by_state(q);
+            check("review/by-state: inside a completed project is Completed",
+                  qb.completed == std::vector<core::NodeId>{done, sub} && qb.active.empty());
+        }
+        m.set_done(paint, true);
+        const auto c = core::project_counts(m, kitchen, clock);
+        check("review/counts: left, available, total, next",
+              c.left == 1 && c.available == 1 && c.total == 2 && c.next == tiles);
+
+        // Round trip through a jots folder.
+        const std::string dir =
+            (std::filesystem::temp_directory_path() / "jot_selftest_review").string();
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        core::NodeId pid;
+        {
+            core::Project v;
+            v.open(dir);
+            pid = v.create("", "P");
+            v.make_task(v.create(pid, "s"), true);
+            core::repeat_parse("every 3 weeks", every);
+            core::set_review_every(v, pid, every);
+            core::mark_reviewed(v, pid, mon);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(dir);
+            const core::Node* p = v.find(pid);
+            check("review/persist: interval and last look round-trip",
+                  p && p->task.review.every == 3 && p->task.review.unit == core::RepeatUnit::Week &&
+                      p->task.reviewed == mon);
+        }
+        std::filesystem::remove_all(dir, ec);
+    }
+
+
+    // -- s037b: a project said on purpose ---------------------------------------
+    {
+        core::MemoryNodes m;
+        const auto ref  = m.create("", "Recipes");           // info notes only
+        m.create(ref, "Soup");
+        const auto misc = m.create("", "Misc");              // holds a todo
+        const auto t    = m.create(misc, "a todo");
+        m.make_task(t, true);
+        check("mark/auto: the rule as before",
+              !core::is_project(m, ref) && core::is_project(m, misc));
+        check("mark/on: a reference project of notes is a project",
+              core::set_project_mark(m, ref, core::ProjectMark::On) && core::is_project(m, ref) &&
+                  !core::inferred_project(m, ref));
+        check("mark/off: a folder holding todos is never one",
+              core::set_project_mark(m, misc, core::ProjectMark::Off) && !core::is_project(m, misc));
+        check("mark/off: and it leaves Review and the lists",
+              core::review_list(m, m.find(misc)->created + 30 * 86400) ==
+                      std::vector<core::NodeId>{ref} &&
+                  core::projects_by_state(m).active == std::vector<core::NodeId>{ref});
+
+        // A project's own dates and flag pass down; a todo-project said On keeps
+        // them when it stops being a todo.
+        const auto p  = m.create("", "Trip");
+        core::set_project_mark(m, p, core::ProjectMark::On);
+        const auto st = m.create(p, "book hotel");
+        m.make_task(st, true);
+        m.set_due(p, 2000000000);
+        m.set_flagged(p, true);
+        check("mark/dates: a non-todo project's due passes down",
+              core::effective_due(m, st) == 2000000000);
+        check("mark/flag: its flag passes down", core::effective_flagged(m, st));
+        core::TaskIndex ix;
+        ix.rebuild(m);
+        const auto fl = ix.query(m, core::Filter::Flagged, 1900000000);
+        check("mark/flag: the step shows in Flagged",
+              std::find(fl.begin(), fl.end(), st) != fl.end());
+        m.make_task(p, true);
+        m.make_task(p, false);
+        check("mark/untodo: a project said On keeps its due and flag",
+              m.find(p)->task.due == 2000000000 && m.find(p)->task.flagged);
+
+        const std::string dir =
+            (std::filesystem::temp_directory_path() / "jot_selftest_mark").string();
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        core::NodeId a, b;
+        {
+            core::Project v;
+            v.open(dir);
+            a = v.create("", "on");
+            b = v.create("", "off");
+            core::set_project_mark(v, a, core::ProjectMark::On);
+            core::set_project_mark(v, b, core::ProjectMark::Off);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(dir);
+            check("mark/persist: On and Off round-trip",
+                  v.find(a)->task.mark == core::ProjectMark::On &&
+                      v.find(b)->task.mark == core::ProjectMark::Off);
+        }
+        std::filesystem::remove_all(dir, ec);
     }
 
     std::cout << "-----------------------------------------------\n";

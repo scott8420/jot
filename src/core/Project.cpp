@@ -466,6 +466,13 @@ bool Project::load_project(std::vector<Node>& out) const {
             n.task.repeat.from_done = e.value("repeat_from", std::string{}) == "done";
         else
             n.task.repeat = Repeat{};          // a word we do not know reads as no repeat
+        // s037. An unknown word reads as the default (weekly), never as "never".
+        if (!repeat_parse(e.value("review", std::string{}), n.task.review))
+            n.task.review = Repeat{};
+        n.task.review.from_done = false;
+        n.task.reviewed = e.value("reviewed", std::int64_t{0});
+        if (e.contains("is_project") && e["is_project"].is_boolean())        // s037b
+            n.task.mark = e["is_project"].get<bool>() ? ProjectMark::On : ProjectMark::Off;
         n.inbox        = e.value("inbox", false);   // s028; absent == processed
         if (!n.id.empty()) out.push_back(std::move(n));
     }
@@ -555,6 +562,10 @@ bool Project::save_project() const {
                 e["repeat"] = repeat_text(n->task.repeat);
                 if (n->task.repeat.from_done) e["repeat_from"] = "done";
             }
+            if (n->task.review.on())           e["review"]   = repeat_text(n->task.review);   // s037
+            if (n->task.reviewed != 0)         e["reviewed"] = n->task.reviewed;
+            if (n->task.mark != ProjectMark::Auto)                                // s037b
+                e["is_project"] = n->task.mark == ProjectMark::On;
             if (n->inbox)                      e["inbox"]   = true;   // s028, same rule
             j["nodes"].push_back(std::move(e));
         }

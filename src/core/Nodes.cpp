@@ -153,7 +153,7 @@ NodeId MemoryNodes::create(const NodeId& parent, const std::string& title) {
     n.id        = mint_id();
     n.parent_id = parent;
     n.title     = title;
-    n.created   = now_seconds();
+    n.created   = now();          // s037: the injectable clock -- a review counts from it
     n.modified  = n.created;
     const NodeId id = n.id;
     m_by_id[id] = m_nodes.size();
@@ -243,8 +243,14 @@ bool MemoryNodes::set_task(const NodeId& id, const Task& in) {
         rolled = true;
     }
     if (n->task == t && !rolled) return false;   // no-op writes must not dirty a note
+    // s037: looking at a project is not changing it. A write that touches only
+    // the review fields leaves `modified` alone, as the Inbox mark does.
+    Task same = n->task;
+    same.review   = t.review;
+    same.reviewed = t.reviewed;
+    const bool only_review = (same == t) && !rolled;
     n->task     = t;
-    n->modified = now();
+    if (!only_review) n->modified = now();
     notify(Change::Task, id);
     if (rolled) {
         // A repeating project starts over: its ticked steps untick. Through
@@ -316,9 +322,23 @@ bool NodeSource::make_task(const NodeId& id, bool on) {
         // todo gives a plain note, not a "completed" one.)
         const Status       keep    = t.status;
         const ProjectState project = t.project;
+        const Repeat       review  = t.review;     // s037: the container's, too
+        const std::int64_t looked  = t.reviewed;
+        const ProjectMark  mark    = t.mark;       // s037b
+        const Task         was     = t;
         t = Task{};
-        t.status  = keep;
-        t.project = project;
+        t.status   = keep;
+        t.project  = project;
+        t.review   = review;
+        t.reviewed = looked;
+        t.mark     = mark;
+        // s037b: a project said on purpose keeps its dates and flag -- they
+        // are the project's, and it is still a project.
+        if (mark == ProjectMark::On) {
+            t.due     = was.due;
+            t.defer   = was.defer;
+            t.flagged = was.flagged;
+        }
     });
 }
 

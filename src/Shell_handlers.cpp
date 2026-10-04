@@ -9,8 +9,10 @@
 #include "TodayPane.hpp"
 #include "InboxPane.hpp"
 #include "TagsPane.hpp"
+#include "ProjectsPane.hpp"
 #include "core/Inbox.hpp"
 #include "core/Tags.hpp"
+#include "core/Review.hpp"
 #include "core/Filing.hpp"
 #include "Log.hpp"
 #include "Registry.hpp"
@@ -28,6 +30,7 @@
 #include <giomm/asyncresult.h>
 #include <giomm/file.h>
 #include <glibmm/miscutils.h>
+#include <glibmm/main.h>
 
 #include <ctime>
 #include <filesystem>
@@ -122,11 +125,76 @@ void Shell::on_rename_note() {  // handler: rename in the tree
 void Shell::on_left_view(const Glib::ustring& which) {  // handler: Notes | Inbox | Today | Tags
     if (m_act_left_view) m_act_left_view->set_state(Glib::Variant<Glib::ustring>::create(which));
     const Glib::ustring page =
-        (which == "today" || which == "inbox" || which == "tags") ? which : "notes";
+        (which == "today" || which == "inbox" || which == "tags" || which == "projects")
+            ? which : "notes";
     m_left_stack.set_visible_child(page);
     if (page == "today") m_today->refresh();   // it may have been away a while
     if (page == "inbox") m_inbox->refresh();   // ages ("3 h ago") move with the clock
     if (page == "tags")  m_tags->refresh();    // s035: skipped while hidden, so never stale here
+    if (page == "projects") m_projects->refresh();   // s037: the same
+}
+
+// s037. Ctrl+Shift+P: the Projects view, side pane shown if it was hidden.
+// Pressed again while it is up, it flips Review <-> All projects -- the
+// second press is the next thing you would do, as s036's was for Tags.
+void Shell::on_show_projects() {  // handler: Ctrl+Shift+P
+    const bool was_up = m_prefs.show_tree && m_left_stack.get_visible_child_name() == "projects";
+    if (was_up) m_projects->set_review_mode(!m_projects->review_mode());
+    else        m_projects->set_review_mode(true);
+    if (!m_prefs.show_tree) {
+        m_prefs.show_tree = true;
+        apply_layout_state();
+    }
+    on_left_view("projects");   // the one writer of what the stack shows
+}
+
+// s037. Ctrl+Shift+R, the note menu, Note details' button: the selected
+// project has had its look. While Review is up the next one due opens, so a
+// review is read, Ctrl+Shift+R, read -- OmniFocus's Mark Reviewed walk.
+// Allowed on a protected note: like the Inbox mark, it is about your
+// attention, not the note's content.
+void Shell::on_mark_reviewed() {  // handler: mark the selection reviewed
+    const auto id = m_tree->selected();
+    if (id.empty() || !m_store || !core::is_project(*m_store, id)) return;
+    core::mark_reviewed(*m_store, id, static_cast<std::int64_t>(std::time(nullptr)));
+    if (auto lg = log::get(log::Area::Shell)) lg->info("reviewed {}", id);
+    if (m_prefs.show_tree && m_left_stack.get_visible_child_name() == "projects" &&
+        m_projects->review_mode()) {
+        const core::NodeId next = m_projects->first_due();
+        if (!next.empty()) on_goto_note(next);
+    }
+    update_note_actions();
+}
+
+// s037b. ⋮ › Project › Is a Project: said on purpose, the opposite of what
+// it is now -- so unticking an inferred project stores Off, not Auto.
+void Shell::on_toggle_project() {  // handler: the selection is / is not a project
+    const auto id = m_tree->selected();
+    if (id.empty() || !m_store || !m_store->find(id)) return;
+    const bool now = core::is_project(*m_store, id);
+    core::set_project_mark(*m_store, id, now ? core::ProjectMark::Off : core::ProjectMark::On);
+    update_note_actions();
+}
+
+// s037b. The Projects tab's +: a new top-level note that IS a project from
+// the start (On, not inferred -- it has nothing under it yet), opened and put
+// into rename in the tree, where its first step goes next (Ctrl+Shift+N).
+void Shell::on_new_project() {  // handler: Projects tab + -> a new project
+    if (!m_store) return;
+    const core::NodeId id = m_store->create("", "New project");
+    if (id.empty()) return;
+    core::set_project_mark(*m_store, id, core::ProjectMark::On);
+    if (auto lg = log::get(log::Area::Shell)) lg->info("new project {}", id);
+    on_goto_note(id);
+    // The create queued a tree rebuild on an idle; a rename begun now would sit
+    // in a row that rebuild destroys (seen under Xvfb: GTK scrolling to a freed
+    // widget, then the crash). Idles run in order, so this one runs after it.
+    Glib::signal_idle().connect_once([this, id]() {
+        if (!m_store || !m_store->find(id)) return;
+        on_left_view("notes");
+        m_tree->reveal(id);
+        m_tree->begin_rename(id);
+    });
 }
 
 // s035. Ctrl+Shift+T: the Tags view, side pane shown if it was hidden. If the
@@ -285,6 +353,8 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
     // s035: tags are in bodies, so every change counts -- debounced, and only
     // while the Tags view is the one showing.
     queue_tags_refresh();
+    // s037: a tick, a move, a state, a new child -- not a keystroke.
+    if (what != C::Body) queue_projects_refresh();
 
     switch (what) {
         case C::Reload:

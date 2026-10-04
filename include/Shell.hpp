@@ -75,6 +75,7 @@ class DrawerPane;
 class TodayPane;
 class InboxPane;
 class TagsPane;
+class ProjectsPane;
 
 class Shell : public Gtk::ApplicationWindow {
 public:
@@ -145,6 +146,10 @@ private:
     void on_rename_note();                       // category: handler: rename in the tree (F2)
     void on_left_view(const Glib::ustring& which);  // category: handler: Notes | Inbox | Today | Tags
     void on_show_tag(const std::string& tag);   // category: handler: s035 a #tag clicked -> the Tags view, picked
+    void on_show_projects();                     // category: handler: s037 Ctrl+Shift+P -> Projects (again: Review <-> All)
+    void on_mark_reviewed();
+    void on_toggle_project();                    // category: handler: s037b the selection is / is not a project, on purpose
+    void on_new_project();                       // category: handler: s037b Projects tab + -> a new top-level project, named in the tree                     // category: handler: s037 Ctrl+Shift+R -> the selection reviewed, on to the next
     void on_show_tags();                         // category: handler: s035 Ctrl+Shift+T -> the Tags view
     void on_tag_edit(bool add, const std::string& name);  // category: handler: s035b Note details adds / removes on the tag line
     void on_clean_up();                          // category: handler: s028 clear processed Inbox marks
@@ -232,6 +237,7 @@ private:
     void queue_drawer_refresh();                 // category: helper: coalesce index + drawer to one idle
     void queue_tree_rebuild();                   // category: helper: rebuild the tree on an idle, never inside a gesture
     void queue_inbox_refresh();                  // category: helper: s028 Inbox pane + tab count + Clean Up greying, on an idle
+    void queue_projects_refresh();               // category: helper: s037 the Projects pane, debounced, only while it is showing
     void queue_tags_refresh();                   // category: helper: s035 the Tags pane, debounced, only while it is showing
     void remember_window_geometry();             // category: helper: size + maximized -> prefs, at close
     void refresh_tasks(bool rebuild_index, const core::NodeId& id = {});  // category: helper: ONE writer for the task index + Today
@@ -292,6 +298,7 @@ private:
     widgets::ToggleButton       m_tab_inbox;     // s028
     widgets::ToggleButton       m_tab_today;
     widgets::ToggleButton       m_tab_tags;      // s035
+    widgets::ToggleButton       m_tab_projects;  // s037
     widgets::Stack              m_left_stack;
 
     widgets::Paned              m_paned_left;
@@ -302,6 +309,7 @@ private:
     std::unique_ptr<TodayPane>  m_today;
     std::unique_ptr<InboxPane>  m_inbox;      // s028
     std::unique_ptr<TagsPane>   m_tags;       // s035
+    std::unique_ptr<ProjectsPane> m_projects; // s037
 
     // The two toggles. BOTH OFF is the focus mode -- the note alone on screen,
     // which is the front door ARCHITECTURE describes. They are held so
@@ -329,6 +337,7 @@ private:
     bool m_drawer_refresh_queued = false;
     bool m_tree_rebuild_queued   = false;
     bool m_inbox_refresh_queued  = false;   // s028
+    sigc::connection m_projects_refresh;     // s037
     sigc::connection m_tags_refresh;         // s035: the debounce; tags live in bodies, so keystrokes count
 
     // Which nodes are todos, in document order. Owned here for the same reason
@@ -450,9 +459,11 @@ private:
     // check item ticked from the model, like Protected.
     Glib::RefPtr<Gio::SimpleAction> m_act_clean_up;
     Glib::RefPtr<Gio::SimpleAction> m_act_toggle_inbox;
+    Glib::RefPtr<Gio::SimpleAction> m_act_toggle_project;   // s037b, bool: the selection is a project
     // s029. "Move to..." -- greyed on no selection or a protected note, the
     // two cases where the picker would have nothing to offer.
     Glib::RefPtr<Gio::SimpleAction> m_act_move_to;
+    Glib::RefPtr<Gio::SimpleAction> m_act_mark_reviewed;   // s037: greyed unless the selection is a project
     Glib::RefPtr<Gio::SimpleAction> m_act_project_state;   // s031, radio: the selection's project state
 
     // Which half of the left pane is showing. A stateful STRING action, so the

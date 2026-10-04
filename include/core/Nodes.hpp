@@ -71,6 +71,13 @@ enum class Status { None, Sequential, Parallel, SingleActions };
 //   Dropped   -- given up on: kept, read, searchable, but out of every list.
 enum class ProjectState { Active, OnHold, Completed, Dropped };
 
+// s037b (Scott: "a purposeful project setting is needed"). Whether this node
+// IS a project, said on purpose. Auto keeps the rule core::is_project infers
+// (a todo directly under it, or a container setting); On makes any note a
+// project -- a reference project of info notes included; Off keeps a folder
+// that happens to hold todos from ever being one.
+enum class ProjectMark { Auto, On, Off };
+
 // The optional fields that make a node a todo. D2 says a node is a todo when it
 // HAS them and a note when it does not -- and since C++ has no absent `bool`,
 // `is_task` is that "has them". A todo with no dates and no flag is the common
@@ -98,6 +105,14 @@ struct Task {
     std::int64_t finished = 0;
     // s033. Comes back when ticked (core/Repeat). Off by default.
     Repeat       repeat;
+    // s037. Review (core/Review). How often this PROJECT wants a look -- off
+    // (every == 0) means the default, once a week -- and when it last had one
+    // (0 == never; the clock then runs from `created`). Like Status and the
+    // project state, these describe the node as a CONTAINER, so they survive
+    // it stopping being a todo. `from_done` is unused here.
+    Repeat       review;
+    std::int64_t reviewed = 0;
+    ProjectMark  mark = ProjectMark::Auto;   // s037b
 
     bool operator==(const Task&) const = default;
 };

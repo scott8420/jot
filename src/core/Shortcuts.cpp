@@ -186,6 +186,14 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
          "Tick or untick the selected todo"},
         {"Todos", "win.toggle-flag",    {"<Ctrl><Shift>f"}, "",
          "Flag the selected todo -- \"this one, today\""},
+        // s037. OmniFocus's Mark Reviewed. Nothing in a text box binds it.
+        // s037b: menu / button verbs, no key -- listed so the sheet can name them.
+        {"Todos", "win.toggle-project", {}, "",
+         "Say the selected note is a project, or never one"},
+        {"Todos", "win.new-project",    {}, "",
+         "New project (the + in the Projects tab)"},
+        {"Todos", "win.mark-reviewed",  {"<Ctrl><Shift>r"}, "",
+         "Mark the selected project reviewed (in Review: on to the next)"},
 
         // ── View ──────────────────────────────────────────────
         // Both off is the focus mode: the note alone on screen.
@@ -196,10 +204,13 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         // twin is listed FIRST because a menu shows only the first accel, and
         // the menu should show the key that works on the machine jot runs on.
         {"View", "win.toggle-tree",     {"<Ctrl>bracketleft", "F9"}, "",
-         "Show or hide the side pane (Notes, Inbox, Today, Tags)"},
+         "Show or hide the side pane (Notes, Inbox, Today, Tags, Projects)"},
         // s035: tags as contexts. Picks the note's first tag if none is picked.
         {"View", "win.show-tags",       {"<Ctrl><Shift>t"}, "",
          "Tags: everything with a #tag, todos first"},
+        // s037: Review. P for Projects; pressed again, Review <-> All projects.
+        {"View", "win.show-projects",   {"<Ctrl><Shift>p"}, "",
+         "Projects: the ones due a review, or all of them by state"},
         {"View", "win.toggle-drawer",   {"<Ctrl>bracketright", "F10"}, "",
          "Show or hide note details"},
         // s021: Obsidian's key for the same flip. No F-key twin needed.

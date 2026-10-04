@@ -1,4 +1,5 @@
 #include "DrawerPane.hpp"
+#include "core/Review.hpp"
 #include "core/Tags.hpp"
 
 #include <cstdio>
@@ -90,6 +91,7 @@ struct SectionSpec {
 };
 
 constexpr SectionSpec kSections[] = {
+    {"project",   "Project",     true,  false},   // s037b
     {"todo",      "Todo",        true,  false},
     {"structure", "Structure",   true,  false},
     {"links",     "Links",       true,  true },
@@ -142,6 +144,11 @@ DrawerPane::DrawerPane(std::string_view name)
       m_name("drawer.name"),
       m_todo("drawer.is_todo"),
       m_task_body("drawer.task_body", Gtk::Orientation::VERTICAL, 6),
+      m_proj_check("drawer.proj_check"),
+      m_proj_why("drawer.proj_why"),
+      m_proj_body("drawer.proj_body", Gtk::Orientation::VERTICAL, 6),
+      m_proj_dates_note("drawer.proj_dates_note"),
+      m_when_box("drawer.when_box", Gtk::Orientation::VERTICAL, 6),
       m_done("drawer.done"),
       m_flag("drawer.flag"),
       m_due_row("drawer.due_row", Gtk::Orientation::HORIZONTAL, 8),
@@ -171,6 +178,12 @@ DrawerPane::DrawerPane(std::string_view name)
       m_state_done("drawer.state_done"),
       m_state_drop("drawer.state_drop"),
       m_state_says("drawer.state_says"),
+      m_review_row("drawer.review_row", Gtk::Orientation::VERTICAL, 2),
+      m_review_label("drawer.review_label"),
+      m_review_line("drawer.review_line", Gtk::Orientation::HORIZONTAL, 6),
+      m_review_every("drawer.review_every"),
+      m_review_btn("drawer.review_btn"),
+      m_review_says("drawer.review_says"),
       m_uuid("drawer.uuid"),
       m_copy_link("drawer.copy_link") {
     m_column.set_margin(14);
@@ -201,6 +214,7 @@ DrawerPane::DrawerPane(std::string_view name)
     // Built before their contents, because the task block and the ordering
     // radios are HELD widgets that go into a section's body rather than into
     // the column.
+    m_project_sec = add_section("project");   // s037b: above Todo -- the bigger idea first
     m_todo_sec  = add_section("todo");
     m_structure = add_section("structure");
     m_links     = add_section("links");
@@ -209,7 +223,7 @@ DrawerPane::DrawerPane(std::string_view name)
     m_enclosures = add_section("enclosures");
     m_file      = add_section("file");
     m_identity  = add_section("identity");
-    m_all = {&m_todo_sec, &m_structure,  &m_links, &m_backlinks,
+    m_all = {&m_project_sec, &m_todo_sec, &m_structure,  &m_links, &m_backlinks,
              &m_tags,     &m_enclosures, &m_file,  &m_identity};
 
     build_task_block();
@@ -308,7 +322,8 @@ void DrawerPane::build_task_block() {
         if (m_loading || !m_src || m_id.empty()) return;
         m_src->set_flagged(m_id, m_flag.get_active());
     });
-    m_task_body.append(m_flag);
+    m_when_box.append(m_flag);
+    m_task_body.append(m_when_box);   // s037b: re-homed to the project body when it is not a todo
 
     // Two date fields, same shape. Enter commits and so does leaving the field,
     // for the reason the inline rename commits on focus-leave: typing a date
@@ -337,7 +352,7 @@ void DrawerPane::build_task_block() {
         combo->append(entry);
         combo->append(*date_picker(kind));
         row.append(*combo);
-        m_task_body.append(row);
+        m_when_box.append(row);
     };
     date_field(m_due_row, m_due_label, m_due, "Due",
                "YYYY-MM-DD, YYYY-MM-DD HH:MM, today, tomorrow. "
@@ -492,7 +507,134 @@ void DrawerPane::build_task_block() {
     m_state_row.append(m_state_buttons);
     m_state_row.append(m_state_says);
     m_state_row.set_margin_top(6);
-    m_structure.body->append(m_state_row);
+
+    // ── Project (s037b) ─────────────────────────────────────────────────────
+    // Said on purpose. Unticking an inferred project stores Off (a folder that
+    // holds todos and must never ask for a review); ticking stores On (a
+    // reference project of info notes). "Automatic" is the untouched state.
+    m_proj_check.set_label("This is a project");
+    m_proj_check.set_tooltip_text("A project shows in the Projects tab and comes up for review. "
+                                  "Its due and defer dates and its flag pass down to the todos in it.");
+    m_proj_check.signal_toggled().connect([this]() {
+        if (m_loading || !m_src || m_id.empty()) return;
+        core::set_project_mark(*m_src, m_id, m_proj_check.get_active() ? core::ProjectMark::On
+                                                                       : core::ProjectMark::Off);
+    });
+    m_project_sec.body->append(m_proj_check);
+    says_line(m_proj_why);
+    m_project_sec.body->append(m_proj_why);
+    says_line(m_proj_dates_note);
+    m_proj_dates_note.set_text("Its due, defer and flag are in Todo, below.");
+    m_proj_body.append(m_proj_dates_note);
+    m_proj_body.append(m_state_row);
+    m_project_sec.body->append(m_proj_body);
+
+    // ── Review (s037) ───────────────────────────────────────────────────────
+    // One concept on one line: how often, and "I just looked". The when-line
+    // under it is core::review_when -- the same words the Projects tab uses.
+    m_review_label.set_text("Review");
+    m_review_label.set_xalign(0.0f);
+    m_review_label.add_css_class("dim-label");
+    m_review_label.add_css_class("caption-heading");
+    m_review_row.append(m_review_label);
+    m_review_every.set_placeholder_text("weekly");
+    m_review_every.set_tooltip_text("How often this project wants a look: every week (empty), "
+                                    "every 2 weeks, monthly, every 3 days.");
+    m_review_every.set_hexpand(true);
+    m_review_every.signal_activate().connect([this]() { commit_review(); });
+    {
+        auto focus = Gtk::EventControllerFocus::create();
+        focus->signal_leave().connect([this]() { commit_review(); });
+        m_review_every.add_controller(focus);
+    }
+    {
+        auto* combo = Gtk::make_managed<widgets::Box>(widgets::unregistered, "drawer.review_combo",
+                                                      Gtk::Orientation::HORIZONTAL, 0);
+        combo->add_css_class("linked");
+        combo->set_hexpand(true);
+        combo->append(m_review_every);
+        combo->append(*review_picker());
+        m_review_line.append(*combo);
+    }
+    m_review_btn.set_icon_name("object-select-symbolic");
+    m_review_btn.set_tooltip_text("Reviewed: it has had its look; the clock starts again "
+                                  "(Ctrl+Shift+R)");
+    m_review_btn.signal_clicked().connect([this]() {
+        if (!m_loading) m_sig_reviewed.emit();
+    });
+    m_review_line.append(m_review_btn);
+    m_review_row.append(m_review_line);
+    says_line(m_review_says);
+    m_review_row.append(m_review_says);
+    m_review_row.set_margin_top(6);
+    m_proj_body.append(m_review_row);
+}
+
+// s037b. Flag / Due / Defer go where the note's dates belong: with the todo
+// when it is one (after Done, where they always were), else at the top of the
+// project body. Moved only when the home changes, so typing is never disturbed.
+void DrawerPane::place_when_box(bool in_task) {
+    Gtk::Box& home = in_task ? static_cast<Gtk::Box&>(m_task_body) : static_cast<Gtk::Box&>(m_proj_body);
+    if (m_when_box.get_parent() == &home) return;
+    if (auto* old = dynamic_cast<Gtk::Box*>(m_when_box.get_parent())) old->remove(m_when_box);
+    if (in_task) m_task_body.insert_child_after(m_when_box, m_done);
+    else         m_proj_body.prepend(m_when_box);
+}
+
+// s037. The Review interval's quick picks, on the Repeat list's pattern.
+Gtk::Widget* DrawerPane::review_picker() {
+    auto* mb = Gtk::make_managed<widgets::MenuButton>(widgets::unregistered, "drawer.review_pick");
+    mb->set_icon_name("pan-down-symbolic");
+    mb->set_tooltip_text("Pick how often");
+    auto* pop = Gtk::make_managed<widgets::Popover>(widgets::unregistered, "drawer.review_pick.popover");
+    auto* col = Gtk::make_managed<widgets::Box>(widgets::unregistered, "drawer.review_pick.column",
+                                                Gtk::Orientation::VERTICAL, 0);
+    col->set_margin(4);
+    struct P { const char* label; const char* text; };
+    const P picks[] = {
+        {"Every week", ""},  {"Every 2 weeks", "every 2 weeks"}, {"Every month", "every month"},
+        {"Every 3 months", "every 3 months"}, {"Every year", "every year"},
+    };
+    int i = 0;
+    for (const auto& p : picks) {
+        auto* b = Gtk::make_managed<widgets::Button>(widgets::unregistered,
+                                                     "drawer.review_pick.p" + std::to_string(i));
+        b->set_has_frame(false);
+        auto* l = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                    "drawer.review_pick.l" + std::to_string(i));
+        ++i;
+        l->set_text(p.label);
+        l->set_xalign(0.0f);
+        b->set_child(*l);
+        const std::string text = p.text;
+        b->signal_clicked().connect([this, text, pop]() {
+            m_review_every.set_text(text);
+            commit_review();
+            pop->popdown();
+        });
+        col->append(*b);
+    }
+    pop->set_child(*col);
+    mb->set_popover(*pop);
+    return mb;
+}
+
+// s037. Same contract as Repeat: a rule that does not parse turns the field
+// red and changes nothing. Empty (or "weekly") is the default.
+void DrawerPane::commit_review() {
+    if (m_loading || !m_src || m_id.empty()) return;
+    const core::Node* n = m_src->find(m_id);
+    if (!n) return;
+    core::Repeat r;
+    if (!core::repeat_parse(std::string(m_review_every.get_text()), r)) {
+        m_review_every.add_css_class("error");
+        if (auto lg = log::get(log::Area::Drawer))
+            lg->info("review '{}' on {}: refused (unparseable)",
+                     std::string(m_review_every.get_text()), m_id);
+        return;
+    }
+    m_review_every.remove_css_class("error");
+    core::set_review_every(*m_src, m_id, r);   // a no-op write changes nothing
 }
 
 // An entry -> the model. A field that does not parse is REFUSED and says so by
@@ -721,6 +863,37 @@ void DrawerPane::fill_task(const core::Node& n) {
     m_todo.set_active(n.task.is_task);
     m_task_body.set_visible(n.task.is_task);
 
+    // s037b. The project half. Its dates live with the todo when it is one,
+    // else here -- one set of controls either way.
+    const bool project = core::is_project(*m_src, n.id);
+    place_when_box(n.task.is_task);
+    m_proj_check.set_active(project);
+    m_proj_body.set_visible(project);
+    m_proj_dates_note.set_visible(n.task.is_task);
+    switch (n.task.mark) {
+        case core::ProjectMark::Auto:
+            m_proj_why.set_text(project
+                ? "Counted automatically: it has todos directly under it, or a Children "
+                  "order or Status. Untick to say it never is."
+                : "Tick to make it a project — todos or not; a set of reference "
+                  "notes counts too.");
+            break;
+        case core::ProjectMark::On:  m_proj_why.set_text(""); break;
+        case core::ProjectMark::Off:
+            m_proj_why.set_text("Never a project, whatever is under it. Tick to make it one.");
+            break;
+    }
+    m_proj_why.set_visible(!m_proj_why.get_text().empty());
+    if (project && !n.task.is_task) {
+        m_flag.set_active(n.task.flagged);
+        const std::string due = core::format_date(n.task.due);
+        const std::string def = core::format_date(n.task.defer);
+        if (std::string(m_due.get_text()) != due)     m_due.set_text(due);
+        if (std::string(m_defer.get_text()) != def)   m_defer.set_text(def);
+        m_due.remove_css_class("error");
+        m_defer.remove_css_class("error");
+    }
+
     if (n.task.is_task) {
         m_done.set_active(n.task.done);
         m_flag.set_active(n.task.flagged);
@@ -817,12 +990,30 @@ void DrawerPane::fill_task(const core::Node& n) {
     // Status: on the same terms as Children, read through project_state so a
     // ticked todo with children shows Completed.
     const core::ProjectState ps = core::project_state(n);
-    m_state_row.set_visible(has_kids || n.task.project != core::ProjectState::Active);
+    m_state_row.set_visible(project);   // s037b: in the Project section, shown with it
     switch (ps) {
         case core::ProjectState::Active:    m_state_active.set_active(true); break;
         case core::ProjectState::OnHold:    m_state_hold.set_active(true);   break;
         case core::ProjectState::Completed: m_state_done.set_active(true);   break;
         case core::ProjectState::Dropped:   m_state_drop.set_active(true);   break;
+    }
+
+    // s037. Review: on the project rule, not "has children" -- a folder of
+    // folders does not want a weekly look.
+    m_review_row.set_visible(project);
+    if (project) {
+        {
+            core::Repeat shown;
+            if (!core::repeat_parse(std::string(m_review_every.get_text()), shown) ||
+                shown.every != n.task.review.every || shown.unit != n.task.review.unit)
+                m_review_every.set_text(core::repeat_text(n.task.review));
+            m_review_every.remove_css_class("error");
+        }
+        const bool live = core::reviewable(*m_src, n.id);
+        m_review_says.set_text(live ? core::review_when(n, now) + "  \u00b7  " + core::reviewed_when(n)
+                                    : core::reviewed_when(n) + "  \u00b7  not reviewed while "
+                                      "it, or a project it is in, is completed or dropped");
+        m_review_btn.set_sensitive(live);
     }
 
     update_task_sensitivity(n);
@@ -847,6 +1038,8 @@ void DrawerPane::update_task_sensitivity(const core::Node& n) {
     m_order_list.set_sensitive(on);
     for (auto* b : {&m_state_active, &m_state_hold, &m_state_done, &m_state_drop})
         b->set_sensitive(on);
+    m_review_every.set_editable(on);
+    m_proj_check.set_sensitive(on);   // s037b   // s037: the interval is the container's; the button is yours
 }
 
 // One section: a header button over a folding body. Everything here is

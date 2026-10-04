@@ -26,6 +26,14 @@ Glib::RefPtr<Gio::Menu> note_menu() {
     project->append("On Hold", "win.project-state::on-hold");
     project->append("Completed", "win.project-state::completed");
     project->append("Dropped", "win.project-state::dropped");
+    // s037. Its own section: a verb about the project, not a fifth state.
+    auto look = Gio::Menu::create();
+    look->append("Mark Reviewed", "win.mark-reviewed");
+    // s037b. Said on purpose, first in the submenu: is this a project at all.
+    auto is = Gio::Menu::create();
+    is->append("Is a Project", "win.toggle-project");
+    project->prepend_section(is);
+    project->append_section(look);
     todo->append_submenu("Project", project);
     menu->append_section(todo);
 

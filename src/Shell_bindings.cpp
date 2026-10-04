@@ -6,6 +6,7 @@
 #include "TodayPane.hpp"
 #include "InboxPane.hpp"
 #include "TagsPane.hpp"
+#include "ProjectsPane.hpp"
 #include "Log.hpp"
 #include "core/Recents.hpp"
 
@@ -103,12 +104,17 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // s028. Clean Up is app-level (the whole Inbox, not the selection); In Inbox
     // is a note verb, stateful so the note menu draws a tick.
     m_act_clean_up     = add_action("clean-up", sigc::mem_fun(*this, &Shell::on_clean_up));
+    m_act_toggle_project = add_action_bool("toggle-project",                      // s037b
+                                           sigc::mem_fun(*this, &Shell::on_toggle_project), false);
+    add_action("new-project", sigc::mem_fun(*this, &Shell::on_new_project));      // s037b
     m_act_toggle_inbox = add_action_bool("toggle-inbox",
                                          sigc::mem_fun(*this, &Shell::on_toggle_inbox), false);
     // s029. Move to...: the selection's picker. The Inbox rows reach the same
     // picker through signal_move, for the row's own note.
     m_act_move_to = add_action("move-to", sigc::mem_fun(*this, &Shell::on_move_to));
     add_action("show-tags", sigc::mem_fun(*this, &Shell::on_show_tags));   // s035
+    add_action("show-projects", sigc::mem_fun(*this, &Shell::on_show_projects));   // s037
+    m_act_mark_reviewed = add_action("mark-reviewed", sigc::mem_fun(*this, &Shell::on_mark_reviewed));
     // s031. Where the selected project stands. A stateful STRING, like
     // left-view, so the note menu draws four radio items and the dot sits on
     // the state the model reports (update_note_actions is the only writer).
@@ -167,6 +173,9 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     m_inbox->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));   // s028
     m_inbox->signal_move().connect(sigc::mem_fun(*this, &Shell::open_move));      // s029
     m_tags->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));    // s035
+    m_projects->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));   // s037
+    m_projects->signal_new().connect(sigc::mem_fun(*this, &Shell::on_new_project));  // s037b
+    m_drawer->signal_reviewed().connect([this]() { on_mark_reviewed(); });          // s037
     m_drawer->signal_tag().connect(sigc::mem_fun(*this, &Shell::on_show_tag));    // s035
     m_drawer->signal_tag_add().connect([this](std::string n) { on_tag_edit(true, n); });      // s035b
     m_drawer->signal_tag_remove().connect([this](std::string n) { on_tag_edit(false, n); });  // s035b
