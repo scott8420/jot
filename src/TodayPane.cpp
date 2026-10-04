@@ -75,6 +75,10 @@ std::string when_line(const core::NodeSource& src, const core::Node& n,
     // the row says so, or it reads as a thing you can do now.
     if (core::availability(src, n.id, now) == core::Avail::OnHold)
         out += out.empty() ? "On hold" : "  \u00b7  On hold";
+    // s040: how long it takes -- what makes "what fits now" answerable by eye.
+    if (n.task.estimate > 0)
+        out += (out.empty() ? "" : "  \u00b7  ") + std::string("\u23f1 ") +
+               core::format_estimate(n.task.estimate);
     // s033: a repeating todo says so -- ticking it brings it back.
     if (n.task.repeat.on())
         out += (out.empty() ? "" : "  \u00b7  ") + std::string("\u21bb ") +

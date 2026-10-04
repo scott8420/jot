@@ -459,6 +459,7 @@ bool Project::load_project(std::vector<Node>& out) const {
         n.task.due     = e.value("due", std::int64_t{0});
         n.task.defer   = e.value("defer", std::int64_t{0});
         n.task.flagged = e.value("flagged", false);
+        n.task.estimate = std::max(0, e.value("estimate", 0));   // s040
         n.task.status  = status_from(e.value("status", std::string{}));
         n.task.project = project_from(e.value("project", std::string{}));   // s031
         n.task.finished = e.value("finished", std::int64_t{0});              // s032
@@ -554,6 +555,7 @@ bool Project::save_project() const {
             if (n->task.due != 0)              e["due"]     = n->task.due;
             if (n->task.defer != 0)            e["defer"]   = n->task.defer;
             if (n->task.flagged)               e["flagged"] = true;
+            if (n->task.estimate > 0)          e["estimate"] = n->task.estimate;   // s040
             if (n->task.status != Status::None) e["status"] = status_name(n->task.status);
             if (n->task.project != ProjectState::Active)
                 e["project"] = project_name(n->task.project);             // s031, same rule

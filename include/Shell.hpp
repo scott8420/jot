@@ -159,6 +159,7 @@ private:
     void on_find_show(const Glib::ustring& show);   // category: handler: s038b Show: Anything / Remaining / ...
     void on_find_due(const Glib::ustring& due);     // category: handler: s038b Due: any time / overdue / ...
     void on_find_flagged();                      // category: handler: s038b Flagged only
+    void on_find_est(const Glib::ustring& est);  // category: handler: s040 Time: any / 30 min / ...
     void on_open_perspective(const std::string& name);   // category: handler: s038b its query in the field
     void on_save_perspective();                  // category: handler: s038b Save as Perspective...
     void on_delete_perspective();                // category: handler: s038b the one the field shows
@@ -500,6 +501,7 @@ private:
     Glib::RefPtr<Gio::SimpleAction> m_act_find_show;
     Glib::RefPtr<Gio::SimpleAction> m_act_find_due;
     Glib::RefPtr<Gio::SimpleAction> m_act_find_flagged;
+    Glib::RefPtr<Gio::SimpleAction> m_act_find_est;      // s040
     Glib::RefPtr<Gio::SimpleAction> m_act_find_delete;
     Glib::RefPtr<Gio::SimpleAction> m_act_find_save;
     Glib::RefPtr<Gio::Menu>         m_find_model;

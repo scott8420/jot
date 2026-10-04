@@ -297,6 +297,10 @@ bool NodeSource::set_defer(const NodeId& id, std::int64_t when) {
 bool NodeSource::set_repeat(const NodeId& id, const Repeat& r) {
     return edit_task(*this, id, [&](Task& t) { t.repeat = r; });
 }
+bool NodeSource::set_estimate(const NodeId& id, int minutes) {
+    if (minutes < 0) return false;
+    return edit_task(*this, id, [&](Task& t) { t.estimate = minutes; });
+}
 const std::vector<LogRecord>& NodeSource::history() const {
     static const std::vector<LogRecord> kNone;
     return kNone;

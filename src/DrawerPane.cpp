@@ -161,6 +161,9 @@ DrawerPane::DrawerPane(std::string_view name)
       m_repeat_label("drawer.repeat_label"),
       m_repeat("drawer.repeat"),
       m_repeat_done("drawer.repeat_done"),
+      m_est_row("drawer.est_row", Gtk::Orientation::HORIZONTAL, 8),
+      m_est_label("drawer.est_label"),
+      m_est("drawer.est"),
       m_avail("drawer.avail"),
       m_order_row("drawer.order_row", Gtk::Orientation::VERTICAL, 2),
       m_order_label("drawer.order_label"),
@@ -388,6 +391,32 @@ void DrawerPane::build_task_block() {
         combo->append(*repeat_picker());
         m_repeat_row.append(*combo);
     }
+    // s040. Time: how long it takes. Typed like the dates ("15m", "1h30"),
+    // with the usual sizes one click away. Before Repeat: a todo's size is
+    // asked about more often than its rhythm.
+    m_est_label.set_text("Time");
+    m_est_label.set_xalign(0.0f);
+    m_est_label.set_width_chars(6);
+    m_est_label.add_css_class("dim-label");
+    m_est_row.append(m_est_label);
+    m_est.set_placeholder_text("how long?");
+    m_est.set_tooltip_text("How long it takes: 15m, 1h, 1h30, 90. Empty for no estimate. "
+                           "Find › Time (est:30) shows what fits.");
+    m_est.set_hexpand(true);
+    m_est.signal_activate().connect([this]() { commit_estimate(); });
+    {
+        auto focus = Gtk::EventControllerFocus::create();
+        focus->signal_leave().connect([this]() { commit_estimate(); });
+        m_est.add_controller(focus);
+        auto* combo = Gtk::make_managed<widgets::Box>(widgets::unregistered, "drawer.est_combo",
+                                                      Gtk::Orientation::HORIZONTAL, 0);
+        combo->add_css_class("linked");
+        combo->set_hexpand(true);
+        combo->append(m_est);
+        combo->append(*estimate_picker());
+        m_est_row.append(*combo);
+    }
+    m_task_body.append(m_est_row);
     m_task_body.append(m_repeat_row);
     m_repeat_done.set_label("Count from when it is done");
     m_repeat_done.set_tooltip_text("Off: the next one is due an interval after the last DUE "
@@ -833,6 +862,59 @@ Gtk::Widget* DrawerPane::repeat_picker() {
     return mb;
 }
 
+// s040. The Time picker: the usual sizes. Each writes TEXT and commits it,
+// so a pick and a typed value take one road (s033b's rule).
+Gtk::Widget* DrawerPane::estimate_picker() {
+    auto* mb = Gtk::make_managed<widgets::MenuButton>(widgets::unregistered, "drawer.est_pick");
+    mb->set_icon_name("pan-down-symbolic");
+    mb->set_tooltip_text("Pick how long");
+    auto* pop = Gtk::make_managed<widgets::Popover>(widgets::unregistered, "drawer.est_pick.popover");
+    auto* col = Gtk::make_managed<widgets::Box>(widgets::unregistered, "drawer.est_pick.column",
+                                                Gtk::Orientation::VERTICAL, 0);
+    col->set_margin(4);
+    struct P { const char* label; const char* text; };
+    const P picks[] = {
+        {"No estimate", ""}, {"5 minutes", "5m"}, {"15 minutes", "15m"}, {"30 minutes", "30m"},
+        {"45 minutes", "45m"}, {"1 hour", "1h"}, {"2 hours", "2h"}, {"Half a day", "4h"},
+    };
+    int i = 0;
+    for (const auto& p : picks) {
+        const std::string k = std::to_string(i++);
+        auto* b = Gtk::make_managed<widgets::Button>(widgets::unregistered, "drawer.est_pick.p" + k);
+        b->set_has_frame(false);
+        auto* l = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.est_pick.l" + k);
+        l->set_text(p.label);
+        l->set_xalign(0.0f);
+        b->set_child(*l);
+        const std::string text = p.text;
+        b->signal_clicked().connect([this, text, pop]() {
+            m_est.set_text(text);
+            commit_estimate();
+            pop->popdown();
+        });
+        col->append(*b);
+    }
+    pop->set_child(*col);
+    mb->set_popover(*pop);
+    return mb;
+}
+
+void DrawerPane::commit_estimate() {
+    if (m_loading || !m_src || m_id.empty()) return;
+    const core::Node* n = m_src->find(m_id);
+    if (!n) return;
+    const int m = core::parse_estimate(std::string(m_est.get_text()));
+    if (m < 0) {
+        m_est.add_css_class("error");
+        if (auto lg = log::get(log::Area::Drawer))
+            lg->info("estimate '{}' on {}: refused (unparseable)", std::string(m_est.get_text()), m_id);
+        return;
+    }
+    m_est.remove_css_class("error");
+    if (m == n->task.estimate) return;
+    m_src->set_estimate(m_id, m);
+}
+
 // s033. Same contract as commit_date: a rule that does not parse turns the
 // field red and changes nothing.
 void DrawerPane::commit_repeat() {
@@ -904,6 +986,11 @@ void DrawerPane::fill_task(const core::Node& n) {
         const std::string def = core::format_date(n.task.defer);
         if (std::string(m_due.get_text()) != due)     m_due.set_text(due);
         if (std::string(m_defer.get_text()) != def)   m_defer.set_text(def);
+        // s040: only when the MINUTES differ, so "90" typed is not rewritten
+        // to "1h 30m" under the cursor.
+        if (core::parse_estimate(std::string(m_est.get_text())) != n.task.estimate)
+            m_est.set_text(core::format_estimate(n.task.estimate));
+        m_est.remove_css_class("error");
         m_due.remove_css_class("error");
         m_defer.remove_css_class("error");
         // s033. Only rewrite the text when the RULE differs, so "weekly"
@@ -1031,6 +1118,7 @@ void DrawerPane::update_task_sensitivity(const core::Node& n) {
     m_due.set_editable(on);
     m_defer.set_editable(on);
     m_repeat.set_editable(on);
+    m_est.set_editable(on);
     m_repeat_done.set_sensitive(on);
     m_order_none.set_sensitive(on);
     m_order_seq.set_sensitive(on);

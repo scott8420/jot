@@ -108,6 +108,16 @@ Term term_of(const std::string& raw) {
                 t.text = w;
                 return t;
             }
+    if (w.rfind("est:", 0) == 0 && w.size() > 4) {   // s040
+        const std::string v = w.substr(4);
+        const int m = v == "none" ? 0 : parse_estimate(v);
+        if (m >= 0 && (m > 0 || v == "none")) {
+            t.kind = TermKind::Est;
+            t.minutes = m;
+            t.text = w;
+            return t;
+        }
+    }
     if (w.rfind("due:", 0) == 0)
         for (const auto& d : kDues)
             if (w.substr(4) == d.word) {
@@ -172,6 +182,11 @@ bool term_holds(Facts& f, const Term& t) {
                                     : f.n.task.flagged;
         }
         return false;
+    case TermKind::Est: {
+        if (!f.n.task.is_task || !remaining(f.av())) return false;
+        const int e = f.n.task.estimate;
+        return t.minutes == 0 ? e == 0 : (e > 0 && e <= t.minutes);
+    }
     case TermKind::Due: {
         if (!f.n.task.is_task || !remaining(f.av())) return false;
         const std::int64_t due = effective_due(f.src, f.n.id);
@@ -257,6 +272,7 @@ std::string status_line(const NodeSource& src, const Node& n, std::int64_t now) 
         std::string s = avail_name(availability(src, n.id, now));
         const std::string d = due_words(effective_due(src, n.id), now);
         if (!d.empty()) s += " · " + d;
+        if (n.task.estimate > 0) s += " · " + format_estimate(n.task.estimate);
         if (effective_flagged(src, n.id)) s += " · flagged";
         return s;
     }
@@ -331,6 +347,9 @@ std::string term_words(const Term& t) {
         case StateTerm::Inbox:     s = "in the Inbox"; break;
         case StateTerm::Flagged:   s = "flagged"; break;
         }
+        break;
+    case TermKind::Est:
+        s = t.minutes == 0 ? "no estimate" : format_estimate(t.minutes) + " or less";
         break;
     case TermKind::Due:
         switch (t.due) {
@@ -411,6 +430,14 @@ bool query_flagged(const std::string& query) {
 }
 std::string query_set_show(const std::string& query, const std::string& show) {
     return rewrite(query, TermKind::State, false, show.empty() ? "" : "is:" + show);
+}
+std::string query_est(const std::string& query) {
+    const std::string v = first_plain(query, TermKind::Est, 4);
+    if (v.empty() || v == "none") return v;
+    return std::to_string(parse_estimate(v));   // "1h" reads as "60", the menu's target
+}
+std::string query_set_est(const std::string& query, const std::string& est) {
+    return rewrite(query, TermKind::Est, false, est.empty() ? "" : "est:" + est);
 }
 std::string query_set_due(const std::string& query, const std::string& due) {
     return rewrite(query, TermKind::Due, false, due.empty() ? "" : "due:" + due);

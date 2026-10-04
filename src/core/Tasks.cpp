@@ -1,5 +1,7 @@
 #include "core/Tasks.hpp"
 
+#include <cctype>
+
 #include <algorithm>
 #include <cstdio>
 #include <ctime>
@@ -454,6 +456,49 @@ std::string quick_date_text(QuickDate q, std::int64_t now, std::int64_t due) {
     char buf[16];
     std::strftime(buf, sizeof buf, "%Y-%m-%d", &out);
     return buf;
+}
+
+// ── estimates (s040) ────────────────────────────────────────────────────────
+int parse_estimate(const std::string& text) {
+    std::string t;
+    for (char c : text)
+        if (c != ' ' && c != '\t') t += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (t.empty()) return 0;
+    double total = 0;
+    bool any = false, hours_seen = false;
+    std::size_t i = 0;
+    while (i < t.size()) {
+        std::size_t j = i;
+        while (j < t.size() && (std::isdigit(static_cast<unsigned char>(t[j])) || t[j] == '.')) ++j;
+        if (j == i) return -1;
+        double v = 0;
+        try { v = std::stod(t.substr(i, j - i)); } catch (...) { return -1; }
+        std::size_t k = j;
+        while (k < t.size() && std::isalpha(static_cast<unsigned char>(t[k]))) ++k;
+        const std::string unit = t.substr(j, k - j);
+        if (unit == "h" || unit == "hr" || unit == "hrs" || unit == "hour" || unit == "hours") {
+            if (hours_seen) return -1;
+            hours_seen = true;
+            total += v * 60;
+        } else if (unit.empty() || unit == "m" || unit == "min" || unit == "mins" ||
+                   unit == "minute" || unit == "minutes") {
+            total += v;   // "1h30": the bare number after hours is minutes
+        } else {
+            return -1;
+        }
+        any = true;
+        i = k;
+    }
+    if (!any || total < 0 || total > 100000) return -1;
+    return static_cast<int>(total + 0.5);
+}
+
+std::string format_estimate(int minutes) {
+    if (minutes <= 0) return {};
+    const int h = minutes / 60, m = minutes % 60;
+    if (h == 0) return std::to_string(m) + "m";
+    if (m == 0) return std::to_string(h) + "h";
+    return std::to_string(h) + "h " + std::to_string(m) + "m";
 }
 
 }  // namespace jot::core

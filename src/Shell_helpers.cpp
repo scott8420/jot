@@ -586,6 +586,7 @@ void Shell::sync_find_actions() {  // helper: the filter menu reads the field
     m_act_find_show->set_state(Glib::Variant<Glib::ustring>::create(core::query_show(q)));
     m_act_find_due->set_state(Glib::Variant<Glib::ustring>::create(core::query_due(q)));
     m_act_find_flagged->set_state(Glib::Variant<bool>::create(core::query_flagged(q)));
+    m_act_find_est->set_state(Glib::Variant<Glib::ustring>::create(core::query_est(q)));
     m_act_find_delete->set_enabled(core::perspective_for(m_prefs.perspectives, q) != nullptr);
     m_act_find_save->set_enabled(core::query_active(q));
 }
@@ -636,6 +637,17 @@ void Shell::build_find_menu() {  // helper: Show / Due / Flagged / Perspectives
     radio(due, "Has a due date", "win.find-due", "any");
     radio(due, "No due date", "win.find-due", "none");
     m_find_model->append_section("Due", due);
+
+    // s040. Time: what fits. "30 min or less" with Show › Available is
+    // OmniFocus's "what can I do in half an hour".
+    auto est = Gio::Menu::create();
+    radio(est, "Any length", "win.find-est", "");
+    radio(est, "5 min or less", "win.find-est", "5");
+    radio(est, "15 min or less", "win.find-est", "15");
+    radio(est, "30 min or less", "win.find-est", "30");
+    radio(est, "1 hour or less", "win.find-est", "60");
+    radio(est, "No estimate yet", "win.find-est", "none");
+    m_find_model->append_section("Time", est);
 
     auto flag = Gio::Menu::create();
     flag->append("Flagged only", "win.find-flagged");

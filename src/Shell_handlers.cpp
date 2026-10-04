@@ -162,6 +162,11 @@ void Shell::on_find_due(const Glib::ustring& due) {  // handler: Due: ...
     set_find_text(core::query_set_due(m_find.get_text().raw(), due.raw()));
 }
 
+void Shell::on_find_est(const Glib::ustring& est) {  // handler: Time: ...
+    on_find();
+    set_find_text(core::query_set_est(m_find.get_text().raw(), est.raw()));
+}
+
 void Shell::on_find_flagged() {  // handler: Flagged only
     on_find();
     const std::string q = m_find.get_text().raw();

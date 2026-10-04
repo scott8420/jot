@@ -113,6 +113,9 @@ struct Task {
     Repeat       review;
     std::int64_t reviewed = 0;
     ProjectMark  mark = ProjectMark::Auto;   // s037b
+    // s040. How long it takes, in minutes; 0 == no estimate. A todo field (it
+    // clears with the rest when the note stops being a todo).
+    int          estimate = 0;
 
     bool operator==(const Task&) const = default;
 };
@@ -185,6 +188,7 @@ public:
     bool set_defer(const NodeId& id, std::int64_t when);
     bool set_status(const NodeId& id, Status s);
     bool set_repeat(const NodeId& id, const Repeat& r);   // s033
+    bool set_estimate(const NodeId& id, int minutes);     // s040; 0 clears
     // Make this node a todo / stop it being one. Un-making CLEARS the fields
     // rather than leaving them set-but-ignored: a due date that survives
     // un-tasking is a date that comes back from the dead when you re-task.

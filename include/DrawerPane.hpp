@@ -191,6 +191,8 @@ private:
     void commit_review();                         // s037: the Review entry -> the model
     Gtk::Widget* review_picker();
     void commit_repeat();                         // s033: the Repeat entry -> the model
+    void commit_estimate();                       // s040: the Time entry -> the model
+    Gtk::Widget* estimate_picker();               // s040
     // s033b: the dropdowns beside the fields. Each writes TEXT into its entry
     // and commits it, so a pick and a typed value take one road to the model.
     Gtk::Widget* date_picker(core::DateKind kind);
@@ -272,6 +274,9 @@ private:
     widgets::Label       m_repeat_label;
     widgets::Entry       m_repeat;
     widgets::CheckButton m_repeat_done;     // count from when it is done, not from the due date
+    widgets::Box         m_est_row;         // s040: how long it takes
+    widgets::Label       m_est_label;
+    widgets::Entry       m_est;
     widgets::Label       m_avail;       // the DERIVED line: why it is or is not actionable
 
     // Children: how this node's children run. Shown only when it HAS children

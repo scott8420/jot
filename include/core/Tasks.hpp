@@ -122,6 +122,12 @@ bool         date_parses(const std::string& text);                // "" counts a
 enum class QuickDate { Today, Tomorrow, NextWeek, ThisWeekend, NextMonday, BeforeDue };
 std::string quick_date_text(QuickDate q, std::int64_t now, std::int64_t due);
 
+// s040. Estimates, typed and shown. Accepted: "" (none), "15", "15m",
+// "15 min", "1h", "1h30", "1h 30m", "1.5h", "2 hours", "90 minutes". A bare
+// number is minutes. -1 when it does not parse (the field goes red).
+int         parse_estimate(const std::string& text);
+std::string format_estimate(int minutes);   // "15m", "1h", "1h 30m"; "" for 0
+
 std::int64_t day_start(std::int64_t when);   // 00:00:00 local, same day
 std::int64_t day_end(std::int64_t when);     // 23:59:59 local, same day
 

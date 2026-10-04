@@ -122,6 +122,8 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
         "find-show", sigc::mem_fun(*this, &Shell::on_find_show), "");
     m_act_find_due = add_action_radio_string(
         "find-due", sigc::mem_fun(*this, &Shell::on_find_due), "");
+    m_act_find_est = add_action_radio_string(                                  // s040
+        "find-est", sigc::mem_fun(*this, &Shell::on_find_est), "");
     m_act_find_flagged = add_action_bool(
         "find-flagged", sigc::mem_fun(*this, &Shell::on_find_flagged), false);
     add_action_with_parameter(

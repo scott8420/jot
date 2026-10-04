@@ -1885,6 +1885,89 @@ int main() {
         tzset();
     }
 
+    // -- s040: time estimates ---------------------------------------------------
+    {
+        check("estimate/parse: minutes, bare and named",
+              core::parse_estimate("15") == 15 && core::parse_estimate("15m") == 15 &&
+                  core::parse_estimate(" 15 min ") == 15 && core::parse_estimate("90 minutes") == 90);
+        check("estimate/parse: hours and mixed",
+              core::parse_estimate("1h") == 60 && core::parse_estimate("1h30") == 90 &&
+                  core::parse_estimate("1h 30m") == 90 && core::parse_estimate("1.5h") == 90 &&
+                  core::parse_estimate("2 hours") == 120);
+        check("estimate/parse: empty is none, junk is -1",
+              core::parse_estimate("") == 0 && core::parse_estimate("soon") == -1 &&
+                  core::parse_estimate("1h2h") == -1 && core::parse_estimate("5 days") == -1);
+        check("estimate/format", core::format_estimate(0).empty() && core::format_estimate(15) == "15m" &&
+                                     core::format_estimate(60) == "1h" &&
+                                     core::format_estimate(90) == "1h 30m");
+        check("estimate/round trip through the text",
+              core::parse_estimate(core::format_estimate(135)) == 135);
+
+        const std::int64_t now = 1789300000;
+        core::MemoryNodes m;
+        const auto quick = m.create("", "Reply to Ann");
+        m.make_task(quick, true);
+        m.set_estimate(quick, 10);
+        const auto hour = m.create("", "Mow the lawn");
+        m.make_task(hour, true);
+        m.set_estimate(hour, 60);
+        const auto bare = m.create("", "Think about it");
+        m.make_task(bare, true);
+        const auto done = m.create("", "Done quick");
+        m.make_task(done, true);
+        m.set_estimate(done, 5);
+        m.set_done(done, true);
+        check("estimate/set refuses a negative", !m.set_estimate(quick, -5) && m.find(quick)->task.estimate == 10);
+        m.make_task(hour, false);
+        check("estimate/un-making a todo clears it", m.find(hour)->task.estimate == 0);
+        m.make_task(hour, true);
+        m.set_estimate(hour, 60);
+
+        auto ids = [&](const std::string& q) {
+            std::vector<core::NodeId> out;
+            for (const auto& h : core::search(m, q, 200, now)) out.push_back(h.id);
+            return out;
+        };
+        using V = std::vector<core::NodeId>;
+        check("query/est: at most that long, done left out", ids("est:30") == V{quick});
+        check("query/est: hours read too", ids("est:1h") == V{quick, hour});
+        check("query/est:none: remaining todos with no estimate", ids("est:none") == V{bare});
+        check("query/est: junk is a word", !core::parse_query("est:soon").has_filters());
+        check("query/est: the line shows it",
+              !core::search(m, "est:30", 200, now).empty() &&
+                  core::search(m, "est:30", 200, now)[0].snippet == "Available · 10m",
+              core::search(m, "est:30", 200, now).empty() ? "" : core::search(m, "est:30", 200, now)[0].snippet);
+        check("query/est: describe", core::describe_query("is:available est:30") ==
+                                         "Available todos · 30m or less");
+        check("query/est: menu reads and writes",
+              core::query_est("a est:1h") == "60" && core::query_est("est:none") == "none" &&
+                  core::query_set_est("is:available est:1h", "30") == "is:available est:30" &&
+                  core::query_set_est("est:30 x", "") == "x");
+
+        const std::string dir =
+            (std::filesystem::temp_directory_path() / "jot_selftest_estimate").string();
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        core::NodeId a, b;
+        {
+            core::Project v;
+            v.open(dir);
+            a = v.create("", "timed");
+            v.make_task(a, true);
+            v.set_estimate(a, 45);
+            b = v.create("", "untimed");
+            v.make_task(b, true);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(dir);
+            check("estimate/persist: round-trips, absent stays none",
+                  v.find(a)->task.estimate == 45 && v.find(b)->task.estimate == 0);
+        }
+        std::filesystem::remove_all(dir, ec);
+    }
+
     std::cout << "-----------------------------------------------\n";
 
     // -- Recents: list ops + JSON round-trip with prune -----------------------

@@ -38,6 +38,9 @@
 //   -#someday           a leading minus: NOT this term
 //   is:remaining  is:available  is:waiting  is:done  is:dropped  is:todo
 //   is:note  is:project  is:inbox  is:flagged
+//   est:30  est:1h  est:none
+//                       s040: a remaining todo that takes at most that long
+//                       (it has an estimate), or one with no estimate yet.
 //   due:overdue  due:today  due:week  due:any  due:none
 //                       "due by": today and week include what is already late.
 //                       A due: term (and is:flagged) is about what is left to
@@ -60,7 +63,7 @@ struct SearchHit {
 std::vector<std::string> search_words(const std::string& query);
 
 // ── the query (s038b) ───────────────────────────────────────────────────────
-enum class TermKind { Word, Tag, State, Due };
+enum class TermKind { Word, Tag, State, Due, Est };   // s040: Est
 enum class StateTerm { Remaining, Available, Waiting, Done, Dropped, Todo, Note, Project, Inbox,
                        Flagged };
 enum class DueTerm { Overdue, Today, Week, Any, None };
@@ -71,6 +74,7 @@ struct Term {
     std::string text;                      // Word: lower-cased; Tag: the key ("home/garden")
     StateTerm   state  = StateTerm::Remaining;
     DueTerm     due    = DueTerm::Any;
+    int         minutes = 0;               // Est: at most this; 0 == "none" (no estimate)
 };
 
 // AND of clauses; each clause an OR of terms.
@@ -108,6 +112,9 @@ bool        query_flagged(const std::string& query);
 std::string query_set_show(const std::string& query, const std::string& show);
 std::string query_set_due(const std::string& query, const std::string& due);
 std::string query_set_flagged(const std::string& query, bool on);
+// s040: the Time section. "" (any), "none", or minutes as text ("30").
+std::string query_est(const std::string& query);
+std::string query_set_est(const std::string& query, const std::string& est);
 
 // Every match, ranked as above, at most `cap` (the pane says when it stopped).
 // `now` 0 reads the clock (the GTK side); the selftest passes its own.

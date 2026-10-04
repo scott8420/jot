@@ -115,6 +115,8 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Notes", "", "is:available  is:waiting  is:done  is:project  is:inbox  is:flagged",
          "Find: what a note is -- also is:remaining, is:todo, is:note, is:dropped",
          "due:overdue  due:today  due:week  due:any  due:none -- due BY: late ones count."},
+        {"Notes", "", "est:30   est:1h   est:none", "Find: todos that take at most that long -- or have no estimate yet",
+         "The funnel › Time writes it. With Show › Available: what fits in the time you have."},
         {"Notes", "", "Save as Perspective…", "Keep the Find field's query under a name",
          "The funnel › Perspectives opens it again. Same name replaces; Delete This Perspective "
          "while it is showing."},
@@ -132,6 +134,8 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Type 2026-10-09, 2026-10-09 14:30, today, tomorrow -- or the calendar button. "
          "Defer hides it until then; its button offers This weekend and 2 days before due. "
          "Both pass down to the notes under it."},
+        {"Todos", "", "Note details › Time", "Say how long a todo takes: 15m, 1h, 1h30",
+         "Or pick from the ▾. Rows show it (⏱). Find's funnel › Time finds what fits."},
         {"Todos", "", "Note details › Repeat", "Make a todo come back: weekly, every 2 weeks, monthly",
          "Type it or use the ▾ list. Ticking it logs this one and moves its dates on; ↻ marks it. Tick \u201cCount from "
          "when it is done\u201d for chores."},
