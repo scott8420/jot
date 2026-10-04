@@ -1,6 +1,7 @@
 #pragma once
 #include "core/Nodes.hpp"
 #include "core/Tasks.hpp"
+#include "core/Forecast.hpp"
 #include "widgets/Widgets.hpp"
 
 #include <sigc++/signal.h>
@@ -74,7 +75,9 @@ private:
     // s032: Logbook -- what got done, newest first, by day. It looks BACK,
     // where the other three look forward; it is the fourth button rather than
     // a fifth tab because it is still a report over the same nodes.
-    enum class View { Today, Available, Flagged, Logbook };
+    // s039: Forecast -- the days ahead, due and starting. A fifth button, not
+    // a sixth tab, for the Logbook's reason: a report over the same todos.
+    enum class View { Today, Available, Flagged, Logbook, Forecast };
 
     void build_filter_bar();
     void build_desktop_bar();
@@ -83,6 +86,10 @@ private:
     Gtk::Widget* task_row(const core::Node& n);
     Gtk::Widget* log_row(const core::LogEntry& e);
     void         fill_logbook(std::int64_t now);
+    void         build_day_strip();                 // s039
+    void         fill_forecast(std::int64_t now);   // s039
+    void         add_day_rows(const std::string& key, const std::string& head,
+                              const core::ForecastDay& d);
     void set_view(View v);
 
     core::NodeSource*      m_src   = nullptr;   // not owned; the seam
@@ -90,7 +97,17 @@ private:
     View                   m_view  = View::Today;
 
     widgets::Box            m_filter_bar;
-    widgets::ToggleButton   m_b_today, m_b_available, m_b_flagged, m_b_logbook;
+    widgets::ToggleButton   m_b_today, m_b_available, m_b_flagged, m_b_logbook, m_b_forecast;
+    // s039: the Forecast's strip -- today, the six days after it, and Later.
+    // Built once and relabelled on each refresh, so a click never destroys the
+    // button it came from. Shown only in the Forecast view.
+    static constexpr int kStripDays = 7;
+    widgets::Box            m_day_strip;
+    widgets::ToggleButton*  m_day_btn[kStripDays + 1] = {};
+    widgets::Label*         m_day_name[kStripDays + 1] = {};
+    widgets::Label*         m_day_num[kStripDays + 1] = {};
+    widgets::Label*         m_day_count[kStripDays + 1] = {};
+    int                     m_day_pick = 0;   // 0 = today .. kStripDays = Later
     widgets::ScrolledWindow m_scroll;
     widgets::Box            m_column;
     widgets::Label          m_empty;

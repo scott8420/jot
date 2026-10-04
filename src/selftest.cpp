@@ -36,6 +36,7 @@
 #include "core/Tags.hpp"
 #include "core/Review.hpp"
 #include "core/Search.hpp"
+#include "core/Forecast.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1804,6 +1805,84 @@ int main() {
         check("perspective/prefs round-trip", back.perspectives == ps);
         check("perspective/first run has none", core::Prefs{}.perspectives.empty());
         std::filesystem::remove(file);
+    }
+
+    // -- s039: the Forecast ---------------------------------------------------
+    {
+        const std::int64_t now = core::day_start(1789300000) + 10 * 3600;   // 10:00 on a day
+        const std::int64_t today = core::day_start(now);
+        core::MemoryNodes m;
+        const auto proj = m.create("", "Move house");
+        m.set_due(proj, core::day_end(today + 2 * 86400 + 3600));        // day 2
+        const auto pack = m.create(proj, "Pack");                          // inherits day 2
+        m.make_task(pack, true);
+        const auto early = m.create("", "Call at 3");
+        m.make_task(early, true);
+        m.set_due(early, today + 15 * 3600);                              // later today
+        const auto late = m.create("", "Late one");
+        m.make_task(late, true);
+        m.set_due(late, today + 8 * 3600);                                // 08:00 today: overdue
+        const auto starts = m.create("", "Plant bulbs");
+        m.make_task(starts, true);
+        m.set_defer(starts, today + 4 * 86400 + 3600);                    // starts day 4
+        m.set_due(starts, today + 4 * 86400 + 12 * 3600);                 // and due that day
+        const auto far = m.create("", "Renew passport");
+        m.make_task(far, true);
+        m.set_due(far, today + 20 * 86400 + 3600);                        // later
+        const auto done = m.create("", "Done already");
+        m.make_task(done, true);
+        m.set_due(done, today + 15 * 3600);
+        m.set_done(done, true);
+        const auto passed = m.create("", "Deferred to yesterday");
+        m.make_task(passed, true);
+        m.set_defer(passed, today - 86400);
+
+        core::TaskIndex idx;
+        idx.rebuild(m);
+        const auto f = core::forecast(m, idx, now, 7);
+        using V = std::vector<core::NodeId>;
+        check("forecast/seven days, today first, empty ones kept",
+              f.days.size() == 7 && f.days[0].day == today && f.days[3].due.empty());
+        check("forecast/today: due later today, not the overdue one, not the done one",
+              f.days[0].due == V{early});
+        check("forecast/inherited due: a step lands on its project's day", f.days[2].due == V{pack});
+        check("forecast/starts: a future defer lands on its day",
+              f.days[4].starts == V{starts} && f.days[4].due == V{starts});
+        check("forecast/count: one todo due and starting the same day is one",
+              f.days[4].count() == 1 && f.days[2].count() == 1);
+        check("forecast/a passed defer is nothing to forecast",
+              std::none_of(f.days.begin(), f.days.end(), [&](const core::ForecastDay& d) {
+                  return std::find(d.starts.begin(), d.starts.end(), passed) != d.starts.end();
+              }));
+        check("forecast/later: only days with something, by day",
+              f.later.size() == 1 && f.later[0].due == V{far} &&
+                  f.later[0].day == core::day_start(today + 20 * 86400 + 3600));
+
+        // DST: the night clocks go back (US, 2026-11-01) is 25 hours. A fixed
+        // 86400 step would land every later bucket at 23:00 the day before.
+        const char* old_tz = std::getenv("TZ");
+        const std::string saved = old_tz ? old_tz : "";
+        setenv("TZ", "America/Chicago", 1);
+        tzset();
+        std::tm tm{};
+        tm.tm_year = 2026 - 1900; tm.tm_mon = 9; tm.tm_mday = 31; tm.tm_hour = 12; tm.tm_isdst = -1;
+        const std::int64_t oct31 = static_cast<std::int64_t>(std::mktime(&tm));
+        core::MemoryNodes e;
+        core::TaskIndex ei;
+        ei.rebuild(e);
+        const auto fd = core::forecast(e, ei, oct31, 4);
+        bool midnights = fd.days.size() == 4;
+        for (const auto& d : fd.days) {
+            std::time_t t = static_cast<std::time_t>(d.day);
+            std::tm lt{};
+            localtime_r(&t, &lt);
+            midnights = midnights && lt.tm_hour == 0 && lt.tm_min == 0;
+        }
+        check("forecast/DST: every day starts at local midnight across the 25-hour night", midnights);
+        check("forecast/DST: the fall-back day is 25 hours long",
+              fd.days.size() == 4 && fd.days[2].day - fd.days[1].day == 25 * 3600);
+        if (old_tz) setenv("TZ", saved.c_str(), 1); else unsetenv("TZ");
+        tzset();
     }
 
     std::cout << "-----------------------------------------------\n";

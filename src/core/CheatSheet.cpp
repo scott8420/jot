@@ -185,6 +185,10 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Today", "", "Today tab › Logbook", "What got done, newest first, by day",
          "Ticked todos, and projects Completed or Dropped, with the time. Untick one there "
          "and it goes back."},
+        // ── Forecast (s039) ─────────────────────────────────────────────────
+        {"Today", "", "Today tab › Forecast", "The days ahead: what is due, and what starts, day by day",
+         "A strip of today and the next six days with a count on each, then Later. Pick a day. "
+         "Overdue stays pinned on top."},
         {"Today", "", "Due notification", "A desktop notice when a todo comes due",
          "Click it to open the todo. On in Preferences; jot can keep running with "
          "its window closed so the clock keeps ticking."},

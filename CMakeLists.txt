@@ -98,6 +98,8 @@ add_library(jot_core STATIC
     src/core/Tags.cpp
     src/core/Review.cpp
     src/core/Search.cpp
+    # s039: what is coming, day by day -- due and starting.
+    src/core/Forecast.cpp
     # s029: where a note can go -- the legal targets "Move to..." offers,
     # ranked for what was typed. The model decides legality, not the picker.
     src/core/Filing.cpp

@@ -1,6 +1,7 @@
 #include "TodayPane.hpp"
 #include "Log.hpp"
 
+#include <gtkmm/cssprovider.h>
 #include <gtkmm/enums.h>
 
 #include <algorithm>
@@ -11,6 +12,22 @@
 
 namespace jot {
 namespace {
+
+// s039. Five view buttons at stock padding widened the whole side pane by
+// ~90 px (a Paned will not go narrower than its widest page -- s037). Tighter
+// padding, not shorter words: the strip's day buttons get the same.
+void install_tight_css() {
+    static bool done = false;
+    if (done) return;
+    auto display = Gdk::Display::get_default();
+    if (!display) return;
+    auto css = Gtk::CssProvider::create();
+    css->load_from_data(".jot-tight > button { padding-left: 4px; padding-right: 4px; min-width: 0; }");
+    gtk_style_context_add_provider_for_display(
+        display->gobj(), GTK_STYLE_PROVIDER(css->gobj()),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    done = true;
+}
 
 std::string titled(const core::Node* n) {
     if (!n) return {};
@@ -74,6 +91,8 @@ TodayPane::TodayPane(std::string_view name)
       m_b_available("today.filter_available"),
       m_b_flagged("today.filter_flagged"),
       m_b_logbook("today.filter_logbook"),
+      m_b_forecast("today.filter_forecast"),
+      m_day_strip("today.day_strip", Gtk::Orientation::HORIZONTAL, 0),
       m_scroll("today.scroll"),
       m_column("today.column", Gtk::Orientation::VERTICAL, 14),
       m_empty("today.empty"),
@@ -86,6 +105,7 @@ TodayPane::TodayPane(std::string_view name)
       m_bg_status("today.background_status"),
       m_prefs_button("today.preferences") {
     build_filter_bar();
+    build_day_strip();
 
     m_column.set_margin(12);
     m_empty.set_wrap(true);
@@ -181,7 +201,9 @@ void TodayPane::set_background_status(const std::string& text) {
 }
 
 void TodayPane::build_filter_bar() {
+    install_tight_css();
     m_filter_bar.add_css_class("linked");
+    m_filter_bar.add_css_class("jot-tight");
     m_filter_bar.set_margin(8);
     m_filter_bar.set_halign(Gtk::Align::CENTER);
 
@@ -193,6 +215,8 @@ void TodayPane::build_filter_bar() {
         {&m_b_flagged,   "Flagged",   View::Flagged, "Everything you have flagged"},
         {&m_b_logbook,   "Logbook",   View::Logbook,
          "What got done, newest first, by day"},
+        {&m_b_forecast,  "Forecast",  View::Forecast,
+         "The days ahead: what is due, and what starts (its defer runs out), day by day"},
     };
     for (auto& s : spec) {
         s.b->set_label(s.label);
@@ -219,6 +243,8 @@ void TodayPane::set_view(View v) {
     m_b_available.set_active(v == View::Available);
     m_b_flagged.set_active(v == View::Flagged);
     m_b_logbook.set_active(v == View::Logbook);
+    m_b_forecast.set_active(v == View::Forecast);
+    m_day_strip.set_visible(v == View::Forecast);
     m_switching = false;
     refresh();
 }
@@ -335,6 +361,7 @@ void TodayPane::refresh() {
     if (!m_src || !m_tasks) { m_empty.set_visible(true); return; }
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
     if (m_view == View::Logbook) { fill_logbook(now); return; }   // looks back: no Overdue pin
+    if (m_view == View::Forecast) { fill_forecast(now); return; }  // s039: pins Overdue itself
 
     core::Filter f = core::Filter::Today;
     if (m_view == View::Available) f = core::Filter::Available;
@@ -381,6 +408,7 @@ void TodayPane::refresh() {
                                  "pane when it is the one you mean to do next.");
                 break;
             case View::Logbook: break;   // fill_logbook says its own
+            case View::Forecast: break;  // fill_forecast says its own
         }
         m_empty.set_visible(true);
     }
@@ -532,6 +560,152 @@ void TodayPane::fill_logbook(std::int64_t now) {
 
     if (auto lg = log::get(log::Area::Drawer))
         lg->debug("today: logbook {} entr(ies), {} shown", all.size(), shown.size());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The Forecast (s039). core::forecast decides what lands on which day; this
+// draws a strip of days with a count on each, and under it the picked day:
+// what is DUE, then what STARTS (its defer runs out). Later is every day after
+// the strip that has something on it. Overdue stays pinned on top, as in every
+// forward view.
+// ─────────────────────────────────────────────────────────────────────────────
+namespace {
+
+std::string strf(std::int64_t when, const char* fmt) {
+    std::time_t t = static_cast<std::time_t>(when);
+    std::tm tm{};
+    localtime_r(&t, &tm);
+    char buf[64];
+    std::strftime(buf, sizeof buf, fmt, &tm);
+    return buf;
+}
+
+std::string day_head(std::int64_t day, std::int64_t today) {
+    if (day == today) return "Today  ·  " + strf(day, "%a %e %b");
+    if (day == core::next_day(today)) return "Tomorrow  ·  " + strf(day, "%a %e %b");
+    return strf(day, "%A %e %B");
+}
+
+}  // namespace
+
+void TodayPane::build_day_strip() {
+    m_day_strip.add_css_class("linked");
+    m_day_strip.add_css_class("jot-tight");
+    m_day_strip.set_margin_start(8);
+    m_day_strip.set_margin_end(8);
+    m_day_strip.set_margin_bottom(4);
+    for (int i = 0; i <= kStripDays; ++i) {
+        const std::string k = std::to_string(i);
+        auto* b = Gtk::make_managed<widgets::ToggleButton>(widgets::unregistered, "today.day." + k);
+        auto* box = Gtk::make_managed<widgets::Box>(widgets::unregistered, "today.daybox." + k,
+                                                    Gtk::Orientation::VERTICAL, 0);
+        auto* name = Gtk::make_managed<widgets::Label>(widgets::unregistered, "today.dayname." + k);
+        auto* num = Gtk::make_managed<widgets::Label>(widgets::unregistered, "today.daynum." + k);
+        auto* cnt = Gtk::make_managed<widgets::Label>(widgets::unregistered, "today.daycount." + k);
+        name->add_css_class("caption");
+        num->add_css_class("heading");
+        cnt->add_css_class("caption");
+        cnt->add_css_class("dim-label");
+        box->append(*name);
+        box->append(*num);
+        box->append(*cnt);
+        b->set_child(*box);
+        b->set_hexpand(true);
+        const int pick = i;
+        b->signal_toggled().connect([this, pick, b]() {
+            if (m_switching) return;
+            if (!b->get_active()) { b->set_active(true); return; }   // a radio has no "off"
+            m_day_pick = pick;
+            refresh();
+        });
+        m_day_btn[i] = b;
+        m_day_name[i] = name;
+        m_day_num[i] = num;
+        m_day_count[i] = cnt;
+        m_day_strip.append(*b);
+    }
+    m_day_strip.set_visible(false);
+    append(m_day_strip);
+}
+
+void TodayPane::add_day_rows(const std::string& key, const std::string& head,
+                             const core::ForecastDay& d) {
+    auto* group = Gtk::make_managed<widgets::Box>(widgets::unregistered, "today.fday." + key,
+                                                  Gtk::Orientation::VERTICAL, 4);
+    auto* h = Gtk::make_managed<widgets::Label>(widgets::unregistered, "today.fday_head." + key);
+    h->set_text(head + "  ·  " + std::to_string(d.count()));
+    h->set_xalign(0.0f);
+    h->add_css_class("heading");
+    group->append(*h);
+    auto part = [&](const char* what, const std::vector<core::NodeId>& ids, const char* tag) {
+        if (ids.empty()) return;
+        auto* l = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                    std::string("today.fday_") + tag + "." + key);
+        l->set_text(what);
+        l->set_xalign(0.0f);
+        l->add_css_class("dim-label");
+        l->add_css_class("caption");
+        group->append(*l);
+        for (const auto& id : ids)
+            if (const core::Node* n = m_src->find(id)) group->append(*task_row(*n));
+    };
+    part("Due", d.due, "due");
+    std::vector<core::NodeId> starts;   // a todo due AND starting today is listed once, under Due
+    for (const auto& id : d.starts)
+        if (std::find(d.due.begin(), d.due.end(), id) == d.due.end()) starts.push_back(id);
+    part("Starts \u2014 its defer runs out", starts, "starts");
+    m_column.append(*group);
+}
+
+void TodayPane::fill_forecast(std::int64_t now) {
+    const core::Forecast f = core::forecast(*m_src, *m_tasks, now, kStripDays);
+    const std::int64_t today = core::day_start(now);
+
+    // The strip: relabelled, never rebuilt.
+    std::size_t later_n = 0;
+    for (const auto& d : f.later) later_n += d.count();
+    m_switching = true;
+    for (int i = 0; i <= kStripDays; ++i) {
+        const bool is_later = i == kStripDays;
+        const std::size_t n = is_later ? later_n : f.days[i].count();
+        // Weekday names only -- "Today" in all eight would set the strip's
+        // width (and so the pane's) by the longest word. Today is the first
+        // cell, and its tooltip and heading say so.
+        m_day_name[i]->set_text(is_later ? "Later" : strf(f.days[i].day, "%a"));
+        m_day_num[i]->set_text(is_later ? "»" : strf(f.days[i].day, "%e"));
+        m_day_count[i]->set_text(n ? std::to_string(n) : "·");
+        m_day_btn[i]->set_tooltip_text(is_later ? std::string("Everything after the strip")
+                                                : day_head(f.days[i].day, today));
+        m_day_btn[i]->set_active(i == m_day_pick);
+    }
+    m_switching = false;
+
+    const auto overdue = m_tasks->query(*m_src, core::Filter::Overdue, now);
+    if (!overdue.empty())
+        add_group("", overdue, "Overdue  ·  " + std::to_string(overdue.size()));
+
+    bool any = false;
+    if (m_day_pick < kStripDays) {
+        const auto& d = f.days[m_day_pick];
+        if (d.count()) {
+            add_day_rows(std::to_string(d.day), day_head(d.day, today), d);
+            any = true;
+        }
+        if (!any) {
+            m_empty.set_text(day_head(d.day, today) + "\n\nNothing due and nothing starting. "
+                             "A todo lands here by its due date, or by its defer date "
+                             "running out.");
+        }
+    } else {
+        for (const auto& d : f.later) add_day_rows(std::to_string(d.day), day_head(d.day, today), d);
+        any = !f.later.empty();
+        if (!any) m_empty.set_text("Nothing due or starting after the next seven days.");
+    }
+    if (!any) m_empty.set_visible(true);
+
+    if (auto lg = log::get(log::Area::Drawer))
+        lg->debug("today: forecast pick={} overdue={} later_days={}", m_day_pick, overdue.size(),
+                  f.later.size());
 }
 
 }  // namespace jot
