@@ -103,6 +103,9 @@ public:
 
     // The cursor's offset, for a paste (which lands at the cursor).
     int cursor_offset() const;
+    // s038: select [cp, cp+len) of the body and scroll it into view -- a
+    // search hit opened. On an idle, after the note's text has been laid out.
+    void select_range(int cp, int len);
 
     // ── the reading view (s021) ─────────────────────────────────────────────
     // Obsidian's Reading mode: the same note with its marks gone (core::render).

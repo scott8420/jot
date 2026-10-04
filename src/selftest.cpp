@@ -35,6 +35,7 @@
 #include "core/CheatSheet.hpp"
 #include "core/Tags.hpp"
 #include "core/Review.hpp"
+#include "core/Search.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1621,6 +1622,52 @@ int main() {
                       v.find(b)->task.mark == core::ProjectMark::Off);
         }
         std::filesystem::remove_all(dir, ec);
+    }
+
+
+    // -- s038: search across every note ---------------------------------------
+    {
+        core::MemoryNodes m;
+        const auto shed  = m.create("", "Paint the shed");
+        m.set_body(shed, "Buy exterior paint.\nThe café wants Sage Green, two coats.\n#errands");
+        const auto sub   = m.create(shed, "Brushes");
+        m.set_body(sub, "Wide brush for the shed walls.");
+        const auto other = m.create("", "Groceries");
+        m.set_body(other, "milk, eggs, paint thinner? no -- #errands");
+        const auto green = m.create("", "Green tea notes");
+
+        check("search/words: lower-cased, split on spaces",
+              core::search_words("  Sage  GREEN ") == std::vector<std::string>{"sage", "green"});
+        check("search/empty: nothing to look for finds nothing",
+              core::search(m, "   ").empty());
+        auto h = core::search(m, "paint");
+        check("search/rank: name hits first, then body hits in tree order",
+              h.size() == 2 && h[0].id == shed && h[0].in_name && h[1].id == other && !h[1].in_name);
+        h = core::search(m, "green sage");
+        check("search/all words: every word must be in the note, any order",
+              h.size() == 1 && h[0].id == shed);
+        check("search/snippet: the line it matched on",
+              h.size() == 1 && h[0].snippet == "The café wants Sage Green, two coats.", h.empty() ? "" : h[0].snippet);
+        // "The café wants " is 15 codepoints (é is two bytes, one codepoint).
+        check("search/offset: codepoints, not bytes, to the first match",
+              h.size() == 1 && h[0].cp_start == 20 + 15 && h[0].cp_len == 4,
+              h.empty() ? "" : std::to_string(h[0].cp_start));
+        h = core::search(m, "#errands");
+        check("search/tags: a tag is a word", h.size() == 2);
+        h = core::search(m, "green");
+        check("search/name only: a name hit with nothing in the body has no snippet",
+              h.size() == 2 && h[0].id == green && h[0].snippet.empty() && h[0].cp_start == -1 &&
+                  h[1].id == shed);
+        check("search/nothing: no match is an empty list", core::search(m, "zebra").empty());
+        check("search/count and cap",
+              core::search_count(m, "e") == 4 && core::search(m, "e", 2).size() == 2);
+        std::string longline(300, 'x');
+        longline.replace(200, 6, "needle");
+        m.set_body(other, longline);
+        h = core::search(m, "needle");
+        check("search/snippet: a long line is cut around the hit",
+              h.size() == 1 && h[0].snippet.find("needle") != std::string::npos &&
+                  h[0].snippet.size() < 120 && h[0].snippet.rfind("…", 0) == 0);
     }
 
     std::cout << "-----------------------------------------------\n";

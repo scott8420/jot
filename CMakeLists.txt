@@ -97,6 +97,7 @@ add_library(jot_core STATIC
     src/core/Inbox.cpp
     src/core/Tags.cpp
     src/core/Review.cpp
+    src/core/Search.cpp
     # s029: where a note can go -- the legal targets "Move to..." offers,
     # ranked for what was typed. The model decides legality, not the picker.
     src/core/Filing.cpp
@@ -202,6 +203,7 @@ add_executable(jot
     # s035: tags as contexts -- chips over core::tag_list, rows over tag_members.
     src/TagsPane.cpp
     src/ProjectsPane.cpp
+    src/SearchPane.cpp
     # s029. "Move to...": a picker you type into, over core/Filing.
     src/MoveDialog.cpp
     src/Shell_zones.cpp

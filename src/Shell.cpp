@@ -10,6 +10,7 @@
 #include "InboxPane.hpp"
 #include "TagsPane.hpp"
 #include "ProjectsPane.hpp"
+#include "SearchPane.hpp"
 #include "Log.hpp"
 
 #include <giomm/desktopappinfo.h>
@@ -45,6 +46,9 @@ Shell::Shell()
       m_tab_today("shell.tab_today"),
       m_tab_tags("shell.tab_tags"),
       m_tab_projects("shell.tab_projects"),
+      m_notes_page("shell.notes_page", Gtk::Orientation::VERTICAL, 0),
+      m_find("shell.find"),
+      m_notes_stack("shell.notes_stack"),
       m_left_stack("shell.left_stack"),
       m_paned_left("shell.paned_left", Gtk::Orientation::HORIZONTAL),
       m_paned_right("shell.paned_right", Gtk::Orientation::HORIZONTAL),
@@ -61,6 +65,7 @@ Shell::Shell()
     m_inbox  = std::make_unique<InboxPane>("shell.inbox");
     m_tags   = std::make_unique<TagsPane>("shell.tags");
     m_projects = std::make_unique<ProjectsPane>("shell.projects");   // s037
+    m_search   = std::make_unique<SearchPane>("shell.search");       // s038
 }
 
 Shell::~Shell() = default;
@@ -109,6 +114,7 @@ void Shell::build_ui() {
     m_inbox->set_source(m_store.get());
     m_tags->set_source(m_store.get());   // s035
     m_projects->set_source(m_store.get());   // s037
+    m_search->set_source(m_store.get());     // s038
     queue_inbox_refresh();   // the tab's count and Clean Up's greying
 
     // The desktop footer, brought up to match the state the action already

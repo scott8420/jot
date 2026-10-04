@@ -10,6 +10,7 @@
 #include "InboxPane.hpp"
 #include "TagsPane.hpp"
 #include "ProjectsPane.hpp"
+#include "SearchPane.hpp"
 #include "core/Inbox.hpp"
 #include "core/Tags.hpp"
 #include "core/Review.hpp"
@@ -116,6 +117,7 @@ void Shell::on_rename_note() {  // handler: rename in the tree
     const auto id = m_tree->selected();
     if (id.empty()) return;
     on_left_view("notes");   // s035: was change_state, which lit the tab but left the stack where it was
+    end_search();            // s038: the row to rename is in the tree, not the results
     m_tree->begin_rename(id);
 }
 
@@ -132,6 +134,27 @@ void Shell::on_left_view(const Glib::ustring& which) {  // handler: Notes | Inbo
     if (page == "inbox") m_inbox->refresh();   // ages ("3 h ago") move with the clock
     if (page == "tags")  m_tags->refresh();    // s035: skipped while hidden, so never stale here
     if (page == "projects") m_projects->refresh();   // s037: the same
+}
+
+// s038. Ctrl+F: the Find field over the Notes tab, side pane shown if it was
+// hidden, what was typed last selected so typing replaces it.
+void Shell::on_find() {  // handler: Ctrl+F
+    if (!m_prefs.show_tree) {
+        m_prefs.show_tree = true;
+        apply_layout_state();
+    }
+    on_left_view("notes");
+    m_find.grab_focus();
+    m_find.select_region(0, -1);
+}
+
+// s038. A search hit: open the note, the first match selected and in view.
+// The results stay up, so the next hit is one click away; Esc in the field
+// goes back to the tree.
+void Shell::on_search_open(const core::NodeId& id, int cp, int len) {  // handler: a search hit
+    if (id.empty() || !m_store || !m_store->find(id)) return;
+    on_goto_note(id);
+    if (cp >= 0 && !m_prefs.reading) m_editor->select_range(cp, len);
 }
 
 // s037. Ctrl+Shift+P: the Projects view, side pane shown if it was hidden.
@@ -192,6 +215,7 @@ void Shell::on_new_project() {  // handler: Projects tab + -> a new project
     Glib::signal_idle().connect_once([this, id]() {
         if (!m_store || !m_store->find(id)) return;
         on_left_view("notes");
+        end_search();   // s038
         m_tree->reveal(id);
         m_tree->begin_rename(id);
     });
@@ -355,6 +379,7 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
     queue_tags_refresh();
     // s037: a tick, a move, a state, a new child -- not a keystroke.
     if (what != C::Body) queue_projects_refresh();
+    queue_search_refresh();   // s038: a word typed can make or break a match
 
     switch (what) {
         case C::Reload:

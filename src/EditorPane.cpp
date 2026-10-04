@@ -399,6 +399,21 @@ int EditorPane::cursor_offset() const {
     return buf->get_insert()->get_iter().get_offset();
 }
 
+void EditorPane::select_range(int cp, int len) {
+    if (cp < 0 || m_id.empty()) return;
+    const core::NodeId id = m_id;
+    Glib::signal_idle().connect_once([this, id, cp, len]() {
+        if (m_id != id) return;                      // moved on before the idle ran
+        auto buf = m_body.get_buffer();
+        const int n = buf->end().get_offset();
+        auto a = buf->get_iter_at_offset(std::min(cp, n));
+        auto b = buf->get_iter_at_offset(std::min(cp + std::max(len, 0), n));
+        buf->select_range(a, b);
+        m_body.scroll_to(buf->get_insert(), 0.2);
+        m_body.grab_focus();
+    });
+}
+
 bool EditorPane::insert_block(int cp_offset, const std::string& text) {
     if (!m_body.get_editable() || m_id.empty() || text.empty()) return false;
     auto buf = m_body.get_buffer();

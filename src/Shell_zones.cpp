@@ -6,6 +6,8 @@
 #include "InboxPane.hpp"
 #include "TagsPane.hpp"
 #include "ProjectsPane.hpp"
+#include "SearchPane.hpp"
+#include "core/Search.hpp"
 #include "Log.hpp"
 #include "Menus.hpp"
 
@@ -244,7 +246,32 @@ void Shell::build_left_pane() {  // zone: Notes | Today
     m_tab_projects.set_tooltip_text("Review: the projects due a look -- and every project by state (Ctrl+Shift+P)");
     m_left_tabs.append(m_tab_projects);
 
-    m_left_stack.add(*m_tree,  "notes");
+    // s038. Find over the tree: while it has words, the results stand where
+    // the tree stands (a Stack, so the tree keeps its scroll and folds).
+    m_find.set_placeholder_text("Find in all notes");
+    m_find.set_tooltip_text("Every word, anywhere in a note's name or text (Ctrl+F). "
+                            "Enter opens the first; Esc goes back to the tree.");
+    m_find.set_margin_start(8);
+    m_find.set_margin_end(8);
+    m_find.set_margin_bottom(6);
+    m_find.signal_search_changed().connect([this]() {
+        const std::string q = m_find.get_text().raw();
+        m_search->set_query(q);
+        m_notes_stack.set_visible_child(core::search_words(q).empty() ? "tree" : "results");
+    });
+    m_find.signal_activate().connect([this]() {
+        if (!m_search->open_first()) m_find.error_bell();
+    });
+    m_find.signal_stop_search().connect([this]() {
+        end_search();
+        m_tree->grab_focus();
+    });
+    m_notes_stack.add(*m_tree, "tree");
+    m_notes_stack.add(*m_search, "results");
+    m_notes_stack.set_vexpand(true);
+    m_notes_page.append(m_find);
+    m_notes_page.append(m_notes_stack);
+    m_left_stack.add(m_notes_page, "notes");
     m_left_stack.add(*m_inbox, "inbox");
     m_left_stack.add(*m_today, "today");
     m_left_stack.add(*m_tags,  "tags");    // s035

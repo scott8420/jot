@@ -208,6 +208,10 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         // s035: tags as contexts. Picks the note's first tag if none is picked.
         {"View", "win.show-tags",       {"<Ctrl><Shift>t"}, "",
          "Tags: everything with a #tag, todos first"},
+        // s038: Find across every note. GNOME's find key; nothing in jot's
+        // text view binds it.
+        {"View", "win.find",            {"<Ctrl>f"}, "",
+         "Find: every note with these words, in its name or text"},
         // s037: Review. P for Projects; pressed again, Review <-> All projects.
         {"View", "win.show-projects",   {"<Ctrl><Shift>p"}, "",
          "Projects: the ones due a review, or all of them by state"},

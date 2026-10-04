@@ -7,6 +7,7 @@
 #include "InboxPane.hpp"
 #include "TagsPane.hpp"
 #include "ProjectsPane.hpp"
+#include "SearchPane.hpp"
 #include "core/Review.hpp"
 #include "core/Inbox.hpp"
 #include "Log.hpp"
@@ -265,6 +266,8 @@ void Shell::save_scratch(const std::string& target) {
     m_inbox->set_source(m_store.get());
     m_tags->set_source(m_store.get());
     m_projects->set_source(m_store.get());   // s037
+    end_search();                            // s038: a query over the old folder means nothing here
+    m_search->set_source(m_store.get());
     queue_inbox_refresh();
     queue_desktop_sync();
     note_recent(target);
@@ -448,6 +451,8 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     m_inbox->set_source(m_store.get());
     m_tags->set_source(m_store.get());
     m_projects->set_source(m_store.get());   // s037
+    end_search();                            // s038: a query over the old folder means nothing here
+    m_search->set_source(m_store.get());
     queue_inbox_refresh();
     queue_desktop_sync();
     note_recent(dir);
@@ -542,6 +547,23 @@ void Shell::queue_inbox_refresh() {  // helper: Inbox pane + count + greying, on
 // one showing. Switching to it refreshes it at once (on_left_view), so a pane
 // that was skipped while hidden is never seen stale.
 // ─────────────────────────────────────────────────────────────────────────────
+// s038. Search results follow the model while a query is up -- a rename,
+// a typed word. Debounced; nothing to do while the tree is showing.
+void Shell::queue_search_refresh() {  // helper: results, debounced, only while showing
+    if (!m_search || m_search->query().empty()) return;
+    m_search_refresh.disconnect();
+    m_search_refresh = Glib::signal_timeout().connect([this]() {
+        if (m_search) m_search->refresh();
+        return false;
+    }, 400);
+}
+
+void Shell::end_search() {  // helper: the Find field emptied, the tree back
+    if (!m_find.get_text().empty()) m_find.set_text("");
+    if (m_search) m_search->set_query("");
+    m_notes_stack.set_visible_child("tree");
+}
+
 // s037. The Projects pane, the same way: only while it is showing, and a
 // burst of changes (a project's steps ticked one after another) costs one
 // rebuild. No keystroke can change it, so body edits do not arm it.

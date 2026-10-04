@@ -76,6 +76,7 @@ class TodayPane;
 class InboxPane;
 class TagsPane;
 class ProjectsPane;
+class SearchPane;
 
 class Shell : public Gtk::ApplicationWindow {
 public:
@@ -146,6 +147,10 @@ private:
     void on_rename_note();                       // category: handler: rename in the tree (F2)
     void on_left_view(const Glib::ustring& which);  // category: handler: Notes | Inbox | Today | Tags
     void on_show_tag(const std::string& tag);   // category: handler: s035 a #tag clicked -> the Tags view, picked
+    void on_find();                              // category: handler: s038 Ctrl+F -> the Find field over the Notes tab
+    void on_search_open(const core::NodeId& id, int cp, int len);   // category: handler: s038 a search hit -> the note, the match selected
+    void end_search();                           // category: helper: s038 empty the Find field, the tree back
+    void queue_search_refresh();                 // category: helper: s038 results follow the model, debounced, only while showing
     void on_show_projects();                     // category: handler: s037 Ctrl+Shift+P -> Projects (again: Review <-> All)
     void on_mark_reviewed();
     void on_toggle_project();                    // category: handler: s037b the selection is / is not a project, on purpose
@@ -299,6 +304,10 @@ private:
     widgets::ToggleButton       m_tab_today;
     widgets::ToggleButton       m_tab_tags;      // s035
     widgets::ToggleButton       m_tab_projects;  // s037
+    // s038: the Notes page is the Find field over a Stack of tree | results.
+    widgets::Box                m_notes_page;
+    widgets::SearchEntry        m_find;
+    widgets::Stack              m_notes_stack;
     widgets::Stack              m_left_stack;
 
     widgets::Paned              m_paned_left;
@@ -310,6 +319,7 @@ private:
     std::unique_ptr<InboxPane>  m_inbox;      // s028
     std::unique_ptr<TagsPane>   m_tags;       // s035
     std::unique_ptr<ProjectsPane> m_projects; // s037
+    std::unique_ptr<SearchPane> m_search;     // s038
 
     // The two toggles. BOTH OFF is the focus mode -- the note alone on screen,
     // which is the front door ARCHITECTURE describes. They are held so
@@ -338,6 +348,7 @@ private:
     bool m_tree_rebuild_queued   = false;
     bool m_inbox_refresh_queued  = false;   // s028
     sigc::connection m_projects_refresh;     // s037
+    sigc::connection m_search_refresh;       // s038
     sigc::connection m_tags_refresh;         // s035: the debounce; tags live in bodies, so keystrokes count
 
     // Which nodes are todos, in document order. Owned here for the same reason

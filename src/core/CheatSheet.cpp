@@ -100,6 +100,11 @@ const std::vector<CheatLine>& cheat_sheet() {
          "In Source and Live Preview. In Reading a plain click follows it."},
         {"Notes", "", "#tag", "Tag a note: Note details › Tags, or type #tag anywhere in its text",
          "The Tags tab gathers them."},
+        // ── Find (s038) ─────────────────────────────────────────────────────
+        {"Notes", "win.find", "Find in all notes", "Every note with these words, in its name or text",
+         "Above the tree. Any order, case ignored; #tag works. Names first, then the line each "
+         "matched on. Click one: the note opens with the word selected. Enter opens the first; Esc "
+         "brings the tree back."},
         {"Notes", "win.toggle-protect", "", "Protect: lock a note against edits, moves and deletes",
          "⋮ › Protected."},
         {"Notes", "", "Delete (in the tree)", "Delete the note and everything under it",

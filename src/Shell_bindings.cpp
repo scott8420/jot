@@ -7,6 +7,7 @@
 #include "InboxPane.hpp"
 #include "TagsPane.hpp"
 #include "ProjectsPane.hpp"
+#include "SearchPane.hpp"
 #include "Log.hpp"
 #include "core/Recents.hpp"
 
@@ -113,6 +114,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // picker through signal_move, for the row's own note.
     m_act_move_to = add_action("move-to", sigc::mem_fun(*this, &Shell::on_move_to));
     add_action("show-tags", sigc::mem_fun(*this, &Shell::on_show_tags));   // s035
+    add_action("find", sigc::mem_fun(*this, &Shell::on_find));   // s038
     add_action("show-projects", sigc::mem_fun(*this, &Shell::on_show_projects));   // s037
     m_act_mark_reviewed = add_action("mark-reviewed", sigc::mem_fun(*this, &Shell::on_mark_reviewed));
     // s031. Where the selected project stands. A stateful STRING, like
@@ -174,6 +176,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     m_inbox->signal_move().connect(sigc::mem_fun(*this, &Shell::open_move));      // s029
     m_tags->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));    // s035
     m_projects->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));   // s037
+    m_search->signal_open().connect(sigc::mem_fun(*this, &Shell::on_search_open));   // s038
     m_projects->signal_new().connect(sigc::mem_fun(*this, &Shell::on_new_project));  // s037b
     m_drawer->signal_reviewed().connect([this]() { on_mark_reviewed(); });          // s037
     m_drawer->signal_tag().connect(sigc::mem_fun(*this, &Shell::on_show_tag));    // s035
