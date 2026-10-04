@@ -87,6 +87,11 @@ Gtk::Widget* InboxPane::row(const core::Node& n, std::int64_t now) {
 
     auto* box = Gtk::make_managed<widgets::Box>(widgets::unregistered, "inbox.row." + id,
                                                 Gtk::Orientation::HORIZONTAL, 0);
+    // s043: the card shape. A waiting capture has the darker edge (it wants
+    // filing); a filed or done one is quiet until Clean Up takes it.
+    box->add_css_class("jot-card");
+    box->add_css_class(st == core::InboxState::Waiting ? "st-inbox"
+                       : st == core::InboxState::Done  ? "st-done" : "st-note");
     auto* text = Gtk::make_managed<widgets::Box>(widgets::unregistered, "inbox.rowtext." + id,
                                                  Gtk::Orientation::VERTICAL, 0);
     auto* title = Gtk::make_managed<widgets::Label>(widgets::unregistered, "inbox.title." + id);
@@ -127,6 +132,7 @@ Gtk::Widget* InboxPane::row(const core::Node& n, std::int64_t now) {
     go->set_hexpand(true);
     go->set_child(*text);
     go->signal_clicked().connect([this, id]() { m_sig_goto.emit(id); });
+    go->add_css_class("jot-card-go");
     box->append(*go);
 
     if (st == core::InboxState::Waiting) {

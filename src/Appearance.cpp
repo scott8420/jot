@@ -70,6 +70,11 @@ std::string sheet(bool dark) {
          "border-left: 4px solid alpha(currentColor, 0.22); }\n";
     c += ".jot-card:hover { background-color: alpha(currentColor, 0.09); }\n";
     c += ".jot-card-dim { opacity: 0.7; }\n";
+    // s043: a view's head -- big, light, and close to its summary line.
+    c += ".jot-view-title { font-size: 1.6em; font-weight: 800; }\n";
+    // s043: a note card (Find, Inbox) -- the card shape with a quiet edge.
+    c += ".jot-card.st-note { border-left-color: alpha(currentColor, 0.12); }\n";
+    c += ".jot-card.st-inbox { border-left-color: alpha(currentColor, 0.45); }\n";
     c += ".jot-card-go { padding: 5px 2px; min-height: 0; background: none; box-shadow: none; }\n";
     c += ".jot-card-go:hover, .jot-card-go:active { background: none; }\n";
     c += ".jot-card-title { font-weight: 500; }\n";
@@ -92,7 +97,7 @@ std::string sheet(bool dark) {
     state("st-flagged",   p.flagged,   false);
     state("st-available", p.available, false);
     state("st-done",      p.done,      false);
-    c += std::string(".jot-tick check:checked { background-color: ") + p.done +
+    c += std::string(".jot-tick check:checked { background-image: none; background-color: ") + p.done +
          "; border-color: " + p.done + "; }\n";
     return c;
 }

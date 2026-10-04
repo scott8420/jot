@@ -1,5 +1,6 @@
 #include "TodayPane.hpp"
 #include "TaskCard.hpp"
+#include "core/RowLook.hpp"
 #include "Log.hpp"
 
 #include <gtkmm/cssprovider.h>
@@ -73,6 +74,11 @@ TodayPane::TodayPane(std::string_view name)
       m_scroll("today.scroll"),
       m_column("today.column", Gtk::Orientation::VERTICAL, 14),
       m_empty("today.empty"),
+      m_head("today.head", Gtk::Orientation::VERTICAL, 0),
+      m_head_title("today.head_title"),
+      m_head_sub("today.head_sub"),
+      m_status_fold("today.status_fold"),
+      m_status_label("today.status_label"),
       m_desktop_bar("today.desktop_bar", Gtk::Orientation::VERTICAL, 2),
       m_desktop_cap("today.desktop_caption"),
       m_desktop_status("today.desktop_status"),
@@ -85,6 +91,13 @@ TodayPane::TodayPane(std::string_view name)
     build_day_strip();
 
     m_column.set_margin(12);
+    m_head_title.set_xalign(0.0f);
+    m_head_title.add_css_class("jot-view-title");
+    m_head_sub.set_xalign(0.0f);
+    m_head_sub.set_wrap(true);
+    m_head_sub.add_css_class("dim-label");
+    m_head.append(m_head_title);
+    m_head.append(m_head_sub);
     m_empty.set_wrap(true);
     m_empty.set_xalign(0.0f);
     m_empty.add_css_class("dim-label");
@@ -159,7 +172,28 @@ void TodayPane::build_desktop_bar() {
     auto* rule = Gtk::make_managed<widgets::Separator>(
         "today.desktop_rule", Gtk::Orientation::HORIZONTAL);
     append(*rule);
-    append(m_desktop_bar);
+    // s043: folded. Three paragraphs of reports took half the pane's height
+    // every time Today was looked at; they are read when something is wrong.
+    // So they fold, closed, and the fold's own label speaks up when one of
+    // them needs reading (set_notify_status).
+    m_status_label.set_text("Status");
+    m_status_label.add_css_class("caption-heading");
+    m_status_fold.set_label_widget(m_status_label);
+    m_status_fold.set_expanded(false);
+    m_status_fold.set_margin_start(12);
+    m_status_fold.set_margin_end(12);
+    m_status_fold.set_margin_top(4);
+    m_status_fold.set_margin_bottom(4);
+    m_desktop_bar.set_margin_start(0);
+    m_desktop_bar.set_margin_end(0);
+    m_status_fold.set_child(m_desktop_bar);
+    append(m_status_fold);
+}
+
+void TodayPane::set_head(const std::string& title, const std::string& sub) {
+    m_head_title.set_text(title);
+    m_head_sub.set_text(sub);
+    m_head_sub.set_visible(!sub.empty());
 }
 
 void TodayPane::set_desktop_status(const std::string& text) {
@@ -170,6 +204,11 @@ void TodayPane::set_desktop_status(const std::string& text) {
 void TodayPane::set_notify_status(const std::string& text) {
     m_notify_status.set_text(text);
     m_notify_status.set_visible(!text.empty());
+    // The fold is closed, so the one report that means "you are missing
+    // notifications" says so on the fold itself.
+    const bool trouble = text.rfind("Not installed", 0) == 0 ||
+                         text.find("no confirmation") != std::string::npos;
+    m_status_label.set_text(trouble ? "Status  \u00b7  notifications need a look" : "Status");
 }
 
 void TodayPane::set_background_status(const std::string& text) {
@@ -285,12 +324,17 @@ void TodayPane::add_group(const core::NodeId& parent,
 
 void TodayPane::refresh() {
     while (auto* c = m_column.get_first_child()) m_column.remove(*c);
+    m_column.append(m_head);
     m_column.append(m_empty);
     m_empty.set_visible(false);
 
-    if (!m_src || !m_tasks) { m_empty.set_visible(true); return; }
+    if (!m_src || !m_tasks) { set_head("Today", {}); m_empty.set_visible(true); return; }
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-    if (m_view == View::Logbook) { fill_logbook(now); return; }   // looks back: no Overdue pin
+    if (m_view == View::Logbook) {   // looks back: no Overdue pin, nothing to add up
+        set_head("Logbook", "What got done, newest first");
+        fill_logbook(now);
+        return;
+    }
     if (m_view == View::Forecast) { fill_forecast(now); return; }  // s039: pins Overdue itself
 
     core::Filter f = core::Filter::Today;
@@ -315,6 +359,12 @@ void TodayPane::refresh() {
 
     for (const auto& g : core::group_by_parent(*m_src, rest))
         add_group(g.parent, g.tasks, {});
+
+    std::vector<core::NodeId> all = overdue;
+    all.insert(all.end(), rest.begin(), rest.end());
+    set_head(m_view == View::Available ? "Available"
+             : m_view == View::Flagged ? "Flagged" : "Today",
+             core::summary_text(core::summarize(*m_src, all, now)));
 
     if (overdue.empty() && rest.empty()) {
         // An empty Today is a REPORT, not a failure, and it must not read like
@@ -613,6 +663,20 @@ void TodayPane::fill_forecast(std::int64_t now) {
     const auto overdue = m_tasks->query(*m_src, core::Filter::Overdue, now);
     if (!overdue.empty())
         add_group("", overdue, "Overdue  ·  " + std::to_string(overdue.size()));
+
+    {
+        // s043: the head adds up what is on screen -- the pinned Overdue and
+        // the picked day (or Later).
+        std::vector<core::NodeId> shown = overdue;
+        const auto take = [&](const core::ForecastDay& d) {
+            shown.insert(shown.end(), d.due.begin(), d.due.end());
+            for (const auto& id : d.starts)
+                if (std::find(d.due.begin(), d.due.end(), id) == d.due.end()) shown.push_back(id);
+        };
+        if (m_day_pick < kStripDays) take(f.days[m_day_pick]);
+        else for (const auto& d : f.later) take(d);
+        set_head("Forecast", core::summary_text(core::summarize(*m_src, shown, now)));
+    }
 
     bool any = false;
     if (m_day_pick < kStripDays) {

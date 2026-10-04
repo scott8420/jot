@@ -111,6 +111,16 @@ private:
     widgets::ScrolledWindow m_scroll;
     widgets::Box            m_column;
     widgets::Label          m_empty;
+    // s043: the view's head -- a big title and what the list adds up to.
+    // Members (not rebuilt), re-appended at the top of the column each refresh.
+    widgets::Box            m_head;
+    widgets::Label          m_head_title;
+    widgets::Label          m_head_sub;
+    void set_head(const std::string& title, const std::string& sub);
+    // s043: the footer's reports, folded -- they are read when something
+    // goes wrong, not every time the list is.
+    widgets::Expander       m_status_fold;
+    widgets::Label          m_status_label;
 
     // The footer: a caption and a status sentence per feature, and the way
     // to Preferences. No check boxes -- see the public block above.

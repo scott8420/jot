@@ -1,4 +1,7 @@
 #include "SearchPane.hpp"
+#include "TaskCard.hpp"
+
+#include <ctime>
 #include "Log.hpp"
 
 #include <gtkmm/enums.h>
@@ -21,7 +24,7 @@ SearchPane::SearchPane(std::string_view name)
     : widgets::Box(name, Gtk::Orientation::VERTICAL, 0),
       m_summary("search.summary"),
       m_scroll("search.scroll"),
-      m_column("search.column", Gtk::Orientation::VERTICAL, 2) {
+      m_column("search.column", Gtk::Orientation::VERTICAL, 4) {
     m_summary.set_xalign(0.0f);
     m_summary.set_wrap(true);
     m_summary.set_margin_start(12);
@@ -58,6 +61,17 @@ bool SearchPane::open_first() {
 
 Gtk::Widget* SearchPane::hit_row(const core::SearchHit& h) {
     const core::Node* n = m_src->find(h.id);
+    const int at0 = h.cp_start, len0 = h.cp_len;
+
+    // s043: a todo hit is THE card (TaskCard), the same as Today and Tags --
+    // tickable, coloured, its matched line on the quiet line.
+    if (n && n->task.is_task) {
+        CardOpts o;
+        o.prefix = "search";
+        o.note   = h.snippet;
+        return task_card(*m_src, *n, static_cast<std::int64_t>(std::time(nullptr)), o,
+                         [this, at0, len0](const core::NodeId& id) { m_sig_open.emit(id, at0, len0); });
+    }
     auto* text = Gtk::make_managed<widgets::Box>(widgets::unregistered, "search.rowtext." + h.id,
                                                  Gtk::Orientation::VERTICAL, 0);
     auto* title = Gtk::make_managed<widgets::Label>(widgets::unregistered, "search.title." + h.id);
@@ -93,7 +107,15 @@ Gtk::Widget* SearchPane::hit_row(const core::SearchHit& h) {
     const core::NodeId id = h.id;
     const int at = h.cp_start, len = h.cp_len;
     go->signal_clicked().connect([this, id, at, len]() { m_sig_open.emit(id, at, len); });
-    return go;
+    go->set_hexpand(true);
+    go->add_css_class("jot-card-go");
+    // s043: a note hit wears the card shape with a quiet edge.
+    auto* card = Gtk::make_managed<widgets::Box>(widgets::unregistered, "search.card." + h.id,
+                                                 Gtk::Orientation::HORIZONTAL, 0);
+    card->add_css_class("jot-card");
+    card->add_css_class("st-note");
+    card->append(*go);
+    return card;
 }
 
 void SearchPane::refresh() {

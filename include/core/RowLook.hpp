@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // core/RowLook (s042, J1 "the look") -- WHAT a todo's card says, decided once.
@@ -55,5 +56,21 @@ RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now);
 //   another year         "Oct 12 2027"
 //   a past day           "1d late", "12d late"   (calendar days, DST-safe)
 std::string short_due(std::int64_t due, std::int64_t now);
+
+// ── s043: the line under a view's title ────────────────────────────────────
+// "4 to do  ·  1 late  ·  ~1h 30m" -- what the list adds up to, so a glance at
+// the head of Today answers "how much is there" before any row is read. The
+// minutes are the sum of the estimates that exist; unsized todos are counted
+// and said ("2 not sized") rather than guessed at.
+struct ViewSummary {
+    int todo     = 0;   // not done
+    int late     = 0;   // past due
+    int today    = 0;   // due before the end of today, not late
+    int flagged  = 0;
+    int minutes  = 0;   // sum of estimates
+    int unsized  = 0;   // todos with no estimate
+};
+ViewSummary summarize(const NodeSource& src, const std::vector<NodeId>& ids, std::int64_t now);
+std::string summary_text(const ViewSummary& v);   // "Nothing to do" when empty
 
 }  // namespace jot::core

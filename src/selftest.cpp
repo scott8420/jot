@@ -1162,6 +1162,22 @@ int main() {
         const auto inh = core::row_look(m, *m.find(a), now);
         check("look: a parent's due is shown and marked inherited",
               inh.due == "Tue" && inh.due_inherited);
+        {
+            // s043: the header's sum. late + flag + estimates.
+            const auto v = core::summarize(m, {a, b, late, today, flag, def, done}, now);
+            check("summary: counts what is not done", v.todo == 6, std::to_string(v.todo));
+            check("summary: late and due today", v.late == 1 && v.today == 1);
+            check("summary: minutes add up; the rest are counted, not guessed",
+                  v.minutes == 45 && v.unsized == 5);
+            check("summary: the line",
+                  core::summary_text(v) == "6 to do  \u00b7  1 late  \u00b7  1 due today  \u00b7  ~45m + 5 not sized",
+                  core::summary_text(v));
+            check("summary: an empty view says so",
+                  core::summary_text(core::summarize(m, {done}, now)) == "Nothing to do");
+            m.set_estimate(b, 75);
+            check("summary: sums past an hour",
+                  core::summary_text(core::summarize(m, {a, b}, now)) == "2 to do  \u00b7  ~2h");
+        }
         check("look: every state has a CSS word",
               std::string(core::row_state_word(core::RowState::DueToday)) == "today" &&
               std::string(core::row_state_word(core::RowState::OnHold)) == "hold");

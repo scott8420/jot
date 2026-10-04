@@ -93,4 +93,34 @@ RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now) {
     return r;
 }
 
+ViewSummary summarize(const NodeSource& src, const std::vector<NodeId>& ids, std::int64_t now) {
+    ViewSummary v;
+    for (const NodeId& id : ids) {
+        const Node* n = src.find(id);
+        if (!n || !n->task.is_task || n->task.done) continue;
+        ++v.todo;
+        const RowState st = row_look(src, *n, now).state;
+        if (st == RowState::Overdue)  ++v.late;
+        if (st == RowState::DueToday) ++v.today;
+        if (effective_flagged(src, id)) ++v.flagged;
+        if (n->task.estimate > 0) v.minutes += n->task.estimate;
+        else ++v.unsized;
+    }
+    return v;
+}
+
+std::string summary_text(const ViewSummary& v) {
+    if (v.todo == 0) return "Nothing to do";
+    std::string s = std::to_string(v.todo) + " to do";
+    auto part = [&](const std::string& p) { s += "  \u00b7  " + p; };
+    if (v.late)  part(std::to_string(v.late) + " late");
+    if (v.today) part(std::to_string(v.today) + " due today");
+    if (v.minutes > 0) {
+        std::string t = "~" + format_estimate(v.minutes);
+        if (v.unsized) t += " + " + std::to_string(v.unsized) + " not sized";
+        part(t);
+    }
+    return s;
+}
+
 }  // namespace jot::core
