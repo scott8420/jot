@@ -83,7 +83,7 @@ private:
     void build_desktop_bar();
     void add_group(const core::NodeId& parent, const std::vector<core::NodeId>& ids,
                    const std::string& override_head);
-    Gtk::Widget* task_row(const core::Node& n);
+    Gtk::Widget* task_row(const core::Node& n, bool show_project);
     Gtk::Widget* log_row(const core::LogEntry& e);
     void         fill_logbook(std::int64_t now);
     void         build_day_strip();                 // s039

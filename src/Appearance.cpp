@@ -1,3 +1,4 @@
+#include <string>
 #include "Appearance.hpp"
 #include "Log.hpp"
 
@@ -49,6 +50,53 @@ const char* scheme_name(Scheme s) {
 // provider installed at the display, loaded twice, never accumulating.
 Glib::RefPtr<Gtk::CssProvider> g_css;
 
+// ── s042 (J1): the cards ───────────────────────────────────────────────────
+// Colour that carries MEANING, one hue per core::RowState, each picked twice:
+// a light-scheme value that reads on white and a dark-scheme value that reads
+// on charcoal without shouting. The greys (on hold / waiting / deferred) are
+// the text colour at low alpha, so they follow whatever theme is in force.
+// Surfaces are alpha(currentColor, ...) for the same reason: a card is a tint
+// of the page, not a colour jot invented.
+struct Palette { const char *overdue, *today, *flagged, *available, *done; };
+constexpr Palette kLight{"#c01c28", "#c64600", "#9c6e00", "#1c71d8", "#26a269"};
+constexpr Palette kDark {"#ff7b9c", "#ffa348", "#f6d32d", "#78aeed", "#57e389"};
+
+std::string sheet(bool dark) {
+    const Palette& p = dark ? kDark : kLight;
+    std::string c;
+    c += std::string(".jot-overdue { color: ") + p.overdue + "; }\n";
+    c += ".jot-card { border-radius: 10px; padding: 2px 6px 2px 8px; "
+         "background-color: alpha(currentColor, 0.05); "
+         "border-left: 4px solid alpha(currentColor, 0.22); }\n";
+    c += ".jot-card:hover { background-color: alpha(currentColor, 0.09); }\n";
+    c += ".jot-card-dim { opacity: 0.7; }\n";
+    c += ".jot-card-go { padding: 5px 2px; min-height: 0; background: none; box-shadow: none; }\n";
+    c += ".jot-card-go:hover, .jot-card-go:active { background: none; }\n";
+    c += ".jot-card-title { font-weight: 500; }\n";
+    c += ".jot-card.st-done .jot-card-title { text-decoration-line: line-through; opacity: 0.6; }\n";
+    c += ".jot-tick check { border-radius: 50%; min-width: 16px; min-height: 16px; }\n";
+    c += ".jot-chip { border-radius: 999px; padding: 0 8px; font-size: smaller; "
+         "background-color: alpha(currentColor, 0.08); }\n";
+    c += ".jot-project { color: alpha(currentColor, 0.75); }\n";
+    c += std::string(".jot-flag { color: ") + p.flagged + "; }\n";
+
+    const auto state = [&](const char* st, const char* col, bool chip) {
+        c += std::string(".jot-card.") + st + " { border-left-color: " + col + "; }\n";
+        c += std::string(".jot-card.") + st + " .jot-tick check { border-color: " + col + "; }\n";
+        if (chip)
+            c += std::string(".jot-due.") + st + " { color: " + col +
+                 "; background-color: alpha(" + col + ", 0.16); }\n";
+    };
+    state("st-overdue",   p.overdue,   true);
+    state("st-today",     p.today,     true);
+    state("st-flagged",   p.flagged,   false);
+    state("st-available", p.available, false);
+    state("st-done",      p.done,      false);
+    c += std::string(".jot-tick check:checked { background-color: ") + p.done +
+         "; border-color: " + p.done + "; }\n";
+    return c;
+}
+
 void apply_css(bool dark) {
     auto display = Gdk::Display::get_default();
     if (!display) return;
@@ -57,8 +105,7 @@ void apply_css(bool dark) {
         Gtk::StyleContext::add_provider_for_display(
             display, g_css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     }
-    g_css->load_from_data(dark ? ".jot-overdue { color: #ff8ab3; }"
-                               : ".jot-overdue { color: #c01c28; }");
+    g_css->load_from_data(sheet(dark));
 }
 
 void apply(Scheme s) {

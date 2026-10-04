@@ -1,4 +1,5 @@
 #include "TagsPane.hpp"
+#include "TaskCard.hpp"
 #include "Log.hpp"
 #include "core/Tags.hpp"
 #include "core/Tasks.hpp"
@@ -231,44 +232,16 @@ void TagsPane::add_heading(const std::string& text, const std::string& id) {
     m_column.append(*h);
 }
 
-Gtk::Widget* TagsPane::todo_row(const core::Node& n, const std::string& sub, bool dim) {
-    const core::NodeId id = n.id;
-    auto* row = Gtk::make_managed<widgets::Box>(widgets::unregistered, "tags.row." + id,
-                                                Gtk::Orientation::HORIZONTAL, 8);
-    auto* tick = Gtk::make_managed<widgets::CheckButton>(widgets::unregistered,
-                                                         "tags.tick." + id);
-    tick->set_valign(Gtk::Align::CENTER);
-    tick->set_active(n.task.done);          // BEFORE the handler: set_active emits
-    tick->signal_toggled().connect([this, id, tick]() {
-        if (m_src) m_src->set_done(id, tick->get_active());   // the Shell's idle refresh redraws
-    });
-    row->append(*tick);
-
-    auto* text = Gtk::make_managed<widgets::Box>(widgets::unregistered, "tags.rowtext." + id,
-                                                 Gtk::Orientation::VERTICAL, 0);
-    auto* title = Gtk::make_managed<widgets::Label>(widgets::unregistered, "tags.title." + id);
-    title->set_text(n.title.empty() ? "(untitled)" : n.title);
-    title->set_xalign(0.0f);
-    title->set_ellipsize(Pango::EllipsizeMode::END);
-    if (!n.title.empty()) title->set_tooltip_text(n.title);
-    if (dim) title->add_css_class("dim-label");
-    text->append(*title);
-    auto* s = Gtk::make_managed<widgets::Label>(widgets::unregistered, "tags.sub." + id);
-    s->set_text(sub);
-    s->set_xalign(0.0f);
-    s->set_ellipsize(Pango::EllipsizeMode::END);
-    s->add_css_class("dim-label");
-    s->add_css_class("caption");
-    text->append(*s);
-
-    // The title is the button, not the row: the tick has to stay clickable.
-    auto* go = Gtk::make_managed<widgets::Button>(widgets::unregistered, "tags.goto." + id);
-    go->set_has_frame(false);
-    go->set_hexpand(true);
-    go->set_child(*text);
-    go->signal_clicked().connect([this, id]() { m_sig_goto.emit(id); });
-    row->append(*go);
-    return row;
+// s042: the card (TaskCard), shared with Today. `note` is the quiet line's
+// extra word -- why it waits, or when it was done; the card itself says the
+// project, the due chip and the flag.
+Gtk::Widget* TagsPane::todo_row(const core::Node& n, const std::string& note, bool dim) {
+    CardOpts o;
+    o.prefix = "tags";
+    o.note   = note;
+    o.dim    = dim;
+    return task_card(*m_src, n, static_cast<std::int64_t>(std::time(nullptr)), o,
+                     [this](const core::NodeId& id) { m_sig_goto.emit(id); });
 }
 
 Gtk::Widget* TagsPane::note_row(const core::Node& n) {
@@ -339,22 +312,13 @@ void TagsPane::fill_members(std::int64_t now) {
     if (!mem.available.empty()) {
         add_heading("Available", "available");
         for (const auto& id : mem.available)
-            if (const core::Node* n = m_src->find(id)) {
-                std::string sub = where(*m_src, *n);
-                const std::int64_t due = core::effective_due(*m_src, id);
-                if (due) sub += (due < now ? "  ·  Overdue " : "  ·  Due ") +
-                                core::format_date(due);
-                if (n->task.flagged) sub += "  ·  Flagged";
-                m_column.append(*todo_row(*n, sub, false));
-            }
+            if (const core::Node* n = m_src->find(id)) m_column.append(*todo_row(*n, {}, false));
     }
     if (!mem.waiting.empty()) {
         add_heading("Waiting", "waiting");
         for (const auto& id : mem.waiting)
             if (const core::Node* n = m_src->find(id))
-                m_column.append(*todo_row(*n, core::waiting_reason(*m_src, id, now) +
-                                                  "  ·  " + where(*m_src, *n),
-                                          true));
+                m_column.append(*todo_row(*n, core::waiting_reason(*m_src, id, now), true));
     }
     if (!mem.notes.empty()) {
         add_heading("Notes", "notes");
@@ -382,7 +346,7 @@ void TagsPane::fill_members(std::int64_t now) {
                 std::string sub = dropped ? "Dropped" : "Done";
                 if (!dropped && n->task.finished)
                     sub += " " + core::format_date(n->task.finished);
-                col->append(*todo_row(*n, sub + "  \u00b7  " + where(*m_src, *n), true));
+                col->append(*todo_row(*n, sub, true));
             }
         ex->set_child(*col);
         m_column.append(*ex);

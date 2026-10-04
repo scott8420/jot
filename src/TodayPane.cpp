@@ -1,4 +1,5 @@
 #include "TodayPane.hpp"
+#include "TaskCard.hpp"
 #include "Log.hpp"
 
 #include <gtkmm/cssprovider.h>
@@ -56,34 +57,6 @@ std::string why_line(const core::Node* parent) {
         i = e + 1;
     }
     return {};
-}
-
-// What a row says about its own timing, after the row's title. Short on
-// purpose: the pane is narrow, and the long answer is in the drawer.
-std::string when_line(const core::NodeSource& src, const core::Node& n,
-                      std::int64_t now) {
-    const std::int64_t due = core::effective_due(src, n.id);
-    std::string out;
-    if (due != 0) {
-        out = (due < now ? "Overdue \u2014 " : "Due ") + core::format_date(due);
-        if (due != n.task.due) out += " (from a parent)";
-    }
-    if (n.task.flagged) out += out.empty() ? "Flagged" : "  \u00b7  Flagged";
-    else if (core::effective_flagged(src, n.id))   // s037b: the project is flagged
-        out += out.empty() ? "Flagged (from a parent)" : "  \u00b7  Flagged (from a parent)";
-    // s031. Overdue and Flagged still list a todo whose project is on hold;
-    // the row says so, or it reads as a thing you can do now.
-    if (core::availability(src, n.id, now) == core::Avail::OnHold)
-        out += out.empty() ? "On hold" : "  \u00b7  On hold";
-    // s040: how long it takes -- what makes "what fits now" answerable by eye.
-    if (n.task.estimate > 0)
-        out += (out.empty() ? "" : "  \u00b7  ") + std::string("\u23f1 ") +
-               core::format_estimate(n.task.estimate);
-    // s033: a repeating todo says so -- ticking it brings it back.
-    if (n.task.repeat.on())
-        out += (out.empty() ? "" : "  \u00b7  ") + std::string("\u21bb ") +
-               core::repeat_text(n.task.repeat);
-    return out;
 }
 
 }  // namespace
@@ -259,63 +232,16 @@ void TodayPane::set_source(core::NodeSource* src, const core::TaskIndex* tasks) 
     refresh();
 }
 
-// One row: a tick box, the title, and the timing under it. The tick writes
-// straight through the NodeSource -- the pane does not remove the row itself,
-// it waits to be told, exactly as the tree waits for a drop to be announced.
-// The row you just ticked disappearing because the MODEL said so is the whole
-// difference between a view and a second copy of the truth.
-Gtk::Widget* TodayPane::task_row(const core::Node& n) {
+// One row: since s042, THE card (TaskCard) -- the same builder Tags uses, so a
+// todo looks the same wherever it is listed. The tick writes straight through
+// the NodeSource; the row leaves when the MODEL says so, never by itself.
+// `show_project` is off under a heading that already names the project.
+Gtk::Widget* TodayPane::task_row(const core::Node& n, bool show_project) {
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-
-    auto* row = Gtk::make_managed<widgets::Box>(widgets::unregistered,
-                                                "today.row." + n.id,
-                                                Gtk::Orientation::HORIZONTAL, 8);
-    auto* tick = Gtk::make_managed<widgets::CheckButton>(widgets::unregistered,
-                                                         "today.tick." + n.id);
-    tick->set_valign(Gtk::Align::CENTER);
-    tick->set_active(n.task.done);          // BEFORE the handler: set_active emits
-    const core::NodeId id = n.id;
-    tick->signal_toggled().connect([this, id, tick]() {
-        if (!m_src) return;
-        m_src->set_done(id, tick->get_active());
-    });
-    row->append(*tick);
-
-    auto* text = Gtk::make_managed<widgets::Box>(widgets::unregistered,
-                                                 "today.rowtext." + n.id,
-                                                 Gtk::Orientation::VERTICAL, 0);
-    auto* title = Gtk::make_managed<widgets::Label>(widgets::unregistered,
-                                                    "today.title." + n.id);
-    title->set_text(n.title.empty() ? "(untitled)" : n.title);
-    title->set_xalign(0.0f);
-    title->set_ellipsize(Pango::EllipsizeMode::END);
-    if (!n.title.empty()) title->set_tooltip_text(n.title);
-    text->append(*title);
-
-    const std::string when = when_line(*m_src, n, now);
-    if (!when.empty()) {
-        auto* sub = Gtk::make_managed<widgets::Label>(widgets::unregistered,
-                                                      "today.when." + n.id);
-        sub->set_text(when);
-        sub->set_xalign(0.0f);
-        sub->add_css_class("dim-label");
-        sub->add_css_class("caption");
-        if (core::effective_due(*m_src, n.id) != 0 &&
-            core::effective_due(*m_src, n.id) < now)
-            sub->add_css_class("jot-overdue");   // jot's own, so dark mode gets a pink that reads as late rather than as alarm (Appearance.cpp)
-        text->append(*sub);
-    }
-
-    // The title is the button, not the whole row: the tick box has to stay
-    // independently clickable, and a button wrapping a checkbox swallows it.
-    auto* go = Gtk::make_managed<widgets::Button>(widgets::unregistered,
-                                                  "today.goto." + n.id);
-    go->set_has_frame(false);
-    go->set_hexpand(true);
-    go->set_child(*text);
-    go->signal_clicked().connect([this, id]() { m_sig_goto.emit(id); });
-    row->append(*go);
-    return row;
+    CardOpts o;
+    o.prefix       = "today";
+    o.show_project = show_project;
+    return task_card(*m_src, n, now, o, [this](const core::NodeId& id) { m_sig_goto.emit(id); });
 }
 
 void TodayPane::add_group(const core::NodeId& parent,
@@ -352,7 +278,7 @@ void TodayPane::add_group(const core::NodeId& parent,
     }
 
     for (const auto& id : ids)
-        if (const core::Node* n = m_src->find(id)) group->append(*task_row(*n));
+        if (const core::Node* n = m_src->find(id)) group->append(*task_row(*n, p == nullptr));
 
     m_column.append(*group);
 }
@@ -651,7 +577,7 @@ void TodayPane::add_day_rows(const std::string& key, const std::string& head,
         l->add_css_class("caption");
         group->append(*l);
         for (const auto& id : ids)
-            if (const core::Node* n = m_src->find(id)) group->append(*task_row(*n));
+            if (const core::Node* n = m_src->find(id)) group->append(*task_row(*n, true));
     };
     part("Due", d.due, "due");
     std::vector<core::NodeId> starts;   // a todo due AND starting today is listed once, under Due

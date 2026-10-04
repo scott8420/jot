@@ -23,6 +23,7 @@
 #include "core/Shortcuts.hpp"
 #include "core/Notify.hpp"
 #include "core/NoticeAction.hpp"
+#include "core/RowLook.hpp"
 #include "core/Hotkey.hpp"
 #include "core/Enclosures.hpp"
 #include "core/Pending.hpp"
@@ -1089,6 +1090,84 @@ int main() {
         auto gone = core::due_announcements(m, idx, now + 60, announced, ledger);
         check("notice: ticking a snoozed todo drops its park (not a deadline any more)",
               core::prune_parked(ledger, gone.live, now + 60) && ledger.empty());
+    }
+
+    // ── s042: the card's look -- one state, one chip, decided in core ───────
+    {
+        std::cout << "\n-- card look (s042) --\n";
+        const char* old_tz = std::getenv("TZ");
+        const std::string saved = old_tz ? old_tz : "";
+        setenv("TZ", "America/Chicago", 1);
+        tzset();
+        const auto at = [](int y, int mo, int d, int h, int mi, int sec) {
+            std::tm t{};
+            t.tm_year = y - 1900; t.tm_mon = mo - 1; t.tm_mday = d;
+            t.tm_hour = h; t.tm_min = mi; t.tm_sec = sec; t.tm_isdst = -1;
+            return static_cast<std::int64_t>(std::mktime(&t));
+        };
+        const std::int64_t now = at(2026, 10, 30, 10, 0, 0);   // a Friday
+
+        check("look: due later today shows the time", core::short_due(at(2026,10,30,17,0,0), now) == "Today 17:00");
+        check("look: a bare date today shows no time", core::short_due(at(2026,10,30,23,59,59), now) == "Today");
+        check("look: passed earlier today", core::short_due(at(2026,10,30,9,0,0), now) == "Overdue 09:00");
+        check("look: tomorrow", core::short_due(at(2026,10,31,23,59,59), now) == "Tomorrow");
+        // Across the fall-back night (Nov 1): still calendar days, not 86400s.
+        check("look: within the week is the weekday, across DST",
+              core::short_due(at(2026,11,3,23,59,59), now) == "Tue", core::short_due(at(2026,11,3,23,59,59), now));
+        check("look: further out is the date", core::short_due(at(2026,11,12,23,59,59), now) == "Nov 12");
+        check("look: another year says so", core::short_due(at(2027,1,4,23,59,59), now) == "Jan 4 2027");
+        check("look: a past day counts days late",
+              core::short_due(at(2026,10,27,23,59,59), now) == "3d late" &&
+              core::short_due(at(2026,10,29,8,0,0), now) == "1d late");
+        check("look: a day late across DST is still days",
+              core::short_due(at(2026,10,30,9,0,0), at(2026,11,2,9,0,0)) == "3d late",
+              core::short_due(at(2026,10,30,9,0,0), at(2026,11,2,9,0,0)));
+        check("look: undated has no chip", core::short_due(0, now).empty());
+        check("look: 22:00 tonight vs 08:00 tomorrow is Tomorrow, not Today",
+              core::short_due(at(2026,10,31,8,0,0), at(2026,10,30,22,0,0)) == "Tomorrow 08:00");
+
+        core::MemoryNodes m;
+        const auto proj = m.create("", "Taxes");
+        m.set_status(proj, core::Status::Sequential);
+        const auto a = m.create(proj, "Gather receipts");
+        const auto b = m.create(proj, "Fill the form");
+        const auto late = m.create("", "Pay the bill");
+        const auto today = m.create("", "Call the vet");
+        const auto flag = m.create("", "Read the lease");
+        const auto def = m.create("", "Renew permit");
+        const auto done = m.create("", "Mail it");
+        for (const auto& id : {a, b, late, today, flag, def, done}) m.make_task(id, true);
+        m.set_due(late, at(2026,10,28,23,59,59));
+        m.set_due(today, at(2026,10,30,23,59,59));
+        m.set_flagged(flag, true);
+        m.set_defer(def, at(2026,11,5,0,0,0));
+        m.set_done(done, true);
+        m.set_estimate(a, 45);
+        m.set_repeat(a, core::Repeat{1, core::RepeatUnit::Week});
+        const auto st = [&](const core::NodeId& id) { return core::row_look(m, *m.find(id), now).state; };
+        check("look: available", st(a) == core::RowState::Available);
+        check("look: blocked behind a step is Waiting", st(b) == core::RowState::Waiting);
+        check("look: overdue", st(late) == core::RowState::Overdue);
+        check("look: due today", st(today) == core::RowState::DueToday);
+        check("look: flagged", st(flag) == core::RowState::Flagged);
+        check("look: deferred", st(def) == core::RowState::Deferred);
+        check("look: done", st(done) == core::RowState::Done);
+        m.set_flagged(late, true);
+        check("look: overdue beats flagged", st(late) == core::RowState::Overdue);
+        const auto la = core::row_look(m, *m.find(a), now);
+        check("look: the quiet line's parts",
+              la.project == "Taxes" && la.estimate == "45m" && la.repeat == "every week" &&
+              core::row_look(m, *m.find(late), now).project.empty());
+        m.set_due(proj, at(2026,11,3,23,59,59));
+        const auto inh = core::row_look(m, *m.find(a), now);
+        check("look: a parent's due is shown and marked inherited",
+              inh.due == "Tue" && inh.due_inherited);
+        check("look: every state has a CSS word",
+              std::string(core::row_state_word(core::RowState::DueToday)) == "today" &&
+              std::string(core::row_state_word(core::RowState::OnHold)) == "hold");
+
+        if (old_tz) setenv("TZ", saved.c_str(), 1); else unsetenv("TZ");
+        tzset();
     }
 
     // ── s015: the outbox -- a send is not a delivery ────────────────────────

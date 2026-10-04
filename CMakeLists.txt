@@ -115,6 +115,8 @@ add_library(jot_core STATIC
     # s041: the buttons on a notification -- a verb and a key, encoded for the
     # one app action, checked against the model before anything is written.
     src/core/NoticeAction.cpp
+    # s042: what a todo card says -- state, due chip -- one decision for every list.
+    src/core/RowLook.cpp
     src/core/TextMap.cpp
     # The SHORTCUT-REGISTRY paradigm: one list, two consumers (App wires accels
     # from it, ShortcutsDialog renders from it) so a key and its advertised row
@@ -203,6 +205,7 @@ add_executable(jot
     # The report. Groups by parent because the parent's note is the WHY -- the
     # one thing a task app with a scratch-field "note" cannot put anywhere.
     src/TodayPane.cpp
+    src/TaskCard.cpp
     # s028. What is waiting to be processed; a query over the Inbox mark.
     src/InboxPane.cpp
     # s035: tags as contexts -- chips over core::tag_list, rows over tag_members.
