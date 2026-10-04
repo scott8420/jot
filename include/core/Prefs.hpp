@@ -1,4 +1,6 @@
 #pragma once
+#include "core/Notify.hpp"
+
 #include <cstdint>
 #include <map>
 #include <string>
@@ -102,6 +104,10 @@ struct Prefs {
     // core::due_announcements), so it tracks the open deadlines rather than
     // growing for the life of the jots folder.
     std::vector<std::string> announced;
+
+    // s041: keys a notification's Snooze / Remind parked until an instant
+    // (core/NoticeAction). Pruned with `announced`, against the same live set.
+    std::vector<Snoozed> snoozed;
 
     // s029: Move to...'s Recent -- the places filed into lately, newest first,
     // PER JOTS FOLDER (keyed by its path). Node ids are only meaningful inside

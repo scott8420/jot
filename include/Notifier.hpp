@@ -2,6 +2,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <giomm/dbusconnection.h>
 #include <glibmm/refptr.h>
@@ -51,6 +52,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 namespace jot {
 
+// s041: one button. `action` is an APPLICATION action ("app.notice"), for the
+// same reason the default action is: the press may arrive at a jot whose window
+// closed an hour ago, or at no jot at all (GNOME starts it over D-Bus).
+struct NoticeButtonWire {
+    std::string label;
+    std::string action;
+    std::string target;     // the action's string parameter
+};
+
 // What jot asks the daemon to show. Flat, and deliberately not a
 // Gio::Notification: everything here has to survive the round trip so that a
 // receipt can carry back what was attempted.
@@ -63,6 +73,7 @@ struct Notice {
     std::string action;     // "app.goto-node", or empty
     std::string target;     // that action's string parameter
     bool        urgent = false;
+    std::vector<NoticeButtonWire> buttons;   // s041: GNOME draws up to three
 };
 
 // What came back. `notice` is the attempt itself, carried home so the caller can
@@ -96,6 +107,10 @@ public:
 
     // Ask. Returns nothing: the answer is the receipt, and it arrives later.
     void send(const Notice& n);
+
+    // s041: take a row out of the tray (RemoveNotification). No receipt is
+    // kept: a row that was already gone is the outcome either way.
+    void withdraw(const std::string& tray_id);
 
 private:
     // ── outliving the object (the Desktop pattern, same reason) ────────────

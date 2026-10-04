@@ -112,6 +112,9 @@ add_library(jot_core STATIC
     # is a selftest away from being wrong in silence on someone else's desktop.
     src/core/Projection.cpp
     src/core/Notify.cpp
+    # s041: the buttons on a notification -- a verb and a key, encoded for the
+    # one app action, checked against the model before anything is written.
+    src/core/NoticeAction.cpp
     src/core/TextMap.cpp
     # The SHORTCUT-REGISTRY paradigm: one list, two consumers (App wires accels
     # from it, ShortcutsDialog renders from it) so a key and its advertised row

@@ -14,6 +14,7 @@
 #include "Log.hpp"
 #include "core/Prefs.hpp"
 #include "core/Notify.hpp"
+#include "core/NoticeAction.hpp"
 #include "core/Projection.hpp"
 #include "core/Pending.hpp"
 #include "core/Recents.hpp"
@@ -1186,8 +1187,9 @@ void Shell::start_notify_timer() {  // helper: the minute clock behind due notif
 void Shell::check_due_notifications() {  // helper: announce what has just come due
     if (!m_store || !m_prefs.notify_due || !m_notify_ok) return;
 
-    const auto r = core::due_announcements(*m_store, m_tasks, std::time(nullptr),
-                                           m_prefs.announced);
+    const std::int64_t now = std::time(nullptr);
+    const auto r = core::due_announcements(*m_store, m_tasks, now,
+                                           m_prefs.announced, m_prefs.snoozed);
 
     // The announced set is rewritten even when nothing is shown, because
     // PRUNING is half of what it does: a todo that was ticked off or
@@ -1199,8 +1201,12 @@ void Shell::check_due_notifications() {  // helper: announce what has just come 
     // not -- so a deadline became "announced" at the moment jot decided to
     // speak, and a send the daemon dropped was recorded as said, once, for good.
     // Now a key joins that set in on_notify_receipt() and nowhere else.
-    const bool moved = (r.keep != m_prefs.announced);
+    bool moved = (r.keep != m_prefs.announced);
     m_prefs.announced = r.keep;
+    // s041: the snooze ledger is pruned against the same live set -- and a
+    // park whose time has come leaves it, which is what lets the key below be
+    // offered again (Snooze took it out of `announced`).
+    if (core::prune_parked(m_prefs.snoozed, r.live, now)) moved = true;
     if (moved) core::save_prefs(m_prefs_file, m_prefs);
 
     // The ledger holds the gap between asking and being answered, so it is
@@ -1235,6 +1241,10 @@ void Shell::check_due_notifications() {  // helper: announce what has just come 
         // Urgency, not decoration: an overdue deadline should survive "Do Not
         // Disturb" and a deadline arriving on schedule should not.
         n.urgent  = a.overdue;
+        // s041: the buttons. The list is core's (todo_notice_buttons); this
+        // only puts each one on the wire as `app.notice` + its encoded act.
+        for (const auto& b : core::todo_notice_buttons(a))
+            n.buttons.push_back({b.label, "app.notice", core::encode_notice_act(b.act)});
 
         if (auto lg = log::get(log::Area::Shell))
             lg->info("notify: asking for '{}' ({}) id={} try={}", a.summary,
@@ -1350,7 +1360,80 @@ void Shell::send_unreceipted(const Notice& notice) {  // helper: the road with n
             notice.action, Glib::Variant<Glib::ustring>::create(notice.target));
     n->set_priority(notice.urgent ? Gio::Notification::Priority::URGENT
                                   : Gio::Notification::Priority::NORMAL);
+    for (const auto& b : notice.buttons)
+        n->add_button_variant(b.label, b.action, Glib::Variant<Glib::ustring>::create(b.target));
     app->send_notification(notice.tray_id, n);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// notice_act (s041) -- a button on a notification was pressed.
+//
+// Arrives through `app.notice` from App, possibly at a jot whose window is
+// closed, possibly at a jot GNOME has just started for the purpose. The act is
+// a verb and an announce key (core/NoticeAction); nothing is written until the
+// key is checked against the model AS IT IS NOW, because the notice may be
+// hours old and the todo may have moved, been ticked, or rolled on to its next
+// occurrence. A stale key is refused and the status line says why.
+//
+// Returns the sentence for the status line (also logged).
+// ─────────────────────────────────────────────────────────────────────────────
+std::string Shell::notice_act(const std::string& param) {  // helper: a notification button, applied
+    auto lg = log::get(log::Area::Shell);
+    const auto act = core::decode_notice_act(param);
+    if (!act) {
+        if (lg) lg->error("notice: unreadable action '{}'", param);
+        return {};
+    }
+    if (!m_store) {
+        if (lg) lg->warn("notice: no jots folder open -- '{}' dropped", param);
+        return {};
+    }
+
+    const core::NodeId id = core::key_node(act->key);
+    const core::Node*  n  = m_store->find(id);
+    const std::string  title =
+        "\u201c" + (n ? (n->title.empty() ? std::string("Untitled") : n->title)
+                       : std::string("that todo")) + "\u201d";
+    const core::TargetState st = core::check_notice_target(*m_store, act->key);
+    const std::int64_t now = std::time(nullptr);
+
+    std::string said;
+    if (st != core::TargetState::Current) {
+        said = "Nothing changed for " + title + ": " + core::target_state_words(st) + ".";
+    } else if (act->verb == core::NoticeVerb::Done) {
+        m_store->set_done(id, true);          // the one door: repeats roll, the Logbook stamps
+        if (m_project) m_project->flush();     // the window may be closed; the disk must not wait
+        m_notifier.withdraw(id);
+        said = "Marked " + title + " done from its notification.";
+    } else {
+        const std::int64_t until = core::notice_until(*act, now);
+        core::park(m_prefs.snoozed, m_prefs.announced, act->key, until);
+        core::save_prefs(m_prefs_file, m_prefs);
+        m_notifier.withdraw(id);
+        char when[32] = "";
+        std::time_t t = static_cast<std::time_t>(until);
+        std::tm lt{};
+        localtime_r(&t, &lt);
+        std::strftime(when, sizeof when,
+                      act->verb == core::NoticeVerb::Remind ? "%a %H:%M" : "%H:%M", &lt);
+        said = "Snoozed " + title + " until " + std::string(when) + ".";
+    }
+
+    if (lg) lg->info("notice: {} -> {}", param, said);
+    m_notify_last_act = said;
+    show_notify_status();
+    return said;
+}
+
+// A jot started BY a button press (no window, nothing else asked for) does
+// what it was asked and then goes, unless the user keeps jot running in the
+// background anyway -- otherwise "Mark done" would leave an invisible jot
+// holding the folder open.
+void Shell::after_cold_notice() {  // helper: cold start for a button -- act, then leave
+    if (m_prefs.background) return;
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("notice: started for a button and not kept running -- quitting");
+    request_quit();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1478,6 +1561,7 @@ void Shell::show_notify_status() {  // helper: the footer's fourth line
         std::string s = "On. " + watching;
         if (waiting)   s += "  Waiting on the notification service\u2026";
         else if (open) s += " Nothing delivered this run.";
+        if (!m_notify_last_act.empty()) s += "  " + m_notify_last_act;
         m_today->set_notify_status(s);
         return;
     }
@@ -1501,6 +1585,7 @@ void Shell::show_notify_status() {  // helper: the footer's fourth line
                " \u2014 no confirmation: " + m_notify_last_error;
 
     std::string s = "On. " + head + "  " + watching;
+    if (!m_notify_last_act.empty()) s += "  " + m_notify_last_act;
     if (waiting)
         s += "  Retrying " + std::to_string(waiting) +
              (waiting == 1 ? " deadline." : " deadlines.");
@@ -1585,6 +1670,16 @@ void Shell::finish_quit() {  // helper: past the prompt -- flush, release, go
     if (m_project) m_project->flush();
     apply_background_hold();                         // m_quitting makes this a release
     if (auto lg = log::get(log::Area::Shell)) lg->info("quitting");
+    // s041: a window that was NEVER SHOWN -- jot started by GNOME just to
+    // press a notification button -- is never realized, and GTK4's close() is
+    // a no-op on an unrealized window. The app would sit there holding the
+    // folder with nothing on screen. Detaching it lets go of the application's
+    // hold the same way the window ending would; a later arrival re-attaches
+    // it (ensure_shell already does that for the resident case).
+    if (!get_realized()) {
+        if (auto app = get_application()) app->remove_window(*this);
+        return;
+    }
     close();
 }
 

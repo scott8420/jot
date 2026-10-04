@@ -283,6 +283,14 @@ void App::on_startup() {
         "goto-node", Glib::VARIANT_TYPE_STRING,
         sigc::mem_fun(*this, &App::on_goto_node));
 
+    // s041: every BUTTON on a notification -- Mark done, In 1 hour, Tomorrow,
+    // and whatever nudge comes next -- is this one action with a verb-and-key
+    // parameter (core/NoticeAction). On the application for goto-node's
+    // reason: the press can arrive with the window closed, or at no jot at all.
+    add_action_with_parameter(
+        "notice", Glib::VARIANT_TYPE_STRING,
+        sigc::mem_fun(*this, &App::on_notice));
+
     // ── `app.quit`, and it is NOT decoration ───────────────────────────────
     // This is the action GNOME's Background Apps list activates over D-Bus when
     // you press Quit next to jot. GApplication exports org.freedesktop.
@@ -324,6 +332,22 @@ void App::on_goto_node(const Glib::VariantBase& target) {
     m_shell->present();
     m_shell->goto_note(id);
     if (auto lg = log::get(log::Area::App)) lg->info("notification opened node {}", id);
+}
+
+// A button is NOT a request to be looked at: "Mark done" from the tray should
+// tick the todo and leave the screen alone. So the Shell is built if need be but
+// never presented -- and a jot started only for this leaves again afterwards
+// unless it is kept running in the background (after_cold_notice).
+void App::on_notice(const Glib::VariantBase& target) {
+    auto v = Glib::VariantBase::cast_dynamic<Glib::Variant<Glib::ustring>>(target);
+    const std::string param = v.get();
+    if (param.empty()) return;
+
+    const bool cold = (m_shell == nullptr);
+    ensure_shell(/*present=*/false);
+    if (!m_shell) return;
+    m_shell->notice_act(param);
+    if (cold) m_shell->after_cold_notice();
 }
 
 // The Shell owns the decision, because it is the only object that knows whether
@@ -416,10 +440,11 @@ void App::ensure_shell(bool present) {
     m_shell = new Shell();       // lifetime owned by the application
     add_window(*m_shell);
     m_shell->build_ui();
-    // Unreachable today with present=false -- a cold capture spools instead of
-    // building anything, and every other silent arrival finds a Shell already
-    // up. Written honestly anyway: a window constructed and deliberately not
-    // shown is the resident state jot already supports, not a special case.
+    // present=false here is a notification BUTTON pressed on a jot that was
+    // not running (s041): GNOME starts jot to deliver `app.notice`, and "Mark
+    // done" is not a request to be looked at. A cold capture still spools
+    // instead. A window constructed and deliberately not shown is the resident
+    // state jot already supports, not a special case.
     if (present) m_shell->present();
     if (auto lg = log::get(log::Area::App)) lg->info("jot activated");
 }

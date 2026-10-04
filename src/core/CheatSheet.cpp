@@ -196,6 +196,13 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Today", "", "Due notification", "A desktop notice when a todo comes due",
          "Click it to open the todo. On in Preferences; jot can keep running with "
          "its window closed so the clock keeps ticking."},
+        // ── Notification actions (s041) ─────────────────────────────────────
+        {"Today", "", "Notification › Mark done", "Tick a due todo from the tray",
+         "jot does not come forward. A notice older than the todo's due date (moved, or a "
+         "repeat that rolled on) changes nothing -- the Today footer says why."},
+        {"Today", "", "Notification › In 1 hour / Tomorrow", "Snooze a due notice",
+         "It is said again then. Only the notice waits: the todo keeps its dates and stays "
+         "on Today."},
         {"Today", "", "Calendar", "Dated todos in GNOME's top-bar calendar",
          "Today pane › Show dated todos on the desktop. One way: jot writes, the "
          "calendar only shows."},

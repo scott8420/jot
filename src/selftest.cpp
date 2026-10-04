@@ -22,6 +22,7 @@
 #include "core/Project.hpp"
 #include "core/Shortcuts.hpp"
 #include "core/Notify.hpp"
+#include "core/NoticeAction.hpp"
 #include "core/Hotkey.hpp"
 #include "core/Enclosures.hpp"
 #include "core/Pending.hpp"
@@ -940,6 +941,154 @@ int main() {
         check("notify: the body carries the why, not the availability word",
               fresh.to_show[0].detail.find("Taxes") != std::string::npos &&
               fresh.to_show[0].detail.find("Available") == std::string::npos);
+    }
+
+    // ── s041: notification actions -- a verb and a key ──────────────────────
+    // The buttons are one app action carrying "verb:amount:key". The danger is
+    // a write from the tray into a model that has moved since the notice went
+    // out, so the checks that matter are the REFUSALS: a stale key acts on
+    // nothing. And Snooze must be about the notice, never the todo.
+    {
+        std::cout << "\n-- notification actions --\n";
+        using core::NoticeAct;
+        using core::NoticeVerb;
+        using core::TargetState;
+
+        const std::int64_t now = 1789300000;
+        core::MemoryNodes m;
+        m.set_clock([&] { return now; });
+        const auto t = m.create("", "Pay the water bill");
+        m.make_task(t, true);
+        m.set_due(t, now - 60);
+        const auto rep = m.create("", "Water the ferns");
+        m.make_task(rep, true);
+        m.set_due(rep, now - 60);
+        m.set_repeat(rep, core::Repeat{1, core::RepeatUnit::Week});
+        const auto note = m.create("", "Just a note");
+        core::TaskIndex idx;
+        idx.rebuild(m);
+
+        const std::string key  = core::announce_key(t, now - 60);
+        const std::string rkey = core::announce_key(rep, now - 60);
+
+        // ── the wire format ───────────────────────────────────────────────
+        const NoticeAct snooze{NoticeVerb::Snooze, 60, key};
+        const auto back = core::decode_notice_act(core::encode_notice_act(snooze));
+        check("notice: an act round-trips through its text", back && *back == snooze,
+              core::encode_notice_act(snooze));
+        check("notice: the text is readable in a log",
+              core::encode_notice_act({NoticeVerb::Done, 0, key}) == "done:0:" + key);
+        check("notice: the key's node is the part before the last @",
+              core::key_node(key) == t && core::key_node("no-at-sign").empty());
+        check("notice: junk does not decode",
+              !core::decode_notice_act("") && !core::decode_notice_act("done") &&
+              !core::decode_notice_act("fly:1:" + key) &&
+              !core::decode_notice_act("snooze:x:" + key) &&
+              !core::decode_notice_act("done:0:noatsign") &&
+              !core::decode_notice_act("done:0:@123"));
+        check("notice: a snooze of zero minutes is refused (it would ring at once)",
+              !core::decode_notice_act("snooze:0:" + key) &&
+              !core::decode_notice_act("remind:-1:" + key));
+
+        // ── the buttons ───────────────────────────────────────────────────
+        const auto r0 = core::due_announcements(m, idx, now, {});
+        const core::Announcement* ann = nullptr;
+        for (const auto& a : r0.to_show) if (a.id == t) ann = &a;
+        const auto btns = ann ? core::todo_notice_buttons(*ann) : std::vector<core::NoticeButton>{};
+        check("notice: a due todo carries three buttons, done first",
+              btns.size() == 3 && btns[0].act.verb == NoticeVerb::Done &&
+              btns[1].act.verb == NoticeVerb::Snooze && btns[2].act.verb == NoticeVerb::Remind);
+        check("notice: every button names THIS occurrence",
+              btns.size() == 3 && btns[0].act.key == key && btns[1].act.key == key &&
+              btns[2].act.key == key);
+
+        // ── the target check ──────────────────────────────────────────────
+        check("notice: a fresh key is current",
+              core::check_notice_target(m, key) == TargetState::Current);
+        check("notice: a key for no node is Gone",
+              core::check_notice_target(m, "nope@1") == TargetState::Gone);
+        check("notice: a key for a plain note is NotTodo",
+              core::check_notice_target(m, core::announce_key(note, 5)) == TargetState::NotTodo);
+        m.set_due(t, now - 30);
+        check("notice: a rescheduled todo's old key is Moved",
+              core::check_notice_target(m, key) == TargetState::Moved);
+        m.set_due(t, now - 60);
+        // THE ONE THAT MATTERS: a repeating todo ticked from its notice rolls on
+        // to next week. The same button pressed again must not tick next week.
+        m.set_done(rep, true);
+        check("notice: after a repeat rolls on, the old notice is Moved -- not next week's",
+              !m.find(rep)->task.done &&
+              core::check_notice_target(m, rkey) == TargetState::Moved);
+        m.set_done(t, true);
+        check("notice: a ticked todo is AlreadyDone",
+              core::check_notice_target(m, key) == TargetState::AlreadyDone &&
+              !core::target_state_words(TargetState::AlreadyDone).empty() &&
+              core::target_state_words(TargetState::Current).empty());
+        m.set_done(t, false);
+        idx.rebuild(m);
+
+        // ── snooze: the notice, not the todo ──────────────────────────────
+        check("notice: Snooze 60 is an hour on",
+              core::notice_until({NoticeVerb::Snooze, 60, key}, now) == now + 3600);
+        {
+            // Remind 1 = the same clock time tomorrow, even across a DST night.
+            // Stand in a real zone on the night clocks go back (US, 2026-11-01).
+            const char* old_tz = std::getenv("TZ");
+            const std::string saved = old_tz ? old_tz : "";
+            setenv("TZ", "America/Chicago", 1);
+            tzset();
+            std::tm lt{};
+            lt.tm_year = 2026 - 1900; lt.tm_mon = 9; lt.tm_mday = 31;
+            lt.tm_hour = 9; lt.tm_min = 15; lt.tm_isdst = -1;
+            const std::int64_t sat = std::mktime(&lt);
+            const std::int64_t sun = core::notice_until({NoticeVerb::Remind, 1, key}, sat);
+            std::time_t st = static_cast<std::time_t>(sun);
+            std::tm got{};
+            localtime_r(&st, &got);
+            check("notice: Remind 1 across the DST night is 9:15 the next day",
+                  got.tm_mday == 1 && got.tm_mon == 10 && got.tm_hour == 9 && got.tm_min == 15 &&
+                      sun - sat == 25 * 3600,
+                  std::to_string(sun - sat));
+            if (old_tz) setenv("TZ", saved.c_str(), 1); else unsetenv("TZ");
+            tzset();
+        }
+
+        std::vector<std::string> announced{key};
+        std::vector<core::Snoozed> ledger;
+        const core::Task before = m.find(t)->task;
+        core::park(ledger, announced, key, now + 3600);
+        check("notice: parking takes the key out of the announced set",
+              announced.empty() && ledger.size() == 1 && core::is_parked(ledger, key, now));
+        check("notice: ...and touches nothing on the todo",
+              m.find(t)->task.due == before.due && m.find(t)->task.defer == before.defer &&
+              !m.find(t)->task.done);
+        core::park(ledger, announced, key, now + 7200);
+        check("notice: parking again replaces, never stacks",
+              ledger.size() == 1 && ledger[0].until == now + 7200);
+
+        auto asleep = core::due_announcements(m, idx, now + 60, announced, ledger);
+        const auto shows = [](const core::AnnounceResult& r, const core::NodeId& id) {
+            return std::any_of(r.to_show.begin(), r.to_show.end(),
+                               [&](const core::Announcement& a) { return a.id == id; });
+        };
+        const auto in = [](const std::vector<std::string>& v, const std::string& x) {
+            return std::find(v.begin(), v.end(), x) != v.end();
+        };
+        check("notice: a parked key is still LIVE but not shown",
+              !shows(asleep, t) && in(asleep.live, key) && !in(asleep.keep, key));
+        check("notice: pruning keeps a park that has not woken",
+              !core::prune_parked(ledger, asleep.live, now + 60) && ledger.size() == 1);
+        auto awake = core::due_announcements(m, idx, now + 7200, announced, ledger);
+        check("notice: when the time comes it is said again", shows(awake, t));
+        check("notice: ...and the woken park leaves the ledger",
+              core::prune_parked(ledger, awake.live, now + 7200) && ledger.empty());
+
+        core::park(ledger, announced, key, now + 3600);
+        m.set_done(t, true);
+        idx.rebuild(m);
+        auto gone = core::due_announcements(m, idx, now + 60, announced, ledger);
+        check("notice: ticking a snoozed todo drops its park (not a deadline any more)",
+              core::prune_parked(ledger, gone.live, now + 60) && ledger.empty());
     }
 
     // ── s015: the outbox -- a send is not a delivery ────────────────────────

@@ -37,7 +37,8 @@ std::string announce_key(const NodeId& id, std::int64_t due) {
 
 AnnounceResult due_announcements(const NodeSource& src, const TaskIndex& tasks,
                                  std::int64_t now,
-                                 const std::vector<std::string>& announced) {
+                                 const std::vector<std::string>& announced,
+                                 const std::vector<Snoozed>& parked) {
     AnnounceResult out;
 
     for (const NodeId& id : tasks.tasks()) {
@@ -54,6 +55,12 @@ AnnounceResult due_announcements(const NodeSource& src, const TaskIndex& tasks,
 
         const std::string key = announce_key(id, due);
         out.live.push_back(key);
+
+        // s041: snoozed. Still a deadline (so the ledgers keep it), not said.
+        const bool asleep = std::any_of(parked.begin(), parked.end(), [&](const Snoozed& z) {
+            return z.key == key && z.until > now;
+        });
+        if (asleep) continue;
 
         if (std::find(announced.begin(), announced.end(), key) != announced.end()) {
             // Said once AND acknowledged -- it stays in the announced set for as

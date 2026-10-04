@@ -46,6 +46,7 @@ protected:
     // value nobody reads, which is exactly how s009's unprefixed
     // `toggle-desktop` managed to do nothing in silence.
     void on_goto_node(const Glib::VariantBase& target);
+    void on_notice(const Glib::VariantBase& target);   // s041: a notification button
 
     // ── `app.quit` -- what GNOME's Background Apps list presses ────────────
     // The Quit item next to a background app activates this over D-Bus. An

@@ -113,6 +113,13 @@ public:
     // path that could drift from it.
     void goto_note(const core::NodeId& id) { on_goto_note(id); }
 
+    // s041: a notification button (`app.notice`), applied -- a verb and an
+    // announce key, checked against the model before anything is written.
+    // Returns the status-line sentence. after_cold_notice() is for the jot
+    // GNOME started just to press the button: it leaves unless kept running.
+    std::string notice_act(const std::string& param);   // category: helper
+    void after_cold_notice();                           // category: helper
+
     // ── the one door out of the process ────────────────────────────────────
     // Public for the same reason the two capture doors are: it is called from
     // OUTSIDE the window. `app.quit` is what GNOME's Background Apps list
@@ -438,6 +445,7 @@ private:
     bool         m_notify_verified  = false;  // ... was the last one one of them?
     std::string  m_notify_last_error;      // the daemon's own words, if it refused
     std::size_t  m_notify_live_n    = 0;   // deadlines currently standing
+    std::string  m_notify_last_act;        // s041: what the last button press did
 
     // ── residency (s012) ───────────────────────────────────────────────────
     // m_holding mirrors the application hold so release() is never called

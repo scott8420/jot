@@ -71,6 +71,16 @@ std::string announce_key(const NodeId& id, std::int64_t due);
 // It is not the announced set; it is what the announced set and the delivery
 // ledger are both pruned AGAINST, so neither can grow for the life of the
 // folder.
+// s041: a key PARKED until an instant -- Snooze / Remind on a notification.
+// The ledger's verbs are in core/NoticeAction; it is declared here because the
+// announcer is the one that honours it.
+struct Snoozed {
+    std::string  key;
+    std::int64_t until = 0;
+
+    bool operator==(const Snoozed&) const = default;
+};
+
 struct AnnounceResult {
     std::vector<Announcement> to_show;   // not yet delivered; send these
     std::vector<std::string>  keep;      // delivered AND still live -- the new announced set
@@ -85,9 +95,14 @@ struct AnnounceResult {
 // so nothing can grow without bound, and a todo that is ticked off, deleted or
 // rescheduled drops out of it. A todo that is un-ticked therefore announces
 // again, which is correct: it became a thing to do again.
+//
+// s041: a key in `parked` with `until` still ahead is LIVE (it is a deadline)
+// but neither shown nor kept -- the user said "not now", and the tick says it
+// again once `until` passes, because Snooze took it out of `announced`.
 AnnounceResult due_announcements(const NodeSource& src, const TaskIndex& tasks,
                                  std::int64_t now,
-                                 const std::vector<std::string>& announced);
+                                 const std::vector<std::string>& announced,
+                                 const std::vector<Snoozed>& parked = {});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Outbox -- a send is not a delivery, and until s015 jot could not tell.

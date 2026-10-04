@@ -55,6 +55,24 @@ Glib::VariantContainerBase build(const std::string& app_id, const Notice& n) {
                                   g_variant_new_string(n.target.c_str()));
     }
 
+    // s041: buttons, as g_notification_serialize writes them -- an aa{sv} of
+    // label / action / target, the target being the parameter variant itself.
+    if (!n.buttons.empty()) {
+        GVariantBuilder bb;
+        g_variant_builder_init(&bb, G_VARIANT_TYPE("aa{sv}"));
+        for (const auto& btn : n.buttons) {
+            GVariantBuilder one;
+            g_variant_builder_init(&one, G_VARIANT_TYPE("a{sv}"));
+            g_variant_builder_add(&one, "{sv}", "label", g_variant_new_string(btn.label.c_str()));
+            g_variant_builder_add(&one, "{sv}", "action", g_variant_new_string(btn.action.c_str()));
+            if (!btn.target.empty())
+                g_variant_builder_add(&one, "{sv}", "target",
+                                      g_variant_new_string(btn.target.c_str()));
+            g_variant_builder_add_value(&bb, g_variant_builder_end(&one));
+        }
+        g_variant_builder_add(&b, "{sv}", "buttons", g_variant_builder_end(&bb));
+    }
+
     GVariant* params = g_variant_new("(ss@a{sv})", app_id.c_str(), n.tray_id.c_str(),
                                      g_variant_builder_end(&b));
     return Glib::VariantContainerBase(params, false);
@@ -120,6 +138,23 @@ void Notifier::send(const Notice& n) {
                 r.message = e.what();
             }
             if (Notifier* self = box->owner) self->deliver(r);
+        },
+        kName);
+}
+
+void Notifier::withdraw(const std::string& tray_id) {
+    if (!m_bus || tray_id.empty()) return;
+    auto bus = m_bus;
+    GVariant* params = g_variant_new("(ss)", m_app_id.c_str(), tray_id.c_str());
+    m_bus->call(
+        kPath, kIface, "RemoveNotification", Glib::VariantContainerBase(params, false),
+        [bus, tray_id](Glib::RefPtr<Gio::AsyncResult>& res) {
+            try {
+                bus->call_finish(res);
+            } catch (const Glib::Error& e) {
+                if (auto lg = log::get(log::Area::Shell))
+                    lg->warn("notifier: withdraw {} -- {}", tray_id, e.what());
+            }
         },
         kName);
 }

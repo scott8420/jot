@@ -63,6 +63,15 @@ Prefs load_prefs(const std::string& file) {
             for (const auto& e : *it)
                 if (e.is_string()) p.announced.push_back(e.get<std::string>());
         }
+        // s041: [{"key": "...", "until": N}, ...] -- same tolerance.
+        if (auto it = j.find("snoozed"); it != j.end() && it->is_array()) {
+            p.snoozed.clear();
+            for (const auto& e : *it)
+                if (e.is_object() && e.contains("key") && e["key"].is_string() &&
+                    e.contains("until") && e["until"].is_number_integer())
+                    p.snoozed.push_back(
+                        {e["key"].get<std::string>(), e["until"].get<std::int64_t>()});
+        }
         // An object of bools. Same tolerance as `announced`: a wrong-typed value
         // drops that one entry, and a wrong-typed container drops the lot to
         // defaults, never the file.
@@ -119,6 +128,9 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     j["background"]    = p.background;
     j["drop_links"]    = p.drop_links;
     j["announced"]     = p.announced;
+    j["snoozed"]       = nlohmann::json::array();
+    for (const auto& z : p.snoozed)
+        j["snoozed"].push_back({{"key", z.key}, {"until", z.until}});
     j["drawer_open"]   = p.drawer_open;
     j["move_recent"]   = p.move_recent;
     j["perspectives"]  = nlohmann::json::array();
