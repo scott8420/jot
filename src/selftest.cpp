@@ -26,6 +26,7 @@
 #include "core/RowLook.hpp"
 #include "core/Packet.hpp"
 #include "core/Undo.hpp"
+#include "core/Selection.hpp"
 #include "core/Hotkey.hpp"
 #include "core/Enclosures.hpp"
 #include "core/Pending.hpp"
@@ -5822,6 +5823,54 @@ int main() {
             check("gate: JOT_SOURCE_DIR is defined (the scan has sources to read)", false);
 #endif
         }
+    }
+
+    // ── s047: acting on several notes ──────────────────────────────────────
+    std::cout << "\n-- selection (s047) --\n";
+    {
+        core::MemoryNodes m;
+        const auto a  = m.create("", "A");
+        const auto a1 = m.create(a, "A1");
+        const auto a2 = m.create(a, "A2");
+        const auto b  = m.create("", "B");
+        const auto c  = m.create("", "C");
+        const auto c1 = m.create(c, "C1");
+        using V = std::vector<core::NodeId>;
+        check("order: document order, whatever order they were picked in",
+              core::in_document_order(m, {c1, b, a2, a}) == V{a, a2, b, c1});
+        check("order: unknown ids dropped, duplicates once",
+              core::in_document_order(m, {b, "nope", b}) == V{b});
+        check("roots: a note under a selected one goes with it",
+              core::selection_roots(m, {a2, a, c1}) == V{a, c1});
+        check("roots: siblings are all roots", core::selection_roots(m, {a1, a2}) == V{a1, a2});
+        check("roots: nothing selected, nothing", core::selection_roots(m, {}).empty());
+        check("neighbour: after the last root", core::neighbour_after_delete_all(m, {a, b}) == c);
+        check("neighbour: skips a selected sibling", core::neighbour_after_delete_all(m, {b, c, a1}) == a);
+        check("neighbour: before the first when nothing after", core::neighbour_after_delete_all(m, {c}) == b);
+        check("neighbour: the parent when every sibling goes", core::neighbour_after_delete_all(m, {a1, a2}) == a);
+        check("neighbour: everything going leaves nothing", core::neighbour_after_delete_all(m, {a, b, c}).empty());
+        m.make_task(a1, true); m.make_task(a2, true); m.set_done(a2, true);
+        const auto done = [](const core::Node& n) { return n.task.done; };
+        check("toggle: one not done -> all go on", core::turn_on(m, {a1, a2}, done));
+        m.set_done(a1, true);
+        check("toggle: every one on -> all go off", !core::turn_on(m, {a1, a2}, done));
+
+        // Through the door: a multi-delete is ONE step and comes back whole.
+        core::Journal j;
+        core::UndoSource u(j, [&] { return static_cast<core::NodeSource*>(&m); });
+        const std::size_t had = m.count();
+        const auto roots = core::selection_roots(m, {a, a1, c});
+        core::as_step(u, "Delete 2 notes", roots, true, [&] { for (const auto& id : roots) u.remove(id); });
+        check("multi: delete two subtrees is one step", j.size() == 1 && m.count() == had - 5);
+        j.undo(m);
+        check("multi: one undo brings both back, in order",
+              m.count() == had && m.children("") == V{a, b, c} && m.children(a) == V{a1, a2} &&
+                  m.find(a2)->task.done);
+        core::as_step(u, "Flag 2 notes", {a1, a2}, false, [&] { u.set_flagged(a1, true); u.set_flagged(a2, true); });
+        check("multi: a toggle over two is one step (the undone delete is dropped from redo)",
+              j.size() == 1 && j.undo_label() == "Flag 2 notes");
+        j.undo(m);
+        check("multi: ...one undo unflags both", !m.find(a1)->task.flagged && !m.find(a2)->task.flagged);
     }
 
     std::cout << "-----------------------------------------------\n";

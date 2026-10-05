@@ -77,7 +77,15 @@ public:
     void begin_rename(const core::NodeId& id);   // category: helper: rename in place
     void end_rename(bool commit);                // category: helper: commit or abandon
     bool renaming() const { return !m_renaming.empty(); }
+    // The PRIMARY selection: the one row the editor and Note details show --
+    // the last row clicked. With one row selected it is that row.
     core::NodeId selected() const { return m_selected; }
+    // s047: every selected note, in document order (the primary among them).
+    // Ctrl+click adds / removes a row, Shift+click selects a run, Ctrl+A all.
+    std::vector<core::NodeId> selection() const;   // category: glue
+    std::size_t selection_size() const { return m_selection.size(); }
+    // s047: after the selection changes in any way (count or primary).
+    sigc::signal<void()>& signal_selection_changed() { return m_sig_sel_changed; }
 
     // Emitted when the user picks a row (not when selection is restored after a
     // rebuild -- the surface above should not reload the editor on every drag).
@@ -124,6 +132,9 @@ private:
     void journaled(const std::string& label, const core::NodeId& id, bool subtree,
                    const std::function<void()>& op);
     core::NodeId              m_selected;
+    std::set<core::NodeId>    m_selection;       // s047: every selected id (m_selected among them)
+    sigc::signal<void()>      m_sig_sel_changed;
+    void read_selection();                       // category: helper: s047, ListBox rows -> m_selection
     std::set<core::NodeId>    m_collapsed;       // default is expanded
     std::vector<core::NodeId> m_row_ids;         // ListBox row index -> node id
 

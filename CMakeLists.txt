@@ -121,6 +121,7 @@ add_library(jot_core STATIC
     src/core/Packet.cpp
     # s045: undo / redo for the navigator's verbs -- two pictures per step.
     src/core/Undo.cpp
+    src/core/Selection.cpp   # s047
     src/core/TextMap.cpp
     # The SHORTCUT-REGISTRY paradigm: one list, two consumers (App wires accels
     # from it, ShortcutsDialog renders from it) so a key and its advertised row

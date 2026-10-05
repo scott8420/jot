@@ -222,6 +222,12 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     //   model changed    -> whichever surfaces the change can invalidate repaint
     // The second is what makes drag-and-drop correct: nothing rearranges a
     // widget in response to a drop; the model announces and the tree repaints.
+    // s047: the count or the primary changed -- the menus grey for many, and
+    // Note details says how many are selected.
+    m_tree->signal_selection_changed().connect([this]() {
+        update_note_actions();
+        if (m_drawer) m_drawer->set_also_selected(m_tree->selection_size() > 1 ? m_tree->selection_size() - 1 : 0);
+    });
     m_tree->signal_selected().connect(
         sigc::mem_fun(*this, &Shell::on_selection_changed));
     m_store->on_changed(sigc::mem_fun(*this, &Shell::on_model_changed));
@@ -235,7 +241,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // the other exists.
     m_today->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));
     m_inbox->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));   // s028
-    m_inbox->signal_move().connect(sigc::mem_fun(*this, &Shell::open_move));      // s029
+    m_inbox->signal_move().connect([this](const core::NodeId& id) { open_move(id); });      // s029
     m_tags->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));    // s035
     m_projects->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));   // s037
     m_search->signal_open().connect(sigc::mem_fun(*this, &Shell::on_search_open));   // s038

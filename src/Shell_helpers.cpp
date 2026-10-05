@@ -512,11 +512,17 @@ void Shell::update_note_actions() {  // helper: grey what the selection can't do
     const auto id = m_tree ? m_tree->selected() : core::NodeId{};
     const core::Node* n = (!id.empty() && m_store) ? m_store->find(id) : nullptr;
     const bool is_task = n && n->task.is_task;
-    if (m_act_new_child) m_act_new_child->set_enabled(n != nullptr);
+    // s047: with several selected, the verbs that act on ALL of them stay
+    // (Delete, Tick, Flag, Todo, Protect, Inbox, Move to...); the ones that
+    // mean one place in the outline (a child, a rename, indent, reorder) grey.
+    const bool many = m_tree && m_tree->selection_size() > 1;
+    for (auto* a : {&m_act_indent, &m_act_outdent, &m_act_move_up, &m_act_move_down})
+        if (*a) (*a)->set_enabled(!many);
+    if (m_act_new_child) m_act_new_child->set_enabled(n != nullptr && !many);
     if (m_act_toggle_todo) m_act_toggle_todo->set_enabled(n != nullptr && !n->protect);
-    if (m_act_toggle_done) m_act_toggle_done->set_enabled(is_task && !n->protect);
-    if (m_act_toggle_flag) m_act_toggle_flag->set_enabled(is_task && !n->protect);
-    if (m_act_rename_note) m_act_rename_note->set_enabled(n != nullptr && !n->protect);
+    if (m_act_toggle_done) m_act_toggle_done->set_enabled((is_task && !n->protect) || many);
+    if (m_act_toggle_flag) m_act_toggle_flag->set_enabled((is_task && !n->protect) || many);
+    if (m_act_rename_note) m_act_rename_note->set_enabled(n != nullptr && !n->protect && !many);
     if (m_act_protect)   m_act_protect->set_enabled(n != nullptr);
     if (m_act_delete)    m_act_delete->set_enabled(n != nullptr && !n->protect);
     if (m_act_move_to)   m_act_move_to->set_enabled(n != nullptr && !n->protect);   // s029

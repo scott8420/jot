@@ -190,7 +190,12 @@ private:
     void on_move_up();                           // category: handler: Alt+Up in the tree
     void on_move_down();                         // category: handler: Alt+Down in the tree
     void on_move_to();                           // category: handler: s029 "Move to..." on the selection
-    void open_move(const core::NodeId& id);      // category: handler: s029 the picker, for any note (Inbox rows too)
+    // s047: `many` (the selection's roots) all go where the picker says; empty = just `id`.
+    void open_move(const core::NodeId& id, std::vector<core::NodeId> many = {});   // category: handler: s029 the picker, for any note (Inbox rows too)
+    void toggle_many(const char* on_word, const char* off_word,
+                     const std::function<bool(const core::Node&)>& is_on,
+                     const std::function<bool(const core::Node&)>& applies,
+                     const std::function<void(const core::NodeId&, bool)>& set);   // category: helper: s047, a toggle verb over the selection
     void on_selection_changed(const core::NodeId& id);  // category: handler: tree row -> editor
     void on_model_changed(core::NodeSource::Change what,
                           const core::NodeId& id);      // category: handler: model -> surfaces

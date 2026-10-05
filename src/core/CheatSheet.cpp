@@ -133,6 +133,11 @@ const std::vector<CheatLine>& cheat_sheet() {
          "status, project, packet, tags), the Inbox's Keep and Clean Up, captures, imports, New "
          "project. A deleted note comes back whole, selected. Works anywhere but a text box; also "
          "in the main menu. In the note body (or any text box) Ctrl+Z is that box's own."},
+        // s047
+        {"Notes", "", "Ctrl+click  /  Shift+click (in the tree)", "Select several notes",
+         "Ctrl+click adds or drops one, Shift+click a run, Ctrl+A every row. Delete, Tick, Flag, Make a todo, "
+         "Protect, Inbox and Move to\u2026 then act on all of them -- one Ctrl+Z puts them all back. Tick "
+         "and Flag turn every one ON unless all already are. Note details shows the last one clicked."},
         {"Notes", "", "Enter (in the tree)", "New note just below, ready to name",
          "Type its name, Enter, and Enter again for the next one."},
         {"Notes", "", "Tab  /  Shift+Tab (in the tree)", "Indent under the note above / outdent",

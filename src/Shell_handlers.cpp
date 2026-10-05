@@ -41,6 +41,8 @@
 // Shell_handlers.cpp -- HANDLERS. Slot bodies: what a user action actually does.
 // Each is small and single-concern; orchestration it shares lives in helpers.
 
+#include "core/Selection.hpp"
+
 namespace jot {
 
 // ── notes ───────────────────────────────────────────────────────────────────
@@ -66,28 +68,35 @@ void Shell::on_new_child() {  // handler: new note under the selection
     m_editor->focus_capture();
 }
 
-void Shell::on_delete_note() {  // handler: delete the selected subtree
-    const auto id = m_tree->selected();
-    if (id.empty()) return;
+void Shell::on_delete_note() {  // handler: delete the selected subtree(s)
+    // s047: every selected note -- the ROOTS of the selection (a note under
+    // another selected one goes with it), one undo step for the lot.
+    const auto roots = core::selection_roots(*m_store, m_tree->selection());
+    if (roots.empty()) return;
     // s045: undoable -- the whole subtree, text and all, comes back with Ctrl+Z.
-    const core::Node* n = m_store->find(id);
-    const std::string label = "Delete \u201c" + (n && !n->title.empty() ? n->title : std::string("Untitled")) + "\u201d";
+    const core::Node* n = m_store->find(roots.front());
+    const std::string label = roots.size() > 1
+        ? "Delete " + std::to_string(roots.size()) + " notes"
+        : "Delete \u201c" + (n && !n->title.empty() ? n->title : std::string("Untitled")) + "\u201d";
     // s046: where the selection goes -- the next sibling, else the one
     // before, else the parent. Chosen BEFORE the delete (afterwards there is
     // no "beside it" to ask about).
-    const core::NodeId next = core::neighbour_after_delete(*m_store, id);
-    bool ok = false;
-    undoable(label, {id}, true, [&] { ok = m_undo.remove(id); return std::vector<core::NodeId>{}; });
-    if (!ok) {
+    const core::NodeId next = core::neighbour_after_delete_all(*m_store, roots);
+    std::size_t gone = 0;
+    undoable(label, roots, true, [&] {
+        for (const auto& id : roots) if (m_undo.remove(id)) ++gone;   // a protected one is refused, the rest go
+        return std::vector<core::NodeId>{};
+    });
+    if (gone < roots.size())
         if (auto lg = log::get(log::Area::Model))
-            lg->info("delete '{}': refused (protected, here or below)", id);
-        return;
-    }
+            lg->info("delete: {} of {} refused (protected, here or below)", roots.size() - gone, roots.size());
+    if (gone == 0) return;
     // s046 (Scott: "undo a delete" did not work). A delete from a MENU left
     // the keyboard on the closed menu -- Ctrl+Z reached nobody, and nothing
     // was selected. Now the neighbour is selected and the tree has the keys.
-    if (!next.empty()) { m_tree->select(next); on_selection_changed(next); }
-    keys_to_tree(next);
+    const core::NodeId land = m_store->find(next) ? next : core::NodeId{};
+    if (!land.empty()) { m_tree->select(land); on_selection_changed(land); }
+    keys_to_tree(land);
 }
 
 // s046. Give the tree the keyboard on `id` once the rebuild the last model
@@ -98,11 +107,31 @@ void Shell::keys_to_tree(const core::NodeId& id) {  // helper
                                      Glib::PRIORITY_LOW);
 }
 
+// s047. One toggle verb over the whole selection: on for all unless every
+// one already is (core::turn_on), one undo step, the label counting them.
+// `applies` drops the notes the verb means nothing to (Tick on a plain note).
+void Shell::toggle_many(const char* on_word, const char* off_word,
+                        const std::function<bool(const core::Node&)>& is_on,
+                        const std::function<bool(const core::Node&)>& applies,
+                        const std::function<void(const core::NodeId&, bool)>& set) {  // helper
+    std::vector<core::NodeId> ids;
+    for (const auto& id : m_tree->selection())
+        if (const core::Node* n = m_store->find(id); n && applies(*n)) ids.push_back(id);
+    if (ids.empty()) return;
+    const bool on = core::turn_on(*m_store, ids, is_on);
+    std::string label = on ? on_word : off_word;
+    if (ids.size() > 1) label += " " + std::to_string(ids.size()) + " notes";
+    undoable(label, ids, false, [&] {
+        for (const auto& id : ids) set(id, on);
+        return std::vector<core::NodeId>{};
+    });
+    update_note_actions();
+}
+
 void Shell::on_toggle_protect() {  // handler: lock/unlock the selection
-    const auto id = m_tree->selected();
-    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
-    if (n) undoable(n->protect ? "Unprotect" : "Protect", {id}, false,
-                    [&] { m_undo.set_protect(id, !n->protect); return std::vector<core::NodeId>{}; });
+    toggle_many("Protect", "Unprotect", [](const core::Node& n) { return n.protect; },
+                [](const core::Node&) { return true; },
+                [this](const core::NodeId& id, bool on) { m_undo.set_protect(id, on); });
 }
 
 // Enter in the capture line. The box keeps the focus afterwards, because the
@@ -121,27 +150,22 @@ void Shell::on_capture_activate() {  // handler: Enter in the capture line
 // drawer already knows how to show it. They exist so that a todo is reachable
 // from the keyboard and from a right-click, not only from a pane that can be
 // hidden -- ticking something off should never require opening a panel.
-void Shell::on_toggle_todo() {  // handler: make the selection a todo (or not)
-    const auto id = m_tree->selected();
-    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
-    if (n) undoable(n->task.is_task ? "Not a todo" : "Make a todo", {id}, false,
-                    [&] { m_undo.make_task(id, !n->task.is_task); return std::vector<core::NodeId>{}; });
+void Shell::on_toggle_todo() {  // handler: make the selection todos (or not)
+    toggle_many("Make a todo", "Not a todo", [](const core::Node& n) { return n.task.is_task; },
+                [](const core::Node& n) { return !n.protect; },
+                [this](const core::NodeId& id, bool on) { m_undo.make_task(id, on); });
 }
 
 void Shell::on_toggle_done() {  // handler: tick/untick the selection
-    const auto id = m_tree->selected();
-    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
-    if (n && n->task.is_task)
-        undoable(n->task.done ? "Untick" : "Tick", {id}, false,
-                 [&] { m_undo.set_done(id, !n->task.done); return std::vector<core::NodeId>{}; });
+    toggle_many("Tick", "Untick", [](const core::Node& n) { return n.task.done; },
+                [](const core::Node& n) { return n.task.is_task && !n.protect; },
+                [this](const core::NodeId& id, bool on) { m_undo.set_done(id, on); });
 }
 
 void Shell::on_toggle_flag() {  // handler: flag/unflag the selection
-    const auto id = m_tree->selected();
-    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
-    if (n && n->task.is_task)
-        undoable(n->task.flagged ? "Unflag" : "Flag", {id}, false,
-                 [&] { m_undo.set_flagged(id, !n->task.flagged); return std::vector<core::NodeId>{}; });
+    toggle_many("Flag", "Unflag", [](const core::Node& n) { return n.task.flagged; },
+                [](const core::Node& n) { return n.task.is_task && !n.protect; },
+                [this](const core::NodeId& id, bool on) { m_undo.set_flagged(id, on); });
 }
 
 // F2 and the context menu's Rename both land here. The tree owns what an inline
@@ -417,10 +441,9 @@ void Shell::on_project_state(const Glib::ustring& which) {  // handler: set the 
 }
 
 void Shell::on_toggle_inbox() {  // handler: selection in / out of the Inbox
-    const auto id = m_tree->selected();
-    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
-    if (n) undoable(n->inbox ? "Out of the Inbox" : "Into the Inbox", {id}, false,
-                    [&] { m_undo.set_inbox(id, !n->inbox); return std::vector<core::NodeId>{}; });
+    toggle_many("Into the Inbox", "Out of the Inbox", [](const core::Node& n) { return n.inbox; },
+                [](const core::Node&) { return true; },
+                [this](const core::NodeId& id, bool on) { m_undo.set_inbox(id, on); });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -433,10 +456,15 @@ void Shell::on_toggle_inbox() {  // handler: selection in / out of the Inbox
 // as a drop onto a row's middle.
 // ─────────────────────────────────────────────────────────────────────────────
 void Shell::on_move_to() {  // handler: Move to... on the selection
-    if (m_tree) open_move(m_tree->selected());
+    if (!m_tree) return;
+    // s047: with several selected, the picker is opened for the primary and
+    // the pick moves every root of the selection there (one undo step).
+    const auto roots = core::selection_roots(*m_store, m_tree->selection());
+    if (roots.size() > 1) open_move(m_tree->selected(), roots);
+    else open_move(m_tree->selected());
 }
 
-void Shell::open_move(const core::NodeId& id) {  // handler: the picker, for any note
+void Shell::open_move(const core::NodeId& id, std::vector<core::NodeId> many) {  // handler: the picker, for any note
     const core::Node* n = (id.empty() || !m_store) ? nullptr : m_store->find(id);
     if (!n || n->protect) return;
     // Recent belongs to THIS jots folder (prefs, keyed by its path); the
@@ -450,15 +478,23 @@ void Shell::open_move(const core::NodeId& id) {  // handler: the picker, for any
     // not destroying a widget from inside its own event.
     m_move_dialog.reset();
     m_move_dialog = std::make_unique<MoveDialog>(
-        *this, *m_store, id, std::move(recent), [this, id, folder](const core::NodeId& target) {
-            std::string why;
-            if (!m_store || !core::can_move(*m_store, id, target, &why)) {
-                if (auto lg = log::get(log::Area::Shell)) lg->warn("move to: refused ({})", why);
-                return;
+        *this, *m_store, id, std::move(recent), [this, id, folder, many](const core::NodeId& target) {
+            // s047: the ones the model allows go; one that would land inside
+            // itself (another selected note's subtree) stays, and the log says.
+            const std::vector<core::NodeId> ids = many.empty() ? std::vector<core::NodeId>{id} : many;
+            std::vector<core::NodeId> go;
+            for (const auto& m : ids) {
+                std::string why;
+                if (m_store && core::can_move(*m_store, m, target, &why)) go.push_back(m);
+                else if (auto lg = log::get(log::Area::Shell)) lg->warn("move to: {} refused ({})", m, why);
             }
+            if (go.empty()) return;
             bool ok = false;
-            undoable("Move to\u2026", {id}, true,
-                     [&] { ok = m_undo.move(id, target, -1); return std::vector<core::NodeId>{}; });
+            undoable(go.size() > 1 ? "Move " + std::to_string(go.size()) + " notes" : std::string("Move to\u2026"),
+                     go, true, [&] {
+                         for (const auto& m : go) ok = m_undo.move(m, target, -1) || ok;
+                         return std::vector<core::NodeId>{};
+                     });
             if (ok && !folder.empty() && !target.empty()) {
                 auto& list = m_prefs.move_recent[folder];
                 core::remember_target(list, target);

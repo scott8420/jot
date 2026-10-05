@@ -13,6 +13,7 @@
 
 #include <gdk/gdkkeysyms.h>
 
+#include <algorithm>
 #include <chrono>
 
 // TreePane.cpp -- GLUE + ZONES. Construction, the full rebuild, and one row.
@@ -25,19 +26,26 @@ TreePane::TreePane(std::string_view name)
       m_scroll("tree.scroll"),
       m_list("tree.list"),
       m_menu("tree.menu") {
-    m_list.set_selection_mode(Gtk::SelectionMode::SINGLE);
+    // s047: MULTIPLE -- a plain click still selects just that row; Ctrl+click
+    // adds or removes one, Shift+click a run, Ctrl+A all of them (GTK's own).
+    m_list.set_selection_mode(Gtk::SelectionMode::MULTIPLE);
+    // ...and NOT activate-on-single-click (GTK's default). With it on, a click
+    // in MULTIPLE mode goes through select-and-activate, which only ADDS the
+    // row and ignores Ctrl / Shift: a plain click never cleared the others and
+    // Shift+click never filled the run (seen under Xvfb with a click probe).
+    // jot does not use row activation (a double-click renames in the row).
+    m_list.set_activate_on_single_click(false);
     m_list.add_css_class("navigation-sidebar");
     m_scroll.set_child(m_list);
     m_scroll.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
     m_scroll.set_vexpand(true);
     append(m_scroll);
 
-    m_list.signal_row_selected().connect([this](Gtk::ListBoxRow* row) {
-        if (m_rebuilding || !row) return;
-        const auto i = static_cast<std::size_t>(row->get_index());
-        if (i >= m_row_ids.size()) return;
-        m_selected = m_row_ids[i];
-        m_sig_selected.emit(m_selected);
+    // s047: in MULTIPLE mode row-selected does not tell the whole story
+    // (GTK says so); selected-rows-changed is heard for every change.
+    m_list.signal_selected_rows_changed().connect([this]() {
+        if (m_rebuilding) return;
+        read_selection();
     });
 
     // ── Delete, while the TREE has focus (s016c) ────────────────────────────
@@ -105,6 +113,60 @@ TreePane::TreePane(std::string_view name)
     attach_file_drop();   // s021b
 }
 
+// s047. What the ListBox has selected -> m_selection, and which of them is
+// PRIMARY: the row with the keyboard (the one just clicked, or moved to with
+// the arrows) if it is selected, else the old primary if still selected, else
+// the first. The editor follows the primary only when it changes, so
+// Ctrl+clicking a second row shows that row, and Ctrl+clicking it away goes
+// back to one that is still selected.
+void TreePane::read_selection() {  // helper
+    std::set<core::NodeId> now;
+    for (auto* row : m_list.get_selected_rows()) {
+        const auto i = static_cast<std::size_t>(row->get_index());
+        if (i < m_row_ids.size()) now.insert(m_row_ids[i]);
+    }
+    core::NodeId primary;
+    // A Ctrl+click ADDS one row, and the selection changes before the focus
+    // moves to it (seen under Xvfb) -- so a lone newcomer is the primary.
+    {
+        core::NodeId added;
+        int n_added = 0;
+        for (const auto& id : now)
+            if (!m_selection.count(id)) { added = id; ++n_added; }
+        if (n_added == 1) primary = added;
+    }
+    // gtkmm keeps get_focus_child protected; the C call is the same question.
+    GtkWidget* fc = gtk_widget_get_focus_child(GTK_WIDGET(m_list.gobj()));
+    if (auto* f = (primary.empty() && fc) ? dynamic_cast<Gtk::ListBoxRow*>(Glib::wrap(fc)) : nullptr) {
+        const auto i = static_cast<std::size_t>(f->get_index());
+        if (i < m_row_ids.size() && now.count(m_row_ids[i])) primary = m_row_ids[i];
+    }
+    if (primary.empty() && now.count(m_selected)) primary = m_selected;
+    if (primary.empty() && !now.empty()) {
+        for (const auto& id : m_row_ids)
+            if (now.count(id)) { primary = id; break; }
+    }
+    const bool moved = primary != m_selected;
+    m_selection = std::move(now);
+    m_selected  = primary;
+    if (auto lg = log::get(log::Area::Tree))
+        if (m_selection.size() > 1) lg->info("selection: {} note(s), primary {}", m_selection.size(), m_selected);
+    if (moved && !m_selected.empty()) m_sig_selected.emit(m_selected);
+    m_sig_sel_changed.emit();
+}
+
+std::vector<core::NodeId> TreePane::selection() const {  // glue
+    std::vector<core::NodeId> out;
+    for (const auto& id : m_row_ids)
+        if (m_selection.count(id)) out.push_back(id);
+    // A selected id not on screen (collapsed away since) still counts.
+    for (const auto& id : m_selection)
+        if (std::find(out.begin(), out.end(), id) == out.end() && m_src && m_src->find(id))
+            out.push_back(id);
+    if (out.empty() && !m_selected.empty()) out.push_back(m_selected);
+    return out;
+}
+
 void TreePane::journaled(const std::string& label, const core::NodeId& id, bool subtree,
                          const std::function<void()>& op) {  // glue: a tree write as one undo step
     if (!m_src) { op(); return; }
@@ -148,10 +210,18 @@ void TreePane::build_row_menu() {
     click->signal_pressed().connect([this](int, double x, double y) {
         if (auto* row = m_list.get_row_at_y(static_cast<int>(y))) {
             const auto i = static_cast<std::size_t>(row->get_index());
-            if (i < m_row_ids.size()) {
-                m_selected = m_row_ids[i];
+            // s047: right-click INSIDE a multi-selection keeps it -- the menu
+            // acts on all of them, as in Files. Outside it, just that row.
+            if (i < m_row_ids.size() && !(m_selection.count(m_row_ids[i]) && m_selection.size() > 1)) {
+                m_rebuilding = true;
+                m_list.unselect_all();
                 m_list.select_row(*row);
-                m_sig_selected.emit(m_selected);
+                m_rebuilding = false;
+                const bool moved = m_selected != m_row_ids[i];
+                m_selected  = m_row_ids[i];
+                m_selection = {m_selected};
+                if (moved) m_sig_selected.emit(m_selected);
+                m_sig_sel_changed.emit();
             }
         }
         popup_row_menu(x, y);
@@ -175,6 +245,7 @@ TreePane::~TreePane() { m_menu.unparent(); }
 void TreePane::set_source(core::NodeSource* src) {
     m_src = src;
     m_selected.clear();
+    m_selection.clear();
     m_collapsed.clear();
     rebuild();
 }
@@ -202,14 +273,15 @@ void TreePane::rebuild() {
 
     // Restore the selection if the node is still visible. Not a user choice, so
     // it must not re-emit -- hence the flag rather than a "last id" compare.
-    if (!m_selected.empty()) {
-        for (std::size_t i = 0; i < m_row_ids.size(); ++i)
-            if (m_row_ids[i] == m_selected) {
-                if (auto* row = m_list.get_row_at_index(static_cast<int>(i)))
-                    m_list.select_row(*row);
-                break;
-            }
-    }
+    // s047: every selected row, not just the primary; ids that no longer
+    // exist (deleted) drop out of the set.
+    if (m_src)
+        for (auto it = m_selection.begin(); it != m_selection.end();)
+            it = m_src->find(*it) ? std::next(it) : m_selection.erase(it);
+    if (!m_selected.empty()) m_selection.insert(m_selected);
+    for (std::size_t i = 0; i < m_row_ids.size(); ++i)
+        if (m_selection.count(m_row_ids[i]))
+            if (auto* row = m_list.get_row_at_index(static_cast<int>(i))) m_list.select_row(*row);
     m_rebuilding = false;
 
     const double ms = std::chrono::duration<double, std::milli>(
@@ -453,16 +525,21 @@ void TreePane::focus_row(const core::NodeId& id) {  // glue
 }
 
 void TreePane::select(const core::NodeId& id) {
+    // s047: a programmatic select is a SINGLE selection -- after a delete,
+    // an undo, a goto, the one note it names.
+    const bool was_many = m_selection.size() > 1;
     m_selected = id;
+    m_selection.clear();
+    if (!id.empty()) m_selection.insert(id);
+    m_rebuilding = true;          // programmatic: not a user choice
+    m_list.unselect_all();
     for (std::size_t i = 0; i < m_row_ids.size(); ++i)
         if (m_row_ids[i] == id) {
-            if (auto* row = m_list.get_row_at_index(static_cast<int>(i))) {
-                m_rebuilding = true;          // programmatic: not a user choice
-                m_list.select_row(*row);
-                m_rebuilding = false;
-            }
-            return;
+            if (auto* row = m_list.get_row_at_index(static_cast<int>(i))) m_list.select_row(*row);
+            break;
         }
+    m_rebuilding = false;
+    if (was_many) m_sig_sel_changed.emit();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

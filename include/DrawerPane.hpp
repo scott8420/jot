@@ -91,6 +91,10 @@ public:
 
     void set_source(core::NodeSource* src, const core::LinkIndex* index);
     void show_node(const core::NodeId& id);
+    // s047: how many OTHER notes are selected with the one shown. 0 hides the
+    // line; otherwise it says these details are the one note's, and which
+    // verbs reach all of them.
+    void set_also_selected(std::size_t others);
 
     // A rename that happened SOMEWHERE ELSE (the tree, the editor's title).
     // Not show_node(): re-reading the whole node would rebuild every row and
@@ -246,6 +250,7 @@ private:
     // already open and you are looking at the note's metadata. All three write
     // through NodeSource::set_title, and all three learn about each other the
     // same way -- via the model's change notification, never directly.
+    widgets::Label m_also;        // s047: "+ 2 more selected ..."
     widgets::Label m_name_head;
     widgets::Entry m_name;
 

@@ -290,7 +290,7 @@ bool TreePane::drop_at(const core::NodeId& dragged, const core::NodeId& target,
     // A dropped node should be the one you are looking at. Selection is the
     // pane's own state, not the model's, so setting it here is not a widget
     // rearrangement -- the rebuild still comes from the model's notification.
-    if (ok) m_selected = dragged;
+    if (ok) { m_selected = dragged; m_selection = {dragged}; }   // s047: the drag is one note
     return ok;
 }
 

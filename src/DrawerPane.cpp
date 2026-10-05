@@ -143,6 +143,7 @@ DrawerPane::DrawerPane(std::string_view name)
       m_scroll("drawer.scroll"),
       m_column("drawer.column", Gtk::Orientation::VERTICAL, 6),
       m_empty("drawer.empty"),
+      m_also("drawer.also_selected"),
       m_name_head("drawer.name_head"),
       m_name("drawer.name"),
       m_todo("drawer.is_todo"),
@@ -207,6 +208,13 @@ DrawerPane::DrawerPane(std::string_view name)
     // can CHANGE. Everything below is a report; this is a control, and mixing
     // the two without saying which is which is how a panel stops being
     // readable at a glance.
+    m_also.set_xalign(0.0f);
+    m_also.set_wrap(true);
+    m_also.add_css_class("dim-label");
+    m_also.set_margin_bottom(6);
+    m_also.set_visible(false);
+    m_column.append(m_also);
+
     m_name_head.set_text("Name");
     m_name_head.set_xalign(0.0f);
     m_name_head.add_css_class("dim-label");
@@ -2070,4 +2078,14 @@ void DrawerPane::fill_identity(const core::Node& n) {
     m_uuid.set_text(n.id);
 }
 
+}  // namespace jot
+
+namespace jot {
+void DrawerPane::set_also_selected(std::size_t others) {
+    if (others == 0) { m_also.set_visible(false); return; }
+    m_also.set_text("+ " + std::to_string(others) + " more selected. Details below are this note's; "
+                    "Delete, Tick, Flag, Todo, Inbox and Move to\u2026 act on all " +
+                    std::to_string(others + 1) + ".");
+    m_also.set_visible(true);
+}
 }  // namespace jot
