@@ -12,6 +12,7 @@
 #include "core/Recents.hpp"
 
 #include <giomm/simpleactiongroup.h>
+#include <gtkmm/eventcontrollerkey.h>
 #include <glibmm/variant.h>
 
 // Shell_bindings.cpp -- BINDINGS. What's wired to what: the win.* actions, the
@@ -119,6 +120,34 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // row menu reach them too.
     m_act_undo_nav  = add_action("undo-nav",    sigc::mem_fun(*this, &Shell::on_undo_nav));
     m_act_redo_nav  = add_action("redo-nav",    sigc::mem_fun(*this, &Shell::on_redo_nav));
+    // s046: Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y heard by the WINDOW, bubble phase
+    // -- so only keys nothing else took. The tree's own capture-phase keys
+    // still come first; the note body's undo is untouched (a key in a text box
+    // or entry is never ours, even when it had nothing to undo). What this
+    // catches is the keyboard sitting NOWHERE in particular -- after a menu
+    // closed, a card clicked, a button pressed: Ctrl+Z there used to do
+    // nothing at all. Scott, s046: "undo a delete".
+    {
+        auto win_keys = Gtk::EventControllerKey::create();
+        win_keys->signal_key_pressed().connect(
+            [this](guint keyval, guint, Gdk::ModifierType state) {
+                const auto mods = state & (Gdk::ModifierType::CONTROL_MASK |
+                                           Gdk::ModifierType::SHIFT_MASK |
+                                           Gdk::ModifierType::ALT_MASK);
+                const auto CTRL  = Gdk::ModifierType::CONTROL_MASK;
+                const auto SHIFT = Gdk::ModifierType::SHIFT_MASK;
+                const char* act = nullptr;
+                if ((keyval == GDK_KEY_z || keyval == GDK_KEY_Z) && mods == CTRL)               act = "win.undo-nav";
+                else if ((keyval == GDK_KEY_z || keyval == GDK_KEY_Z) && mods == (CTRL | SHIFT)) act = "win.redo-nav";
+                else if ((keyval == GDK_KEY_y || keyval == GDK_KEY_Y) && mods == CTRL)          act = "win.redo-nav";
+                if (!act) return false;
+                if (focus_is_text()) return false;
+                if (auto lg = log::get(log::Area::Shell)) lg->info("window key -> {}", act);
+                activate_action(act);
+                return true;
+            }, false);
+        add_controller(win_keys);
+    }
     add_action("new-sibling", sigc::mem_fun(*this, &Shell::on_new_sibling));
     m_act_indent    = add_action("indent",      sigc::mem_fun(*this, &Shell::on_indent));
     m_act_outdent   = add_action("outdent",     sigc::mem_fun(*this, &Shell::on_outdent));

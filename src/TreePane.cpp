@@ -107,8 +107,8 @@ TreePane::TreePane(std::string_view name)
 
 void TreePane::journaled(const std::string& label, const core::NodeId& id, bool subtree,
                          const std::function<void()>& op) {  // glue: a tree write as one undo step
-    if (!m_journal || !m_src) { op(); return; }
-    m_journal->run(*m_src, label, {id}, subtree, [&] { op(); return std::vector<core::NodeId>{}; });
+    if (!m_src) { op(); return; }
+    core::as_step(*m_src, label, {id}, subtree, op);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -440,13 +440,16 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
 }
 
 // s045: select a row AND give it the keyboard, so the outliner keys land.
+// s046: with no such row (an empty id, a delete that left nothing beside it)
+// the LIST still takes the keyboard -- so the next Ctrl+Z is the outline's.
 void TreePane::focus_row(const core::NodeId& id) {  // glue
-    select(id);
-    for (std::size_t i = 0; i < m_row_ids.size(); ++i)
+    if (!id.empty()) select(id);
+    for (std::size_t i = 0; !id.empty() && i < m_row_ids.size(); ++i)
         if (m_row_ids[i] == id) {
             if (auto* row = m_list.get_row_at_index(static_cast<int>(i))) row->grab_focus();
             return;
         }
+    m_list.grab_focus();
 }
 
 void TreePane::select(const core::NodeId& id) {

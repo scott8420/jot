@@ -48,10 +48,6 @@ public:
     ~TreePane() override;
 
     void set_source(core::NodeSource* src);      // category: glue
-    // s045: the navigator's undo journal (the Shell's). The tree's own writes
-    // -- a tick, an inline rename, a drag -- go through it so Ctrl+Z puts
-    // them back too.
-    void set_journal(core::Journal* j) { m_journal = j; }   // category: glue
     void rebuild();                              // category: zone: the full repaint (timed)
     void select(const core::NodeId& id);         // category: glue
     void focus_row(const core::NodeId& id);      // category: glue -- s045: select + keyboard focus
@@ -123,8 +119,8 @@ private:
     bool is_collapsed(const core::NodeId& id) const;
 
     core::NodeSource*         m_src = nullptr;   // not owned; the seam
-    core::Journal*            m_journal = nullptr;   // s045: not owned; may be null
-    // Run a tree write as one undo step when there is a journal; else just run it.
+    // s045 / s046b: a tree write as one NAMED undo step. The source is the
+    // Shell's UndoSource, so every write is a step anyway; this names it.
     void journaled(const std::string& label, const core::NodeId& id, bool subtree,
                    const std::function<void()>& op);
     core::NodeId              m_selected;

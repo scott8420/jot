@@ -144,6 +144,8 @@ target_include_directories(jot_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_pa
 # ── Headless selftest -- exercises the core with no display ────────────────────
 add_executable(jot_selftest src/selftest.cpp)
 target_link_libraries(jot_selftest PRIVATE jot_core)
+# s046b: the undo gate scans the UI sources for a write that goes around the door.
+target_compile_definitions(jot_selftest PRIVATE JOT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # ── jot_desktop_probe -- the s009 instrument, built only with libecal ────────
 # Writes a fixture projection into EDS through the real backend and then asks

@@ -1,4 +1,6 @@
 #include "Shell.hpp"
+#include <gtkmm/editable.h>
+#include <gtkmm/textview.h>
 #include "DrawerPane.hpp"
 #include "EditorPane.hpp"
 #include "JotsFolderDialog.hpp"
@@ -256,22 +258,22 @@ void Shell::save_scratch(const std::string& target) {
     m_journal.clear();          // s045: steps name ids of the OLD store; none of them carry over
     update_undo_actions();
     m_store->on_changed(sigc::mem_fun(*this, &Shell::on_model_changed));
-    m_tree->set_source(m_store.get());
-    m_editor->set_source(m_store.get());
+    m_tree->set_source(&m_undo);
+    m_editor->set_source(m_store.get());   // raw: the body's undo is the text view's
     m_links.rebuild(*m_store);
-    m_drawer->set_source(m_store.get(), &m_links);
+    m_drawer->set_source(&m_undo, &m_links);
     m_drawer->set_jots_dir(m_project ? m_project->dir() : std::string{});
     m_drawer->set_attach(attach_store());
     // s035: the three list views and the task index follow the swap too. Until
     // s035 only tree / editor / drawer were re-pointed here, so Today and the
     // Inbox kept reading the store that had just been destroyed.
     m_tasks.rebuild(*m_store);
-    m_today->set_source(m_store.get(), &m_tasks);
-    m_inbox->set_source(m_store.get());
-    m_tags->set_source(m_store.get());
-    m_projects->set_source(m_store.get());   // s037
+    m_today->set_source(&m_undo, &m_tasks);
+    m_inbox->set_source(&m_undo);
+    m_tags->set_source(&m_undo);
+    m_projects->set_source(&m_undo);   // s037
     end_search();                            // s038: a query over the old folder means nothing here
-    m_search->set_source(m_store.get());
+    m_search->set_source(&m_undo);
     queue_inbox_refresh();
     queue_desktop_sync();
     note_recent(target);
@@ -446,22 +448,22 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     m_store = std::move(jots);
     m_journal.clear();   // s045: a new store -- no step carries over
     m_store->on_changed(sigc::mem_fun(*this, &Shell::on_model_changed));
-    m_tree->set_source(m_store.get());
-    m_editor->set_source(m_store.get());
+    m_tree->set_source(&m_undo);
+    m_editor->set_source(m_store.get());   // raw: the body's undo is the text view's
     m_links.rebuild(*m_store);
-    m_drawer->set_source(m_store.get(), &m_links);
+    m_drawer->set_source(&m_undo, &m_links);
     m_drawer->set_jots_dir(m_project ? m_project->dir() : std::string{});
     m_drawer->set_attach(attach_store());
     // s035: the three list views and the task index follow the swap too. Until
     // s035 only tree / editor / drawer were re-pointed here, so Today and the
     // Inbox kept reading the store that had just been destroyed.
     m_tasks.rebuild(*m_store);
-    m_today->set_source(m_store.get(), &m_tasks);
-    m_inbox->set_source(m_store.get());
-    m_tags->set_source(m_store.get());
-    m_projects->set_source(m_store.get());   // s037
+    m_today->set_source(&m_undo, &m_tasks);
+    m_inbox->set_source(&m_undo);
+    m_tags->set_source(&m_undo);
+    m_projects->set_source(&m_undo);   // s037
     end_search();                            // s038: a query over the old folder means nothing here
-    m_search->set_source(m_store.get());
+    m_search->set_source(&m_undo);
     queue_inbox_refresh();
     queue_desktop_sync();
     note_recent(dir);
@@ -469,7 +471,7 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
 
     auto roots = m_store->children("");
     if (roots.empty()) {
-        const auto id = m_store->create("", "");
+        const auto id = m_store->create("", "");   // raw: the first note of an empty folder is not a user step
         if (!id.empty()) roots.push_back(id);
     }
     if (!roots.empty()) { m_tree->select(roots.front()); on_selection_changed(roots.front()); }
@@ -485,9 +487,20 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
 bool Shell::undoable(const std::string& label, const std::vector<core::NodeId>& ids, bool subtree,
                      const core::Journal::Op& op) {  // helper: a model verb as one undo step
     if (!m_store) return false;
-    const bool kept = m_journal.run(*m_store, label, ids, subtree, op);
+    // s046b: through the door. The op's own writes (m_undo.create, .move ...)
+    // fold into this one step; a node it creates is recorded as it is made.
+    const bool kept = core::as_step(m_undo, label, ids, subtree, [&] { op(); });
     update_undo_actions();
     return kept;
+}
+
+// s046. Is the keyboard in something that types -- the note body, the
+// capture line, Find, a rename, a drawer field? Then Ctrl+Z is that box's
+// own, whether or not it had anything to undo.
+bool Shell::focus_is_text() const {  // helper
+    for (const Gtk::Widget* w = get_focus(); w; w = w->get_parent())
+        if (dynamic_cast<const Gtk::TextView*>(w) || dynamic_cast<const Gtk::Editable*>(w)) return true;
+    return false;
 }
 
 void Shell::update_undo_actions() {  // helper: Undo / Redo enabled when they would do something
@@ -905,7 +918,8 @@ void Shell::queue_drawer_refresh() {  // helper: one index update + repaint per 
 // ─────────────────────────────────────────────────────────────────────────────
 void Shell::capture(const std::string& text) {  // helper: text -> an unfiled note
     if (!m_store) return;
-    const core::NodeId id = core::capture(*m_store, text);
+    core::NodeId id;
+    core::as_step(m_undo, "Capture", {}, false, [&] { id = core::capture(m_undo, text); });   // s046b
     if (id.empty()) return;
 
     if (const core::Node* n = m_store->find(id)) {
@@ -927,7 +941,9 @@ std::string Shell::capture_list(const std::string& name,
                                 const std::vector<std::string>& items) {  // helper: jot --list
     if (!m_store) return {};
     bool grew = false;
-    const core::NodeId id = core::capture_list(*m_store, name, items, &grew);
+    core::NodeId id;
+    core::as_step(m_undo, "List", {}, false,
+                  [&] { id = core::capture_list(m_undo, name, items, &grew); });   // s046b
     if (id.empty()) return {};
     const core::Node* n = m_store->find(id);
     const std::string title = n ? n->title : name;
@@ -954,7 +970,9 @@ std::string Shell::capture_list(const std::string& name,
 std::string Shell::capture_append(const std::string& name, const std::string& text) {  // helper: jot -a
     if (!m_store) return {};
     bool grew = false;
-    const core::NodeId id = core::capture_append(*m_store, name, text, &grew);
+    core::NodeId id;
+    core::as_step(m_undo, "Append", {}, false,
+                  [&] { id = core::capture_append(m_undo, name, text, &grew); });   // s046b
     if (id.empty()) return {};
     const core::Node* n = m_store->find(id);
     const std::string title = n ? n->title : name;
@@ -1006,11 +1024,12 @@ void Shell::drain_pending() {  // helper: file what was captured while jot was c
 
     std::vector<core::Pending> filed;
     filed.reserve(waiting.size());
+    core::Gesture step(m_undo, "Captures taken while jot was closed");   // s046b: one Ctrl+Z
     for (const auto& p : waiting) {
         if (p.text.empty()) { core::remove_pending(p); continue; }   // nothing was said
         if (!p.append.empty()) {
             // s025d: a `jot NAME -a words` taken while jot was closed.
-            if (core::capture_append(*m_store, p.append, p.text).empty()) continue;   // keep the file
+            if (core::capture_append(m_undo, p.append, p.text).empty()) continue;   // keep the file
             filed.push_back(p);
             continue;
         }
@@ -1025,13 +1044,13 @@ void Shell::drain_pending() {  // helper: file what was captured while jot was c
                 if (e == std::string::npos) break;
                 a = e + 1;
             }
-            if (core::capture_list(*m_store, p.list, items).empty()) continue;   // keep the file
+            if (core::capture_list(m_undo, p.list, items).empty()) continue;   // keep the file
             filed.push_back(p);
             continue;
         }
         // core::capture, the same function the header box uses, so a spooled
         // thought and a typed one become the same kind of note.
-        if (core::capture(*m_store, p.text).empty()) continue;        // keep the file
+        if (core::capture(m_undo, p.text).empty()) continue;        // keep the file
         filed.push_back(p);
     }
     if (filed.empty()) return;
@@ -1423,7 +1442,7 @@ std::string Shell::notice_act(const std::string& param) {  // helper: a notifica
     if (st != core::TargetState::Current) {
         said = "Nothing changed for " + title + ": " + core::target_state_words(st) + ".";
     } else if (act->verb == core::NoticeVerb::Done) {
-        m_store->set_done(id, true);          // the one door: repeats roll, the Logbook stamps
+        m_undo.set_done(id, true);          // the one door: repeats roll, the Logbook stamps
         if (m_project) m_project->flush();     // the window may be closed; the disk must not wait
         m_notifier.withdraw(id);
         said = "Marked " + title + " done from its notification.";
@@ -1804,7 +1823,7 @@ int Shell::retarget_everywhere(const std::string& from, const std::string& to) {
         const int k = core::retarget_references(body, from, to);
         if (k == 0) continue;
         total += k;
-        m_store->set_body(id, body);
+        m_store->set_body(id, body);   // raw: a relink / convert moved files on disk; undo cannot
         if (id == m_editor->current()) current_changed = true;
     }
     if (m_project) m_project->enclosures_changed();
@@ -1831,7 +1850,7 @@ int Shell::retarget_current(const std::string& from, const std::string& to) {  /
     const core::NodeId id = m_editor->current();
     std::string body = m_store->find(id)->body;
     const int k = core::retarget_references(body, from, to);
-    if (k > 0) m_store->set_body(id, body);
+    if (k > 0) m_store->set_body(id, body);   // raw: a relink / convert moved files on disk; undo cannot
     if (m_project) m_project->enclosures_changed();
     if (k > 0) m_editor->refresh();
     queue_drawer_refresh();

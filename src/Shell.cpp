@@ -99,13 +99,13 @@ void Shell::build_ui() {
     rebuild_recents_menu();
     build_find_menu();   // s038b: needs the find-* actions and the prefs' perspectives
 
-    m_tree->set_source(m_store.get());
-    m_tree->set_journal(&m_journal);   // s045
+    m_tree->set_source(&m_undo);
+    m_journal.on_change([this] { update_undo_actions(); });   // s046b: whichever pane made the step
     update_undo_actions();
-    m_editor->set_source(m_store.get());
+    m_editor->set_source(m_store.get());   // raw: the body's undo is the text view's
     m_links.rebuild(*m_store);        // one pass at load -- the backlink index
     m_tasks.rebuild(*m_store);        // and one for the todos
-    m_drawer->set_source(m_store.get(), &m_links);
+    m_drawer->set_source(&m_undo, &m_links);
     m_drawer->set_jots_dir(m_project ? m_project->dir() : std::string{});
     m_drawer->set_attach(attach_store());
     // s016a: which drawer sections were left folded. App-wide, remembered the
@@ -116,11 +116,11 @@ void Shell::build_ui() {
         m_prefs.drawer_open[key] = open;
         core::save_prefs(m_prefs_file, m_prefs);
     });
-    m_today->set_source(m_store.get(), &m_tasks);
-    m_inbox->set_source(m_store.get());
-    m_tags->set_source(m_store.get());   // s035
-    m_projects->set_source(m_store.get());   // s037
-    m_search->set_source(m_store.get());     // s038
+    m_today->set_source(&m_undo, &m_tasks);
+    m_inbox->set_source(&m_undo);
+    m_tags->set_source(&m_undo);   // s035
+    m_projects->set_source(&m_undo);   // s037
+    m_search->set_source(&m_undo);     // s038
     m_search->set_perspectives(&m_prefs.perspectives);   // s038b: the summary names a saved view
     queue_inbox_refresh();   // the tab's count and Clean Up's greying
 
@@ -194,7 +194,7 @@ void Shell::build_ui() {
     // leave, which is when it becomes a real question rather than a toll gate.
     auto roots = m_store->children("");
     if (roots.empty()) {
-        const auto id = m_store->create("", "");
+        const auto id = m_store->create("", "");   // raw: the first note of an empty folder is not a user step
         if (!id.empty()) roots.push_back(id);
     }
     if (!roots.empty()) {

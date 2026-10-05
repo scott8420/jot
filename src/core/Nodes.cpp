@@ -1,5 +1,6 @@
 #include <cctype>
 #include "core/Nodes.hpp"
+#include "core/Undo.hpp"   // s046b: a capture is ONE undo step, whoever calls it
 
 #include <algorithm>
 #include <cstdio>
@@ -476,6 +477,7 @@ void capture_split(const std::string& text, std::string& title, std::string& bod
 }
 
 NodeId capture(NodeSource& src, const std::string& text) {
+    Gesture step(src, "Capture");   // s046b: create + body + mark, one Ctrl+Z
     std::string title, body;
     capture_split(text, title, body);
     if (title.empty()) return {};          // nothing typed is not a note
@@ -533,6 +535,7 @@ std::string append_text(const std::string& body, const std::string& text) {
 
 NodeId capture_append(NodeSource& src, const std::string& name, const std::string& text,
                       bool* appended) {
+    Gesture step(src, "Append");    // s046b
     if (appended) *appended = false;
     const std::string title = trimmed(name);
     if (title.empty() || trimmed(text).empty()) return {};
@@ -571,6 +574,7 @@ NodeId find_list_note(const NodeSource& src, const std::string& title) {
 
 NodeId capture_list(NodeSource& src, const std::string& name,
                     const std::vector<std::string>& items, bool* appended) {
+    Gesture step(src, "List");      // s046b
     if (appended) *appended = false;
     const std::string title = trimmed(name);
     const std::string add = append_tasks("", items);

@@ -1286,6 +1286,25 @@ int main() {
             (void)a;
         }
 
+        // s046: after a delete the selection lands beside it, so the keys
+        // (and the next Ctrl+Z) stay in the tree. Next, else previous, else
+        // the parent; a lone root leaves nothing.
+        {
+            core::MemoryNodes m;
+            const auto p  = m.create("", "p");
+            const auto k1 = m.create(p, "k1");
+            const auto k2 = m.create(p, "k2");
+            const auto k3 = m.create(p, "k3");
+            const auto solo = m.create(k2, "solo");
+            check("neighbour: the next sibling", core::neighbour_after_delete(m, k1) == k2);
+            check("neighbour: the last one takes the one before", core::neighbour_after_delete(m, k3) == k2);
+            check("neighbour: an only child gives the parent", core::neighbour_after_delete(m, solo) == k2);
+            check("neighbour: a lone root leaves nothing", core::neighbour_after_delete(m, p).empty());
+            m.move(k3, p, 0);   // order is m_kids', not storage's
+            check("neighbour: follows a reorder", core::neighbour_after_delete(m, k3) == k1);
+            check("neighbour: an unknown id leaves nothing", core::neighbour_after_delete(m, "nope").empty());
+        }
+
         core::MemoryNodes m;
         core::Journal j;
         const auto taxes = m.create("", "Taxes");
@@ -5533,6 +5552,276 @@ int main() {
             }
         }
         fs::remove_all(root, ec);
+    }
+
+    // ── s046b: undo coverage -- gestures, merging, the one door, the gate ──
+    std::cout << "\n-- undo coverage (s046b) --\n";
+    {
+        namespace fs = std::filesystem;
+        // A whole picture of a store: every field undo is responsible for, in
+        // tree order, so "undo put it back" is one string comparison.
+        const auto state = [](const core::NodeSource& s) {
+            std::string out;
+            std::function<void(const core::NodeId&, int)> walk = [&](const core::NodeId& p, int d) {
+                for (const auto& id : s.children(p)) {
+                    const core::Node* n = s.find(id);
+                    if (!n) continue;
+                    const core::Task& t = n->task;
+                    out += std::string(static_cast<std::size_t>(d) * 2, ' ') + id + " [" + n->title + "] {" +
+                           n->body + "} p" + std::to_string(n->protect) + " i" + std::to_string(n->inbox) +
+                           " k" + std::to_string(n->packet) + " t" + std::to_string(t.is_task) +
+                           std::to_string(t.done) + std::to_string(t.flagged) + " due" +
+                           std::to_string(t.due) + " def" + std::to_string(t.defer) + " st" +
+                           std::to_string(static_cast<int>(t.status)) + " ps" +
+                           std::to_string(static_cast<int>(t.project)) + " m" +
+                           std::to_string(static_cast<int>(t.mark)) + " rep" +
+                           std::to_string(t.repeat.every) + " rev" + std::to_string(t.review.every) +
+                           "/" + std::to_string(t.reviewed) + " est" + std::to_string(t.estimate) + "\n";
+                    walk(id, d + 1);
+                }
+            };
+            walk("", 0);
+            return out;
+        };
+        // A fresh fixture behind a door: Taxes{W-2, Form(todo, due)}, Home, Inbox note.
+        struct Rig {
+            core::MemoryNodes m;
+            core::Journal j;
+            core::UndoSource u{j, [this] { return &m; }};
+            core::NodeId taxes, w2, form, home, loose;
+            Rig() {
+                taxes = m.create("", "Taxes");
+                w2 = m.create(taxes, "W-2");
+                form = m.create(taxes, "Form");
+                m.set_body(w2, "the employer copy");
+                m.make_task(form, true);
+                m.set_due(form, 1'800'000'000);
+                home = m.create("", "Home");
+                loose = m.create("", "loose thought");
+                m.set_inbox(loose, true);
+            }
+        };
+
+        // The table: every write a surface can make through the door. Each
+        // must be ONE step, undo must give back the exact picture, redo the
+        // exact after. A write added to NodeSource must be overridden by
+        // UndoSource (pure virtual) -- and then belongs in this table.
+        struct Verb {
+            const char* name;
+            std::function<void(Rig&)> run;
+            const char* label;   // what the Undo menu would say ("" = don't check)
+        };
+        const std::vector<Verb> verbs = {
+            {"create", [](Rig& r) { r.u.create(r.taxes, "new"); }, "New note"},
+            {"set_title", [](Rig& r) { r.u.set_title(r.w2, "W-2 (2026)"); }, "Rename"},
+            {"set_body", [](Rig& r) { r.u.set_body(r.home, "keys"); }, "Edit text"},
+            {"set_protect", [](Rig& r) { r.u.set_protect(r.home, true); }, "Protect"},
+            {"set_inbox", [](Rig& r) { r.u.set_inbox(r.loose, false); }, "Out of the Inbox"},
+            {"set_packet", [](Rig& r) { r.u.set_packet(r.taxes, true); }, "Packet"},
+            {"move", [](Rig& r) { r.u.move(r.home, r.taxes, 0); }, "Move"},
+            {"remove", [](Rig& r) { r.u.remove(r.taxes); }, "Delete “Taxes”"},
+            {"restore", [](Rig& r) { core::Node n; n.id = "back"; n.title = "Back"; r.u.restore(n, 0); }, "Restore"},
+            {"set_done", [](Rig& r) { r.u.set_done(r.form, true); }, "Tick"},
+            {"set_flagged", [](Rig& r) { r.u.set_flagged(r.form, true); }, "Flag"},
+            {"set_due", [](Rig& r) { r.u.set_due(r.form, 1'900'000'000); }, "Due date"},
+            {"set_defer", [](Rig& r) { r.u.set_defer(r.form, 1'700'000'000); }, "Defer date"},
+            {"set_estimate", [](Rig& r) { r.u.set_estimate(r.form, 30); }, "Estimate"},
+            {"set_repeat", [](Rig& r) { core::Repeat p; p.every = 1; r.u.set_repeat(r.form, p); }, "Repeat"},
+            {"set_status", [](Rig& r) { r.u.set_status(r.taxes, core::Status::Sequential); }, "Children"},
+            {"make_task", [](Rig& r) { r.u.make_task(r.home, true); }, "Make a todo"},
+            {"un-make_task", [](Rig& r) { r.u.make_task(r.form, false); }, "Not a todo"},
+            {"set_project_state", [](Rig& r) { core::set_project_state(r.u, r.taxes, core::ProjectState::OnHold); }, "Project status"},
+            {"set_project_mark", [](Rig& r) { core::set_project_mark(r.u, r.home, core::ProjectMark::On); }, "Is a project"},
+            {"mark_reviewed", [](Rig& r) { core::mark_reviewed(r.u, r.taxes, 1'800'000'000); }, "Mark reviewed"},
+            {"set_review_every", [](Rig& r) { core::Repeat w; w.every = 2; w.unit = core::RepeatUnit::Week;
+                                              core::set_review_every(r.u, r.taxes, w); }, "Review interval"},
+            {"capture", [](Rig& r) { core::capture(r.u, "call the dentist\nabout Tuesday"); }, "Capture"},
+            {"capture_list (new)", [](Rig& r) { core::capture_list(r.u, "Groceries", {"milk", "eggs"}); }, "List"},
+            {"capture_list (grow)", [](Rig& r) { core::capture_list(r.u, "Home", {"bulbs"}); }, "List"},
+            {"capture_append", [](Rig& r) { core::capture_append(r.u, "Home", "check the pantry"); }, "Append"},
+            {"clean_up", [](Rig& r) { core::clean_up(r.u); }, "Clean Up"},
+        };
+        for (const auto& v : verbs) {
+            Rig r;
+            // Some verbs need a raw setup first (a project said on purpose, a
+            // filed capture); that is part of "before", not of the step.
+            const std::string name = v.name;
+            if (name == "mark_reviewed" || name == "set_review_every")
+                core::set_project_mark(r.m, r.taxes, core::ProjectMark::On);
+            if (name == "clean_up") r.m.move(r.loose, r.home, -1);
+            const std::size_t had = r.j.size();
+            const std::string pre = state(r.m);
+            v.run(r);
+            const std::string after = state(r.m);
+            const std::string label = r.j.undo_label();
+            check("door: " + name + " is one step", r.j.size() == had + 1,
+                  std::to_string(r.j.size() - had) + " step(s)");
+            check("door: " + name + " changed something", after != pre);
+            r.j.undo(r.m);
+            const std::string undone = state(r.m);
+            r.j.redo(r.m);
+            const std::string redone = state(r.m);
+            check("door: " + name + " -- undo gives back the exact picture", undone == pre,
+                  "\nwant:\n" + pre + "got:\n" + undone);
+            check("door: " + name + " -- redo gives the exact after", redone == after,
+                  "\nwant:\n" + after + "got:\n" + redone);
+            if (*v.label)
+                check("door: " + name + " is called \u201c" + v.label + "\u201d", label == v.label, label);
+        }
+
+        // Reads pass straight through; a no-op write is not a step.
+        {
+            Rig r;
+            check("door: reads are the store's", r.u.count() == r.m.count() &&
+                                                 r.u.find(r.w2) == r.m.find(r.w2) &&
+                                                 r.u.children(r.taxes) == r.m.children(r.taxes));
+            r.u.set_title(r.w2, "W-2");
+            r.u.set_due(r.form, 1'800'000'000);
+            const std::size_t n = r.j.size();
+            r.u.move(r.taxes, r.w2, -1);     // into its own child: refused
+            r.u.set_inbox(r.home, false);    // already off
+            check("door: a refused or no-op write is not a step", r.j.size() == n);
+        }
+
+        // A gesture: several writes, one Ctrl+Z; nested ones fold; the outer
+        // label wins; an empty gesture keeps nothing.
+        {
+            Rig r;
+            const std::string pre = state(r.m);
+            {
+                core::Gesture g(r.u, "New project");
+                const auto p = r.u.create("", "Kitchen");
+                core::set_project_mark(r.u, p, core::ProjectMark::On);
+                core::as_step(r.u, "inner", {p}, false, [&] { r.u.set_body(p, "tiles"); });
+            }
+            check("gesture: three writes and a nested step are ONE step", r.j.size() == 1);
+            check("gesture: the outer label names it", r.j.undo_label() == "New project", r.j.undo_label());
+            r.j.undo(r.m);
+            check("gesture: one undo takes all of it back", state(r.m) == pre, state(r.m));
+            r.j.redo(r.m);
+            check("gesture: one redo brings all of it", r.m.count() == 6);
+            { core::Gesture g(r.u, "nothing"); }
+            check("gesture: an empty gesture is not a step", r.j.size() == 1 && r.j.undo_label() == "New project");
+            bool ran = false;
+            core::MemoryNodes plain;
+            check("as_step: on a store with no door it just runs",
+                  !core::as_step(plain, "x", {}, false, [&] { ran = true; }) && ran);
+        }
+
+        // Merging: typing a name is one step per field, not per keystroke.
+        {
+            Rig r;
+            double clock = 100.0;
+            r.j.set_clock([&] { return clock; });
+            r.u.set_title(r.home, "H");
+            clock += 0.3; r.u.set_title(r.home, "Ho");
+            clock += 0.3; r.u.set_title(r.home, "Hous");
+            clock += 0.3; r.u.set_title(r.home, "House");
+            check("merge: four keystrokes inside the window are one step", r.j.size() == 1);
+            r.j.undo(r.m);
+            check("merge: undo goes back to the name before the typing", r.m.find(r.home)->title == "Home");
+            r.j.redo(r.m);
+            check("merge: redo gives the last keystroke", r.m.find(r.home)->title == "House");
+            clock += 5.0; r.u.set_title(r.home, "Houses");
+            check("merge: a pause starts a new step", r.j.size() == 2);
+            clock += 0.2; r.u.set_title(r.w2, "W");
+            check("merge: another field (another note) is its own step", r.j.size() == 3);
+            r.j.undo(r.m);
+            clock += 0.1; r.u.set_title(r.w2, "W2");
+            check("merge: after an undo nothing folds into the undone step", r.j.size() == 3 &&
+                                                                               r.j.undo_label() == "Rename");
+            clock += 0.1; r.u.set_due(r.form, 1);
+            clock += 0.1; r.u.set_due(r.form, 2);
+            check("merge: only steps that ask to merge fold (dates do not)", r.j.size() == 5);
+        }
+
+        // The faults the s045 audit asked about.
+        {
+            Rig r;
+            r.u.set_title(r.w2, "W-2 form");
+            r.m.set_body(r.w2, "typed after the rename");   // the editor writes raw
+            r.j.undo(r.m);
+            check("fault: undo a rename keeps text typed since",
+                  r.m.find(r.w2)->title == "W-2" && r.m.find(r.w2)->body == "typed after the rename");
+            const auto made = r.u.create(r.home, "");
+            r.u.set_title(made, "Named");
+            r.j.undo(r.m);
+            r.j.undo(r.m);
+            check("fault: create then rename, both undone -> gone", !r.m.find(made));
+            r.j.redo(r.m);
+            r.j.redo(r.m);
+            check("fault: ...both redone -> back under its id, named",
+                  r.m.find(made) && r.m.find(made)->title == "Named" &&
+                      r.m.find(made)->parent_id == r.home);
+            // A tick on a card is the same tick as the tree's.
+            r.u.set_done(r.form, true);
+            check("fault: a card's tick (set_done through the door) is a step called Tick",
+                  r.j.undo_label() == "Tick" && r.m.find(r.form)->task.done);
+            r.j.undo(r.m);
+            check("fault: ...and it unticks", !r.m.find(r.form)->task.done &&
+                                              r.m.find(r.form)->task.finished == 0);
+            // The door asks for the store at every call: a folder swap needs
+            // no re-pointing, and no step crosses it.
+            core::MemoryNodes other;
+            core::NodeSource* cur = &r.m;
+            core::Journal j2;
+            core::UndoSource u2(j2, [&] { return cur; });
+            u2.set_title(r.home, "A");
+            cur = &other;
+            const auto o = u2.create("", "elsewhere");
+            check("door: a store swap forgets the old store's steps",
+                  j2.size() == 1 && other.find(o) && j2.undo_label() == "New note");
+            cur = nullptr;
+            check("door: no store -> writes refused, reads empty",
+                  u2.create("", "x").empty() && !u2.set_title(o, "y") && u2.count() == 0 &&
+                      u2.history().empty());
+        }
+
+        // task_label names the first field that moved.
+        {
+            core::Task a, b;
+            b = a; b.is_task = true;
+            check("label: is_task first", core::task_label(a, b) == "Make a todo");
+            a.is_task = true; b = a; b.done = true; b.due = 5;
+            check("label: done before due", core::task_label(a, b) == "Tick");
+            b = a; b.finished = 9;
+            check("label: an unnamed field is Edit todo", core::task_label(a, b) == "Edit todo");
+        }
+
+        // ── the gate's other half: no write goes around the door ────────────
+        {
+            const auto f = [](const std::string& t) { return core::raw_writes("x.cpp", t).size(); };
+            check("gate: a write on the real store is found", f("    m_store->set_due(id, 5);\n") == 1);
+            check("gate: the real store handed to a core writer is found",
+                  f("core::clean_up(*m_store);\n") == 1 && f("core::set_project_state( * m_store, id, s);") == 1);
+            check("gate: the real store handed to a pane is found", f("m_today->set_source(m_store.get());") == 1);
+            check("gate: a write through the door is not", f("m_undo.set_due(id, 5);\ncore::clean_up(m_undo);\n") == 0);
+            check("gate: a read on the real store is not", f("const auto* n = m_store->find(id);\nm_store->children(\"\");") == 0);
+            check("gate: a raw write with a reason is allowed",
+                  f("m_store->set_body(id, b);   // raw: files moved on disk\n") == 0 &&
+                      f("// raw: the editor's body\nm_editor->set_source(m_store.get());\n") == 0);
+            check("gate: the finding names file and line",
+                  core::raw_writes("Shell.cpp", "a\nm_store->remove(id);\n") ==
+                      std::vector<std::string>{"Shell.cpp:2: m_store->remove(id);"});
+#ifdef JOT_SOURCE_DIR
+            std::error_code ec;
+            std::vector<std::string> found;
+            int scanned = 0;
+            for (const auto& e : fs::directory_iterator(fs::path(JOT_SOURCE_DIR) / "src", ec)) {
+                if (e.path().extension() != ".cpp" || e.path().filename() == "selftest.cpp") continue;
+                std::ifstream in(e.path());
+                const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                ++scanned;
+                for (auto& s : core::raw_writes(e.path().filename().string(), text)) found.push_back(s);
+            }
+            std::string list;
+            for (const auto& s : found) list += "\n    " + s;
+            check("gate: the scan read the UI sources", scanned >= 20, std::to_string(scanned) + " file(s)");
+            check("gate: every model write in the app goes through the door (UndoSource)", found.empty(), list);
+#else
+            check("gate: JOT_SOURCE_DIR is defined (the scan has sources to read)", false);
+#endif
+        }
     }
 
     std::cout << "-----------------------------------------------\n";

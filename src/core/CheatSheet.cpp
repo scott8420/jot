@@ -127,9 +127,12 @@ const std::vector<CheatLine>& cheat_sheet() {
 
         // ── Todos ───────────────────────────────────────────────────────────
         // ── Building up and taking down (s045) ──────────────────────────────
-        {"Notes", "", "Ctrl+Z  /  Ctrl+Shift+Z (in the tree)", "Undo / redo in the outline",
-         "New, delete, move, indent, rename, tick, flag. A deleted note comes back with "
-         "everything under it. Also in the main menu. In the note body Ctrl+Z is the text's own."},
+        {"Notes", "", "Ctrl+Z  /  Ctrl+Shift+Z", "Undo / redo any change to notes and todos",
+         "Everything but typing: new, delete, move, indent, rename, a tick in the tree or on a "
+         "Today / Tags / Find card, flag, every Note details field (name, dates, estimate, repeat, "
+         "status, project, packet, tags), the Inbox's Keep and Clean Up, captures, imports, New "
+         "project. A deleted note comes back whole, selected. Works anywhere but a text box; also "
+         "in the main menu. In the note body (or any text box) Ctrl+Z is that box's own."},
         {"Notes", "", "Enter (in the tree)", "New note just below, ready to name",
          "Type its name, Enter, and Enter again for the next one."},
         {"Notes", "", "Tab  /  Shift+Tab (in the tree)", "Indent under the note above / outdent",

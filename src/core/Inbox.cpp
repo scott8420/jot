@@ -1,5 +1,6 @@
 #include "core/Inbox.hpp"
 #include "core/Tasks.hpp"
+#include "core/Undo.hpp"
 
 namespace jot::core {
 
@@ -37,6 +38,7 @@ InboxCounts inbox_counts(const NodeSource& src) {
 }
 
 std::size_t clean_up(NodeSource& src) {
+    Gesture step(src, "Clean Up");  // s046b: every mark it clears, one Ctrl+Z
     // Collect first, write second: each set_inbox notifies, and a listener
     // that re-queries mid-walk must not see a half-swept list.
     std::vector<NodeId> take;

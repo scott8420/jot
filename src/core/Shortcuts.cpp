@@ -165,7 +165,7 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
          "Delete the selected note and everything under it"},
         // s045: doc-only, bound by the TREE like Delete (focus-scoped), so the
         // note body keeps Ctrl+Z, Enter and Tab for itself.
-        {"Notes", "", {}, "Ctrl+Z / Ctrl+Shift+Z (in the tree)", "Undo / redo in the outline"},
+        {"Notes", "", {}, "Ctrl+Z / Ctrl+Shift+Z", "Undo / redo any change to notes and todos (not in a text box)"},
         {"Notes", "", {}, "Enter (in the tree)", "New note below the selected one, ready to name"},
         {"Notes", "", {}, "Tab / Shift+Tab (in the tree)", "Indent / outdent the selected note"},
         {"Notes", "", {}, "Alt+Up / Alt+Down (in the tree)", "Move the selected note up / down"},

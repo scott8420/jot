@@ -259,7 +259,10 @@ private:
     // s045: run a model verb as one undoable step (core::Journal::run).
     bool undoable(const std::string& label, const std::vector<core::NodeId>& ids, bool subtree,
                   const core::Journal::Op& op);      // category: helper
-    void update_undo_actions();                  // category: helper: Undo / Redo say what they would do
+    void update_undo_actions();
+    void sync_editor_body();                     // category: helper: s046b, the editor re-reads a body an undo changed                  // category: helper: Undo / Redo say what they would do
+    void keys_to_tree(const core::NodeId& id);   // category: helper: s046 -- the tree takes the keyboard after the rebuild
+    bool focus_is_text() const;                  // category: helper: s046 -- the keyboard is in a text box / entry
     std::string prefs_file() const;              // category: helper: the XDG path for the layout pump
     core::AttachStore& ingest_store();           // category: helper: where a new enclosure goes (folder or scratch)
     const core::AttachStore* attach_store() const;  // category: helper: the same, read-only, for the drawer
@@ -455,6 +458,9 @@ private:
     Notifier     m_notifier{"io.github.scott8420.Jot"};
     core::Outbox m_outbox;                 // asked, not yet answered
     core::Journal m_journal;               // s045: the navigator's undo; cleared on a folder swap
+    // s046b: THE door. Every surface but the note body writes through this, so
+    // every model write is an undo step. Asks for m_store at each call.
+    core::UndoSource m_undo{m_journal, [this] { return m_store.get(); }};
     std::size_t  m_notify_delivered = 0;   // receipts, this run
     bool         m_notify_verified  = false;  // ... was the last one one of them?
     std::string  m_notify_last_error;      // the daemon's own words, if it refused
