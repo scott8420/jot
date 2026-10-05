@@ -136,6 +136,10 @@ struct Node {
     // the OmniFocus behaviour, so a row never vanishes from under the hand
     // that is processing it.
     bool         inbox    = false;
+    // s044 (J2): a PACKET -- its checkbox lines are required items, each in
+    // when a file sits on its line or it is ticked (core/Packet). A mark, like
+    // the Inbox: the note is still a note, wherever it is.
+    bool         packet   = false;
 };
 
 // s033. One occurrence of a repeating todo, done. The note itself rolls on to
@@ -181,6 +185,9 @@ public:
     // processing, not the note's content, and a locked note can still be
     // something you have dealt with. Change::Flags; `modified` is untouched.
     virtual bool   set_inbox(const NodeId& id, bool on)                   = 0;
+    // s044. Change::Flags; `modified` untouched -- the note's words did not
+    // change, only what jot reads them as.
+    virtual bool   set_packet(const NodeId& id, bool on)                  = 0;
 
     bool set_done(const NodeId& id, bool on);
     bool set_flagged(const NodeId& id, bool on);
@@ -323,6 +330,7 @@ public:
     bool   set_protect(const NodeId& id, bool on) override;
     bool   set_task(const NodeId& id, const Task& t) override;
     bool   set_inbox(const NodeId& id, bool on) override;
+    bool   set_packet(const NodeId& id, bool on) override;
     using NodeSource::move;   // keep the 2-arg convenience visible through this type
     bool   move(const NodeId& id, const NodeId& new_parent, int index) override;
     bool   remove(const NodeId& id) override;

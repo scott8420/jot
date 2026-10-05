@@ -200,6 +200,7 @@ private:
     void update_task_sensitivity(const core::Node& n);
 
     void fill_links(const core::Node& n);
+    void fill_packet(const core::Node& n);   // s044
     void fill_backlinks(const core::Node& n);
     void fill_tags(const core::Node& n);
     void fill_structure(const core::Node& n);
@@ -248,6 +249,7 @@ private:
 
     // In display order. Held by value; m_all points at them for the loops.
     Section m_project_sec;   // s037b
+    Section m_packet_sec;    // s044
     Section m_todo_sec, m_structure, m_links, m_backlinks, m_tags, m_enclosures, m_file,
             m_identity;
     std::vector<Section*> m_all;
@@ -311,6 +313,9 @@ private:
     // nobody said, and -- once it is -- its dates, Status and Review.
     widgets::CheckButton m_proj_check;
     widgets::Label       m_proj_why;
+    // s044 (J2): the packet -- a mark and what it adds up to.
+    widgets::CheckButton m_packet_check;
+    widgets::Label       m_packet_says;
     widgets::Box         m_proj_body;
     widgets::Label       m_proj_dates_note;
     // Flag, Due and Defer: ONE set of controls, shown with the todo when the

@@ -84,6 +84,10 @@ std::string sheet(bool dark) {
          "background-color: alpha(currentColor, 0.08); }\n";
     c += ".jot-project { color: alpha(currentColor, 0.75); }\n";
     c += std::string(".jot-flag { color: ") + p.flagged + "; }\n";
+    // s044: a packet's items -- in is green and quiet, missing is the text.
+    c += std::string(".jot-packet-in { color: ") + p.done + "; }\n";
+    c += ".jot-packet-missing { font-weight: 600; }\n";
+    c += std::string(".jot-packet-done { color: ") + p.done + "; font-weight: 600; }\n";
 
     const auto state = [&](const char* st, const char* col, bool chip) {
         c += std::string(".jot-card.") + st + " { border-left-color: " + col + "; }\n";

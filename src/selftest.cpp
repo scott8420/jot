@@ -24,6 +24,7 @@
 #include "core/Notify.hpp"
 #include "core/NoticeAction.hpp"
 #include "core/RowLook.hpp"
+#include "core/Packet.hpp"
 #include "core/Hotkey.hpp"
 #include "core/Enclosures.hpp"
 #include "core/Pending.hpp"
@@ -1184,6 +1185,77 @@ int main() {
 
         if (old_tz) setenv("TZ", saved.c_str(), 1); else unsetenv("TZ");
         tzset();
+    }
+
+    // ── s044: the packet -- required items, in by a file or a tick ─────────
+    {
+        std::cout << "\n-- packet (s044) --\n";
+        const std::string body =
+            "# Taxes 2026\n"
+            "For the accountant, by March.\n\n"
+            "- [ ] W-2 (employer) [w2.pdf](attachments/w2.pdf)\n"
+            "- [ ] 1099-INT (bank)\n"
+            "- [x] Property tax receipt\n"
+            "- [ ] Mortgage 1098 ![scan](attachments/1098-scan.png) [p2](attachments/1098-p2.pdf)\n"
+            "- [ ] Charity letter [letter](file:///home/scott/Documents/charity.pdf)\n"
+            "- [ ] HSA 5498\n"
+            "- not an item\n";
+        const auto st = core::packet_state(body);
+        check("packet: every checkbox line is an item, nothing else", st.total == 6,
+              std::to_string(st.total));
+        check("packet: a file on the line puts it in", st.items[0].in() && st.items[0].files.size() == 1 &&
+              st.items[0].files[0] == "w2.pdf");
+        check("packet: the file is lifted out of the label",
+              st.items[0].label == "W-2 (employer)", st.items[0].label);
+        check("packet: no file, no tick -- missing", !st.items[1].in());
+        check("packet: a tick puts it in (the paper copy)", st.items[2].in() && st.items[2].files.empty());
+        check("packet: two files on one line, image or not",
+              st.items[3].files.size() == 2 && st.items[3].label == "Mortgage 1098", st.items[3].label);
+        check("packet: a linked file counts too",
+              st.items[4].in() && st.items[4].label == "Charity letter");
+        check("packet: the count", st.in == 4 && !st.complete());
+        check("packet: the line names what is missing",
+              core::packet_line(st) == "4 of 6 in  ·  missing: 1099-INT (bank), HSA 5498",
+              core::packet_line(st));
+        check("packet: missing in order", st.missing() == std::vector<std::string>{"1099-INT (bank)", "HSA 5498"});
+        const auto all = core::packet_state("- [x] a\n- [ ] b [f](attachments/f.pdf)\n");
+        check("packet: all in", all.complete() && core::packet_line(all) == "All 2 in");
+        const auto none = core::packet_state("just words\n");
+        check("packet: no items yet says how to start",
+              none.total == 0 && !none.complete() &&
+              core::packet_line(none).find("checkbox") != std::string::npos);
+        const auto many = core::packet_state("- [ ] a\n- [ ] b\n- [ ] c\n- [ ] d\n- [ ] e\n");
+        check("packet: a long missing list is cut",
+              core::packet_line(many) == "0 of 5 in  ·  missing: a, b, c and 2 more",
+              core::packet_line(many));
+        check("packet: a web link is not a file",
+              !core::packet_state("- [ ] form [irs](https://irs.gov/w9)\n").items[0].in());
+
+        core::MemoryNodes m;
+        const auto t = m.create("", "Taxes");
+        check("packet: the mark sets, and a no-op is refused",
+              m.set_packet(t, true) && m.find(t)->packet && !m.set_packet(t, true));
+
+        namespace fs = std::filesystem;
+        const std::string dir = (fs::temp_directory_path() / "jot_selftest_packet").string();
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        core::NodeId a, b;
+        {
+            core::Project v;
+            v.open(dir);
+            a = v.create("", "Taxes 2026");
+            b = v.create("", "plain");
+            v.set_packet(a, true);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(dir);
+            check("packet/jots: the mark survives a reopen, only where it was set",
+                  v.find(a) && v.find(a)->packet && v.find(b) && !v.find(b)->packet);
+        }
+        fs::remove_all(dir, ec);
     }
 
     // ── s015: the outbox -- a send is not a delivery ────────────────────────

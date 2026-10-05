@@ -1,4 +1,5 @@
 #include "DrawerPane.hpp"
+#include "core/Packet.hpp"
 #include "core/Review.hpp"
 #include "core/Tags.hpp"
 
@@ -92,6 +93,7 @@ struct SectionSpec {
 
 constexpr SectionSpec kSections[] = {
     {"project",   "Project",     true,  false},   // s037b
+    {"packet",    "Packet",      true,  false},   // s044
     {"todo",      "Todo",        true,  false},
     {"structure", "Structure",   true,  false},
     {"links",     "Links",       true,  true },
@@ -146,6 +148,8 @@ DrawerPane::DrawerPane(std::string_view name)
       m_task_body("drawer.task_body", Gtk::Orientation::VERTICAL, 6),
       m_proj_check("drawer.proj_check"),
       m_proj_why("drawer.proj_why"),
+      m_packet_check("drawer.packet_check"),
+      m_packet_says("drawer.packet_says"),
       m_proj_body("drawer.proj_body", Gtk::Orientation::VERTICAL, 6),
       m_proj_dates_note("drawer.proj_dates_note"),
       m_when_box("drawer.when_box", Gtk::Orientation::VERTICAL, 6),
@@ -218,6 +222,7 @@ DrawerPane::DrawerPane(std::string_view name)
     // radios are HELD widgets that go into a section's body rather than into
     // the column.
     m_project_sec = add_section("project");   // s037b: above Todo -- the bigger idea first
+    m_packet_sec  = add_section("packet");    // s044: what the work needs
     m_todo_sec  = add_section("todo");
     m_structure = add_section("structure");
     m_links     = add_section("links");
@@ -226,11 +231,29 @@ DrawerPane::DrawerPane(std::string_view name)
     m_enclosures = add_section("enclosures");
     m_file      = add_section("file");
     m_identity  = add_section("identity");
-    m_all = {&m_project_sec, &m_todo_sec, &m_structure,  &m_links, &m_backlinks,
+    m_all = {&m_project_sec, &m_packet_sec, &m_todo_sec, &m_structure,  &m_links, &m_backlinks,
              &m_tags,     &m_enclosures, &m_file,  &m_identity};
 
     build_task_block();
     build_tag_field();   // s035b
+
+    // ── Packet (s044, J2) ───────────────────────────────────────────────────
+    // The mark, then what it adds up to, then one row per required item. The
+    // items ARE the note's checkbox lines (core/Packet): this section reads
+    // them; it never keeps a list of its own.
+    m_packet_check.set_label("This is a packet");
+    m_packet_check.set_tooltip_text(
+        "A packet is a set of things a piece of work needs -- one checkbox line each. "
+        "An item is in when a file is dropped onto its line, or when you tick it.");
+    m_packet_check.signal_toggled().connect([this]() {
+        if (m_loading || !m_src || m_id.empty()) return;
+        m_src->set_packet(m_id, m_packet_check.get_active());
+    });
+    m_packet_says.set_xalign(0.0f);
+    m_packet_says.set_wrap(true);
+    m_packet_says.add_css_class("caption");
+    m_packet_sec.body->prepend(m_packet_says);
+    m_packet_sec.body->prepend(m_packet_check);
 
     // ── Identity: folded away, not removed ──────────────────────────────────
     // The uuid is a developer's correlation key -- it matches a line in the log
@@ -1355,6 +1378,7 @@ void DrawerPane::show_node(const core::NodeId& id) {
     m_copy_link.set_visible(true);
 
     fill_task(*n);
+    fill_packet(*n);
     fill_links(*n);
     fill_backlinks(*n);
     fill_tags(*n);
@@ -1430,6 +1454,48 @@ void DrawerPane::fill_links(const core::Node& n) {
     if (shown == 0) return;
     set_count(m_links, shown);
     m_links.frame->set_visible(true);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The packet (s044). Read from the body every time -- the checkbox lines are
+// the list, a dropped file or a tick is the answer -- so typing a new item, or
+// dropping a file onto one, shows here on the next refresh with nothing synced.
+// ─────────────────────────────────────────────────────────────────────────────
+void DrawerPane::fill_packet(const core::Node& n) {
+    m_loading = true;
+    m_packet_check.set_active(n.packet);
+    m_loading = false;
+    if (!n.packet) {
+        m_packet_says.set_visible(false);
+        return;
+    }
+    const core::PacketState st = core::packet_state(n.body);
+    m_packet_says.set_text(core::packet_line(st));
+    m_packet_says.set_visible(true);
+    m_packet_says.remove_css_class("jot-packet-done");
+    if (st.complete()) m_packet_says.add_css_class("jot-packet-done");
+    if (m_packet_sec.count)
+        m_packet_sec.count->set_text(st.total ? std::to_string(st.in) + "/" + std::to_string(st.total)
+                                              : std::string{});
+    for (std::size_t i = 0; i < st.items.size(); ++i) {
+        const auto& it = st.items[i];
+        auto* row = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                      "drawer.packet.item." + std::to_string(i));
+        std::string text = (it.in() ? "\u2713  " : "\u25cb  ") + it.label;
+        if (!it.files.empty()) {
+            std::string f = it.files[0];
+            if (const auto slash = f.rfind('/'); slash != std::string::npos) f = f.substr(slash + 1);
+            text += "  \u00b7  " + f + (it.files.size() > 1 ? " +" + std::to_string(it.files.size() - 1) : "");
+        } else if (it.ticked) {
+            text += "  \u00b7  ticked";
+        }
+        row->set_text(text);
+        row->set_xalign(0.0f);
+        row->set_ellipsize(Pango::EllipsizeMode::END);
+        row->set_tooltip_text(it.in() ? "In" : "Missing \u2014 drop its file onto its line, or tick it");
+        row->add_css_class(it.in() ? "jot-packet-in" : "jot-packet-missing");
+        m_packet_sec.rows->append(*row);
+    }
 }
 
 // Backlinks. The half that needed an index, and the half that makes a link a

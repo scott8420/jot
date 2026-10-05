@@ -182,6 +182,12 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Active, On hold, then Completed and Dropped folded at the foot. A project is a note "
          "with todos directly under it."},
 
+        // ── Packets (s044) ──────────────────────────────────────────────────
+        {"Projects", "", "Note details › Packet › This is a packet",
+         "Make a note a packet: a set of things the work needs",
+         "Each checkbox line is an item. It is in when a file is dropped onto its line, or "
+         "ticked (a paper copy). Note details says \u201c3 of 5 in \u00b7 missing: ...\u201d."},
+
         // ── Today ───────────────────────────────────────────────────────────
         {"Today", "", "Today tab", "What you can actually do now",
          "Today: due by tonight, plus flagged. Available: everything not blocked or "

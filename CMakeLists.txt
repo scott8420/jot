@@ -117,6 +117,8 @@ add_library(jot_core STATIC
     src/core/NoticeAction.cpp
     # s042: what a todo card says -- state, due chip -- one decision for every list.
     src/core/RowLook.cpp
+    # s044 (J2): a packet -- required items, each in when a file sits on its line.
+    src/core/Packet.cpp
     src/core/TextMap.cpp
     # The SHORTCUT-REGISTRY paradigm: one list, two consumers (App wires accels
     # from it, ShortcutsDialog renders from it) so a key and its advertised row

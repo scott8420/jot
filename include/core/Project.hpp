@@ -168,6 +168,7 @@ public:
     bool   set_protect(const NodeId& id, bool on) override;
     bool   set_task(const NodeId& id, const Task& t) override;
     bool   set_inbox(const NodeId& id, bool on) override;
+    bool   set_packet(const NodeId& id, bool on) override;
     using MemoryNodes::move;
     bool   move(const NodeId& id, const NodeId& new_parent, int index) override;
     bool   remove(const NodeId& id) override;

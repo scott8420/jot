@@ -198,6 +198,14 @@ bool MemoryNodes::set_inbox(const NodeId& id, bool on) {
     return true;
 }
 
+bool MemoryNodes::set_packet(const NodeId& id, bool on) {
+    Node* n = mutable_find(id);
+    if (!n || n->packet == on) return false;
+    n->packet = on;
+    notify(Change::Flags, id);
+    return true;
+}
+
 std::int64_t MemoryNodes::now() const { return m_clock ? m_clock() : now_seconds(); }
 
 // s032. How a task record is finished: 0 not, 1 done / completed, 2 dropped.
