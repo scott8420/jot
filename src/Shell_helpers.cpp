@@ -574,8 +574,10 @@ void Shell::queue_inbox_refresh() {  // helper: Inbox pane + count + greying, on
         if (!m_store || !m_inbox) return;
         m_inbox->refresh();
         const auto c = core::inbox_counts(*m_store);
-        m_tab_inbox.set_label(c.waiting ? "Inbox " + std::to_string(c.waiting)
-                                        : std::string("Inbox"));
+        if (m_tab_inbox_count) {   // s048: the tab is an icon; the count sits beside it
+            m_tab_inbox_count->set_text(std::to_string(c.waiting));
+            m_tab_inbox_count->set_visible(c.waiting > 0);
+        }
         if (m_act_clean_up) m_act_clean_up->set_enabled(c.ready > 0);
         update_note_actions();   // the In Inbox tick, if the selection's mark moved
     });

@@ -223,19 +223,20 @@ void TodayPane::build_filter_bar() {
     m_filter_bar.set_margin(8);
     m_filter_bar.set_halign(Gtk::Align::CENTER);
 
-    struct { widgets::ToggleButton* b; const char* label; View v; const char* tip; } spec[] = {
-        {&m_b_today,     "Today",     View::Today,
-         "Available todos due by the end of today, plus everything flagged"},
-        {&m_b_available, "Available", View::Available,
-         "Everything you could actually start right now"},
-        {&m_b_flagged,   "Flagged",   View::Flagged, "Everything you have flagged"},
-        {&m_b_logbook,   "Logbook",   View::Logbook,
-         "What got done, newest first, by day"},
-        {&m_b_forecast,  "Forecast",  View::Forecast,
-         "The days ahead: what is due, and what starts (its defer runs out), day by day"},
+    // s048: icons; the view's big title below says which one you are in.
+    struct { widgets::ToggleButton* b; const char* icon; View v; const char* tip; } spec[] = {
+        {&m_b_today,     "jot-view-today-symbolic",     View::Today,
+         "Today \u2014 available todos due by the end of today, plus everything flagged"},
+        {&m_b_available, "jot-view-available-symbolic", View::Available,
+         "Available \u2014 everything you could actually start right now"},
+        {&m_b_flagged,   "jot-view-flagged-symbolic",   View::Flagged, "Flagged \u2014 everything you have flagged"},
+        {&m_b_logbook,   "jot-view-logbook-symbolic",   View::Logbook,
+         "Logbook \u2014 what got done, newest first, by day"},
+        {&m_b_forecast,  "jot-view-forecast-symbolic",  View::Forecast,
+         "Forecast \u2014 the days ahead: what is due, and what starts (its defer runs out), day by day"},
     };
     for (auto& s : spec) {
-        s.b->set_label(s.label);
+        s.b->set_icon_name(s.icon);
         s.b->set_tooltip_text(s.tip);
         s.b->set_hexpand(true);
         const View v = s.v;

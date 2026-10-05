@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- jot s048: the Available view. An open ring: something you could tick now. -->
+  <path fill="currentColor" fill-rule="evenodd" d="M 8 1 A 7 7 0 1 0 8 15 A 7 7 0 1 0 8 1 Z M 8 2.5 A 5.5 5.5 0 1 1 8 13.5 A 5.5 5.5 0 1 1 8 2.5 Z"/>
+  <circle fill="currentColor" cx="8" cy="8" r="2"/>
+</svg>

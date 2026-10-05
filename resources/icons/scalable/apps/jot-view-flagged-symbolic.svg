@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- jot s048: the Flagged view. A flag. -->
+  <rect fill="currentColor" x="2" y="1" width="1.6" height="14" rx="0.8"/>
+  <path fill="currentColor" d="M 3.6 2 L 13.5 2 L 11 5.25 L 13.5 8.5 L 3.6 8.5 Z"/>
+</svg>

@@ -342,6 +342,7 @@ private:
     widgets::Box                m_left_tabs;
     widgets::ToggleButton       m_tab_notes;
     widgets::ToggleButton       m_tab_inbox;     // s028
+    Gtk::Label*                 m_tab_inbox_count = nullptr;   // s048: the number beside the tray
     widgets::ToggleButton       m_tab_today;
     widgets::ToggleButton       m_tab_tags;      // s035
     widgets::ToggleButton       m_tab_projects;  // s037

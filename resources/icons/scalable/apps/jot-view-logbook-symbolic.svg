@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- jot s048: the Logbook view. A book with a tick: what got done. -->
+  <path fill="currentColor" fill-rule="evenodd" d="M 4 1 L 13 1 A 1 1 0 0 1 14 2 L 14 15 L 4 15 A 2 2 0 0 1 2 13 L 2 3 A 2 2 0 0 1 4 1 Z M 4 2.5 A 0.5 0.5 0 0 0 3.5 3 L 3.5 11.2 A 2 2 0 0 1 4 11 L 12.5 11 L 12.5 2.5 Z M 4 12.5 A 0.5 0.5 0 0 0 4 13.5 L 12.5 13.5 L 12.5 12.5 Z"/>
+  <path fill="currentColor" d="M 5.2 6.4 L 6.2 5.4 L 7.5 6.7 L 10.3 3.9 L 11.3 4.9 L 7.5 8.7 Z"/>
+</svg>

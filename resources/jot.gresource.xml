@@ -33,5 +33,16 @@
     <file preprocess="xml-stripblanks" alias="jot-view-reading-symbolic.svg">icons/scalable/apps/jot-view-reading-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-view-live-symbolic.svg">icons/scalable/apps/jot-view-live-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-filter-symbolic.svg">icons/scalable/apps/jot-filter-symbolic.svg</file>
+    <!-- s048: the tabs and Today's view buttons. Scott's Curvz drawings replace these file for file, same names. -->
+    <file preprocess="xml-stripblanks" alias="jot-tab-notes-symbolic.svg">icons/scalable/apps/jot-tab-notes-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-tab-inbox-symbolic.svg">icons/scalable/apps/jot-tab-inbox-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-tab-today-symbolic.svg">icons/scalable/apps/jot-tab-today-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-tab-tags-symbolic.svg">icons/scalable/apps/jot-tab-tags-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-tab-projects-symbolic.svg">icons/scalable/apps/jot-tab-projects-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-view-today-symbolic.svg">icons/scalable/apps/jot-view-today-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-view-available-symbolic.svg">icons/scalable/apps/jot-view-available-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-view-flagged-symbolic.svg">icons/scalable/apps/jot-view-flagged-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-view-logbook-symbolic.svg">icons/scalable/apps/jot-view-logbook-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-view-forecast-symbolic.svg">icons/scalable/apps/jot-view-forecast-symbolic.svg</file>
   </gresource>
 </gresources>

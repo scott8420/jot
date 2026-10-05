@@ -199,51 +199,65 @@ void Shell::build_left_pane() {  // zone: Notes | Today
     // pane's minimum -- the tabs, not the tree, decide how narrow it can go.
     if (auto display = Gdk::Display::get_default()) {
         auto css = Gtk::CssProvider::create();
-        css->load_from_data(".jot-left-tab { padding-left: 5px; padding-right: 5px; }\n");
+        css->load_from_data(".jot-left-tab { padding-left: 5px; padding-right: 5px; }\n"
+                            ".jot-tab-count { font-size: smaller; font-weight: 700; }\n");
         gtk_style_context_add_provider_for_display(display->gobj(), GTK_STYLE_PROVIDER(css->gobj()),
                                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     }
     for (auto* t : {&m_tab_notes, &m_tab_inbox, &m_tab_today, &m_tab_tags, &m_tab_projects})
         t->add_css_class("jot-left-tab");
 
-    m_tab_notes.set_label("Notes");
+    // s048: icons, not words -- a Mac segmented control. The name is the
+    // tooltip's first word; the Inbox keeps its count beside its tray.
+    m_tab_notes.set_icon_name("jot-tab-notes-symbolic");
     m_tab_notes.set_hexpand(true);
     m_tab_notes.set_action_name("win.left-view");
     m_tab_notes.set_action_target_value(Glib::Variant<Glib::ustring>::create("notes"));
-    m_tab_notes.set_tooltip_text("The note tree");
+    m_tab_notes.set_tooltip_text("Notes \u2014 the note tree");
     m_left_tabs.append(m_tab_notes);
 
     // s028. Between Notes and Today: where a thought goes after it is
     // captured and before it is something to do. The label carries the
     // waiting count (queue_inbox_refresh writes it).
-    m_tab_inbox.set_label("Inbox");
+    {
+        auto* box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 4);
+        box->set_halign(Gtk::Align::CENTER);
+        auto* img = Gtk::make_managed<Gtk::Image>();
+        img->set_from_icon_name("jot-tab-inbox-symbolic");
+        box->append(*img);
+        m_tab_inbox_count = Gtk::make_managed<Gtk::Label>();
+        m_tab_inbox_count->add_css_class("jot-tab-count");
+        m_tab_inbox_count->set_visible(false);
+        box->append(*m_tab_inbox_count);
+        m_tab_inbox.set_child(*box);
+    }
     m_tab_inbox.set_hexpand(true);
     m_tab_inbox.set_action_name("win.left-view");
     m_tab_inbox.set_action_target_value(Glib::Variant<Glib::ustring>::create("inbox"));
-    m_tab_inbox.set_tooltip_text("What you captured and have not dealt with yet");
+    m_tab_inbox.set_tooltip_text("Inbox \u2014 what you captured and have not dealt with yet");
     m_left_tabs.append(m_tab_inbox);
 
-    m_tab_today.set_label("Today");
+    m_tab_today.set_icon_name("jot-tab-today-symbolic");
     m_tab_today.set_hexpand(true);
     m_tab_today.set_action_name("win.left-view");
     m_tab_today.set_action_target_value(Glib::Variant<Glib::ustring>::create("today"));
-    m_tab_today.set_tooltip_text("What is actually available to do");
+    m_tab_today.set_tooltip_text("Today \u2014 what is actually available to do");
     m_left_tabs.append(m_tab_today);
 
     // s035. Tags as contexts: pick a #tag, see what you can do there.
-    m_tab_tags.set_label("Tags");
+    m_tab_tags.set_icon_name("jot-tab-tags-symbolic");
     m_tab_tags.set_hexpand(true);
     m_tab_tags.set_action_name("win.left-view");
     m_tab_tags.set_action_target_value(Glib::Variant<Glib::ustring>::create("tags"));
-    m_tab_tags.set_tooltip_text("Pick a #tag: its todos and notes from all over (Ctrl+Shift+T)");
+    m_tab_tags.set_tooltip_text("Tags \u2014 pick a #tag: its todos and notes from all over (Ctrl+Shift+T)");
     m_left_tabs.append(m_tab_tags);
 
     // s037. Review and every project by state: one tab, two ways to look.
-    m_tab_projects.set_label("Projects");
+    m_tab_projects.set_icon_name("jot-tab-projects-symbolic");
     m_tab_projects.set_hexpand(true);
     m_tab_projects.set_action_name("win.left-view");
     m_tab_projects.set_action_target_value(Glib::Variant<Glib::ustring>::create("projects"));
-    m_tab_projects.set_tooltip_text("Review: the projects due a look -- and every project by state (Ctrl+Shift+P)");
+    m_tab_projects.set_tooltip_text("Projects \u2014 review: the projects due a look -- and every project by state (Ctrl+Shift+P)");
     m_left_tabs.append(m_tab_projects);
 
     // s038. Find over the tree: while it has words, the results stand where
