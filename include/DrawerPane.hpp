@@ -164,7 +164,9 @@ private:
         widgets::Label*   count = nullptr;
         widgets::Box*     body  = nullptr;
         widgets::Box*     rows  = nullptr;
+        Gtk::Widget*      cap   = nullptr;   // s045: the rows' own scroller, when capped
     };
+
 
     Section add_section(const std::string& key);   // heading/defaults from kSections
     void    clear(Section& s);                     // rows emptied, count blanked

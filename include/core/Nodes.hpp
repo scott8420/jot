@@ -209,6 +209,11 @@ public:
         return move(id, new_parent, -1);
     }
     virtual bool   remove(const NodeId& id)                               = 0;  // subtree
+    // s045: put a node BACK, under its own id, at `index` among its parent's
+    // children (-1 appends) -- undo's way of un-deleting. Every field is taken
+    // as given (body, task record, marks, times). Refused if the id is already
+    // present or the parent is missing. Change::Created.
+    virtual bool   restore(const Node& n, int index)                     = 0;
 
     // ── change notification ─────────────────────────────────────────────────
     // One callback, fired after any successful write, carrying WHAT changed and
@@ -334,6 +339,7 @@ public:
     using NodeSource::move;   // keep the 2-arg convenience visible through this type
     bool   move(const NodeId& id, const NodeId& new_parent, int index) override;
     bool   remove(const NodeId& id) override;
+    bool   restore(const Node& n, int index) override;
 
     // Bulk load used by the fixtures; clears everything first and notifies once
     // with an empty id (the "everything changed" shape a real reload will use).

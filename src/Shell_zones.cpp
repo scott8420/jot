@@ -450,6 +450,14 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     // once, bodies on a timer), because an app with no save verb looks like one
     // that might lose your work. "Save", not "Save all" -- the plural described
     // the implementation, not what the user is doing.
+    // s045: the navigator's undo. "in the outline" because Ctrl+Z in the note
+    // body is the text's own undo -- these are the tree's verbs (new, delete,
+    // move, indent, tick ...), and the menu says so.
+    auto undo = Gio::Menu::create();
+    undo->append("Undo in the outline", "win.undo-nav");
+    undo->append("Redo in the outline", "win.redo-nav");
+    menu->append_section(undo);
+
     auto save = Gio::Menu::create();
     save->append("Save", "win.save-all");
     save->append("Save as\u2026", "win.save-as");

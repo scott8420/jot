@@ -25,6 +25,7 @@
 #include "core/NoticeAction.hpp"
 #include "core/RowLook.hpp"
 #include "core/Packet.hpp"
+#include "core/Undo.hpp"
 #include "core/Hotkey.hpp"
 #include "core/Enclosures.hpp"
 #include "core/Pending.hpp"
@@ -1217,6 +1218,10 @@ int main() {
         check("packet: the line names what is missing",
               core::packet_line(st) == "4 of 6 in  ·  missing: 1099-INT (bank), HSA 5498",
               core::packet_line(st));
+        check("packet: the count-only line (Note details)",
+              core::packet_count(st) == "4 of 6 in  \u00b7  2 missing" &&
+              core::packet_count(core::packet_state("- [x] a\n")) == "All 1 in",
+              core::packet_count(st));
         check("packet: missing in order", st.missing() == std::vector<std::string>{"1099-INT (bank)", "HSA 5498"});
         const auto all = core::packet_state("- [x] a\n- [ ] b [f](attachments/f.pdf)\n");
         check("packet: all in", all.complete() && core::packet_line(all) == "All 2 in");
@@ -1254,6 +1259,135 @@ int main() {
             v.open(dir);
             check("packet/jots: the mark survives a reopen, only where it was set",
                   v.find(a) && v.find(a)->packet && v.find(b) && !v.find(b)->packet);
+        }
+        fs::remove_all(dir, ec);
+    }
+
+    // ── s045: undo in the navigator ────────────────────────────────────────
+    {
+        std::cout << "\n-- navigator undo (s045) --\n";
+        const auto kids = [](const core::NodeSource& m, const core::NodeId& p) {
+            std::string out;
+            for (const auto& k : m.children(p)) out += m.find(k)->title + ",";
+            return out;
+        };
+
+        // The bug found on the way in: remove() rebuilt sibling order from
+        // storage order, quietly undoing earlier moves among the survivors.
+        {
+            core::MemoryNodes m;
+            const auto a = m.create("", "a");
+            const auto b = m.create("", "b");
+            const auto c = m.create("", "c");
+            m.move(c, "", 0);
+            check("order: a move is seen", kids(m, "") == "c,a,b,", kids(m, ""));
+            m.remove(b);
+            check("order: deleting another note keeps the move", kids(m, "") == "c,a,", kids(m, ""));
+            (void)a;
+        }
+
+        core::MemoryNodes m;
+        core::Journal j;
+        const auto taxes = m.create("", "Taxes");
+        const auto w2 = m.create(taxes, "W-2");
+        const auto form = m.create(taxes, "Form");
+        m.set_body(w2, "the employer copy");
+        m.make_task(form, true);
+        m.set_due(form, 1'800'000'000);
+        const auto home = m.create("", "Home");
+
+        // delete a subtree
+        check("undo: a delete is a step",
+              j.run(m, "Delete Taxes", {taxes}, true, [&] { m.remove(taxes); return std::vector<core::NodeId>{}; }));
+        check("undo: ...and it went", !m.find(taxes) && !m.find(w2) && kids(m, "") == "Home,");
+        check("undo: the label", j.undo_label() == "Delete Taxes");
+        j.undo(m);
+        check("undo: the subtree is back under the same ids, in its place",
+              m.find(taxes) && m.find(w2) && m.find(form) && kids(m, "") == "Taxes,Home," &&
+                  kids(m, taxes) == "W-2,Form,", kids(m, "") + " / " + kids(m, taxes));
+        check("undo: with its text and its todo record",
+              m.find(w2)->body == "the employer copy" && m.find(form)->task.is_task &&
+                  m.find(form)->task.due == 1'800'000'000);
+        check("undo: redo is offered", j.can_redo() && j.redo_label() == "Delete Taxes");
+        j.redo(m);
+        check("redo: gone again", !m.find(taxes) && !m.find(form));
+        j.undo(m);
+
+        // move, and its exact place back
+        j.run(m, "Move", {w2}, true, [&] { m.move(w2, home, -1); return std::vector<core::NodeId>{}; });
+        check("move: done", kids(m, home) == "W-2," && kids(m, taxes) == "Form,");
+        j.undo(m);
+        check("move: undone to its old place (first, not last)", kids(m, taxes) == "W-2,Form,",
+              kids(m, taxes));
+        // reorder within one parent, both directions
+        j.run(m, "Down", {w2}, false, [&] { m.move(w2, taxes, 2); return std::vector<core::NodeId>{}; });
+        check("reorder: moved down", kids(m, taxes) == "Form,W-2,", kids(m, taxes));
+        j.undo(m);
+        check("reorder: undone", kids(m, taxes) == "W-2,Form,", kids(m, taxes));
+        j.redo(m);
+        check("reorder: redone", kids(m, taxes) == "Form,W-2,", kids(m, taxes));
+        j.undo(m);
+
+        // create
+        core::NodeId made;
+        j.run(m, "New note", {}, false, [&] { made = m.create(taxes, "1099"); return std::vector<core::NodeId>{made}; });
+        check("create: made", m.find(made) && kids(m, taxes) == "W-2,Form,1099,");
+        j.undo(m);
+        check("create: undone", !m.find(made) && kids(m, taxes) == "W-2,Form,");
+        j.redo(m);
+        check("create: redone under the same id", m.find(made) && m.find(made)->title == "1099");
+        j.undo(m);
+
+        // fields: tick, title
+        j.run(m, "Tick", {form}, false, [&] { m.set_done(form, true); return std::vector<core::NodeId>{}; });
+        j.run(m, "Rename", {w2}, false, [&] { m.set_title(w2, "W2 form"); return std::vector<core::NodeId>{}; });
+        j.undo(m);
+        check("fields: rename undone", m.find(w2)->title == "W-2");
+        j.undo(m);
+        check("fields: tick undone", !m.find(form)->task.done);
+
+        // undoing an old step leaves later, unrelated edits alone
+        j.run(m, "Rename", {w2}, false, [&] { m.set_title(w2, "W2"); return std::vector<core::NodeId>{}; });
+        m.set_body(w2, "typed after the rename");
+        j.undo(m);
+        check("undo touches only what its step changed",
+              m.find(w2)->title == "W-2" && m.find(w2)->body == "typed after the rename");
+        check("undo: the focus is the node the step was about", j.last_focus() == w2);
+
+        // a step that changed nothing is not kept
+        const auto n0 = j.size();
+        check("nothing changed, no step",
+              !j.run(m, "Move onto itself", {w2}, true, [&] { m.move(w2, taxes, 0); return std::vector<core::NodeId>{}; }) &&
+                  j.size() == n0);
+        // a new step forgets the redo branch
+        j.run(m, "Rename", {w2}, false, [&] { m.set_title(w2, "x"); return std::vector<core::NodeId>{}; });
+        check("a new step drops the redo branch", !j.can_redo());
+        j.clear();
+        check("clear", !j.can_undo() && !j.can_redo() && j.size() == 0);
+
+        // the disk: an undone delete brings the body FILE back
+        namespace fs = std::filesystem;
+        const std::string dir = (fs::temp_directory_path() / "jot_selftest_undo").string();
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        core::NodeId a;
+        {
+            core::Project v;
+            v.open(dir);
+            a = v.create("", "Keep me");
+            v.set_body(a, "words that must survive");
+            v.flush();
+            core::Journal jj;
+            jj.run(v, "Delete", {a}, true, [&] { v.remove(a); return std::vector<core::NodeId>{}; });
+            v.flush();
+            jj.undo(v);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(dir);
+            check("undo/jots: the undeleted note and its text survive a reopen",
+                  v.find(a) && v.find(a)->body == "words that must survive");
         }
         fs::remove_all(dir, ec);
     }

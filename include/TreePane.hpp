@@ -1,4 +1,6 @@
 #pragma once
+#include "core/Undo.hpp"
+#include <functional>
 #include "core/Nodes.hpp"
 #include "widgets/Widgets.hpp"
 
@@ -46,8 +48,13 @@ public:
     ~TreePane() override;
 
     void set_source(core::NodeSource* src);      // category: glue
+    // s045: the navigator's undo journal (the Shell's). The tree's own writes
+    // -- a tick, an inline rename, a drag -- go through it so Ctrl+Z puts
+    // them back too.
+    void set_journal(core::Journal* j) { m_journal = j; }   // category: glue
     void rebuild();                              // category: zone: the full repaint (timed)
     void select(const core::NodeId& id);         // category: glue
+    void focus_row(const core::NodeId& id);      // category: glue -- s045: select + keyboard focus
     // Select a node that may not currently be on screen: expand every collapsed
     // ancestor, rebuild, then select. select() alone is a NO-OP on a row that
     // isn't emitted, which would make a link to a folded-away note do nothing
@@ -116,6 +123,10 @@ private:
     bool is_collapsed(const core::NodeId& id) const;
 
     core::NodeSource*         m_src = nullptr;   // not owned; the seam
+    core::Journal*            m_journal = nullptr;   // s045: not owned; may be null
+    // Run a tree write as one undo step when there is a journal; else just run it.
+    void journaled(const std::string& label, const core::NodeId& id, bool subtree,
+                   const std::function<void()>& op);
     core::NodeId              m_selected;
     std::set<core::NodeId>    m_collapsed;       // default is expanded
     std::vector<core::NodeId> m_row_ids;         // ListBox row index -> node id

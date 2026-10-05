@@ -5,6 +5,7 @@
 
 #include <glibmm/markup.h>
 
+#include <glibmm/main.h>
 #include <gtkmm/eventcontrollerfocus.h>
 #include <gtkmm/eventcontrollerkey.h>
 #include <gtkmm/gestureclick.h>
@@ -47,6 +48,41 @@ TreePane::TreePane(std::string_view name)
     // hears keys the list is focused for, which is the Files convention and
     // the whole fix. Bubble phase, and never during an inline rename: the
     // rename entry is a descendant, and Delete there is a character.
+    // ── s045: the outliner keys, and the outline's undo ─────────────────────
+    // Same rule as Delete: bound HERE, on the list, so they are heard only
+    // while the tree has focus -- Ctrl+Z in the note body stays the text's own
+    // undo, Tab there stays a tab. CAPTURE phase, because the list binds Enter
+    // (row activation) and the window binds Tab (focus) before a bubble-phase
+    // handler would hear them; never during an inline rename, whose entry is a
+    // descendant and must keep every one of these keys.
+    auto keys = Gtk::EventControllerKey::create();
+    keys->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    keys->signal_key_pressed().connect(
+        [this](guint keyval, guint, Gdk::ModifierType state) {
+            if (renaming()) return false;
+            const auto mods = state & (Gdk::ModifierType::CONTROL_MASK |
+                                       Gdk::ModifierType::SHIFT_MASK |
+                                       Gdk::ModifierType::ALT_MASK);
+            const auto CTRL  = Gdk::ModifierType::CONTROL_MASK;
+            const auto SHIFT = Gdk::ModifierType::SHIFT_MASK;
+            const auto ALT   = Gdk::ModifierType::ALT_MASK;
+            const char* act = nullptr;
+            if ((keyval == GDK_KEY_z || keyval == GDK_KEY_Z) && mods == CTRL)               act = "win.undo-nav";
+            else if ((keyval == GDK_KEY_z || keyval == GDK_KEY_Z) && mods == (CTRL | SHIFT)) act = "win.redo-nav";
+            else if ((keyval == GDK_KEY_y || keyval == GDK_KEY_Y) && mods == CTRL)          act = "win.redo-nav";
+            else if ((keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter) && mods == Gdk::ModifierType{})
+                act = "win.new-sibling";
+            else if (keyval == GDK_KEY_Tab && mods == Gdk::ModifierType{})                act = "win.indent";
+            else if ((keyval == GDK_KEY_ISO_Left_Tab || keyval == GDK_KEY_Tab) && mods == SHIFT) act = "win.outdent";
+            else if (keyval == GDK_KEY_Up && mods == ALT)                                  act = "win.move-up";
+            else if (keyval == GDK_KEY_Down && mods == ALT)                                act = "win.move-down";
+            if (!act) return false;
+            if (auto lg = log::get(log::Area::Tree)) lg->info("tree key -> {}", act);
+            activate_action(act);
+            return true;
+        }, false);
+    m_list.add_controller(keys);
+
     auto del = Gtk::EventControllerKey::create();
     del->signal_key_pressed().connect(
         [this](guint keyval, guint, Gdk::ModifierType state) {
@@ -67,6 +103,12 @@ TreePane::TreePane(std::string_view name)
     build_row_menu();
     attach_root_drop();
     attach_file_drop();   // s021b
+}
+
+void TreePane::journaled(const std::string& label, const core::NodeId& id, bool subtree,
+                         const std::function<void()>& op) {  // glue: a tree write as one undo step
+    if (!m_journal || !m_src) { op(); return; }
+    m_journal->run(*m_src, label, {id}, subtree, [&] { op(); return std::vector<core::NodeId>{}; });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -242,7 +284,8 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         const core::NodeId id = n.id;
         tick->signal_toggled().connect([this, id, tick]() {
             if (m_rebuilding || !m_src) return;
-            m_src->set_done(id, tick->get_active());
+            const bool on = tick->get_active();
+            journaled(on ? "Tick" : "Untick", id, false, [this, id, on] { m_src->set_done(id, on); });
         });
         tick->set_tooltip_text(n.task.done ? "Done" : "Not done yet");
         box->append(*tick);
@@ -263,7 +306,15 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         // Enter commits. Escape abandons. Focus leaving commits too, because
         // clicking away from a rename you typed means you meant it -- losing
         // the edit there would be the app throwing away work to be tidy.
-        entry->signal_activate().connect([this]() { end_rename(true); });
+        entry->signal_activate().connect([this]() {
+            // s045: Enter in the name means "named -- back to the outline", so
+            // the next Enter / Tab is the tree's again. After the rebuild the
+            // commit causes, hence low-priority idle.
+            const core::NodeId id = m_renaming;
+            end_rename(true);
+            Glib::signal_idle().connect_once([this, id]() { focus_row(id); },
+                                             Glib::PRIORITY_LOW);
+        });
 
         auto key = Gtk::EventControllerKey::create();
         key->signal_key_pressed().connect(
@@ -388,6 +439,16 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
     return row;
 }
 
+// s045: select a row AND give it the keyboard, so the outliner keys land.
+void TreePane::focus_row(const core::NodeId& id) {  // glue
+    select(id);
+    for (std::size_t i = 0; i < m_row_ids.size(); ++i)
+        if (m_row_ids[i] == id) {
+            if (auto* row = m_list.get_row_at_index(static_cast<int>(i))) row->grab_focus();
+            return;
+        }
+}
+
 void TreePane::select(const core::NodeId& id) {
     m_selected = id;
     for (std::size_t i = 0; i < m_row_ids.size(); ++i)
@@ -449,7 +510,7 @@ void TreePane::end_rename(bool commit) {
         // pressing Escape-equivalent-by-clicking-away would silently mark the
         // note edited.
         if (n && n->title != title) {
-            m_src->set_title(id, title);
+            journaled("Rename", id, false, [this, id, title] { m_src->set_title(id, title); });
             return;                    // the model's notify drives the rebuild
         }
     }

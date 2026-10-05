@@ -113,6 +113,17 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // s029. Move to...: the selection's picker. The Inbox rows reach the same
     // picker through signal_move, for the row's own note.
     m_act_move_to = add_action("move-to", sigc::mem_fun(*this, &Shell::on_move_to));
+    // s045: the navigator's undo and the outliner verbs. The KEYS for these are
+    // bound by the tree (focus-scoped, like Delete) so Ctrl+Z in the note body
+    // stays the text's own undo; the actions are here so the Edit menu and the
+    // row menu reach them too.
+    m_act_undo_nav  = add_action("undo-nav",    sigc::mem_fun(*this, &Shell::on_undo_nav));
+    m_act_redo_nav  = add_action("redo-nav",    sigc::mem_fun(*this, &Shell::on_redo_nav));
+    add_action("new-sibling", sigc::mem_fun(*this, &Shell::on_new_sibling));
+    m_act_indent    = add_action("indent",      sigc::mem_fun(*this, &Shell::on_indent));
+    m_act_outdent   = add_action("outdent",     sigc::mem_fun(*this, &Shell::on_outdent));
+    m_act_move_up   = add_action("move-up",     sigc::mem_fun(*this, &Shell::on_move_up));
+    m_act_move_down = add_action("move-down",   sigc::mem_fun(*this, &Shell::on_move_down));
     add_action("show-tags", sigc::mem_fun(*this, &Shell::on_show_tags));   // s035
     add_action("find", sigc::mem_fun(*this, &Shell::on_find));   // s038
     // s038b. The filter menu. Show and Due are radios, Flagged a check -- all

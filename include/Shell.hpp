@@ -4,6 +4,7 @@
 #include "MoveDialog.hpp"
 #include "core/Nodes.hpp"
 #include "core/Links.hpp"
+#include "core/Undo.hpp"
 #include "core/Tasks.hpp"
 #include "Desktop.hpp"
 #include "Notifier.hpp"
@@ -180,6 +181,14 @@ private:
     void on_clean_up();                          // category: handler: s028 clear processed Inbox marks
     void on_project_state(const Glib::ustring& which);   // category: handler: s031 Active / On hold / Completed / Dropped
     void on_toggle_inbox();                      // category: handler: s028 the selection in / out of the Inbox
+    // s045: the navigator's undo, and the outliner verbs (tree keys).
+    void on_undo_nav();                          // category: handler: Ctrl+Z in the tree / Edit menu
+    void on_redo_nav();                          // category: handler: Ctrl+Shift+Z / Ctrl+Y
+    void on_new_sibling();                       // category: handler: Enter in the tree
+    void on_indent();                            // category: handler: Tab in the tree
+    void on_outdent();                           // category: handler: Shift+Tab in the tree
+    void on_move_up();                           // category: handler: Alt+Up in the tree
+    void on_move_down();                         // category: handler: Alt+Down in the tree
     void on_move_to();                           // category: handler: s029 "Move to..." on the selection
     void open_move(const core::NodeId& id);      // category: handler: s029 the picker, for any note (Inbox rows too)
     void on_selection_changed(const core::NodeId& id);  // category: handler: tree row -> editor
@@ -247,6 +256,10 @@ private:
     void open_store();                           // category: helper: construct the NodeSource -- THE swap point
     void open_jots(const std::string& dir);     // category: helper: point the surfaces at a jots folder
     void update_note_actions();                  // category: helper: grey what the selection can't do
+    // s045: run a model verb as one undoable step (core::Journal::run).
+    bool undoable(const std::string& label, const std::vector<core::NodeId>& ids, bool subtree,
+                  const core::Journal::Op& op);      // category: helper
+    void update_undo_actions();                  // category: helper: Undo / Redo say what they would do
     std::string prefs_file() const;              // category: helper: the XDG path for the layout pump
     core::AttachStore& ingest_store();           // category: helper: where a new enclosure goes (folder or scratch)
     const core::AttachStore* attach_store() const;  // category: helper: the same, read-only, for the drawer
@@ -441,6 +454,7 @@ private:
     // that line that could not have been produced by a notification nobody saw.
     Notifier     m_notifier{"io.github.scott8420.Jot"};
     core::Outbox m_outbox;                 // asked, not yet answered
+    core::Journal m_journal;               // s045: the navigator's undo; cleared on a folder swap
     std::size_t  m_notify_delivered = 0;   // receipts, this run
     bool         m_notify_verified  = false;  // ... was the last one one of them?
     std::string  m_notify_last_error;      // the daemon's own words, if it refused
@@ -497,6 +511,8 @@ private:
     // s029. "Move to..." -- greyed on no selection or a protected note, the
     // two cases where the picker would have nothing to offer.
     Glib::RefPtr<Gio::SimpleAction> m_act_move_to;
+    Glib::RefPtr<Gio::SimpleAction> m_act_undo_nav, m_act_redo_nav;               // s045
+    Glib::RefPtr<Gio::SimpleAction> m_act_indent, m_act_outdent, m_act_move_up, m_act_move_down;
     Glib::RefPtr<Gio::SimpleAction> m_act_mark_reviewed;   // s037: greyed unless the selection is a project
     Glib::RefPtr<Gio::SimpleAction> m_act_project_state;   // s031, radio: the selection's project state
 

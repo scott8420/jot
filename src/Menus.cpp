@@ -37,6 +37,17 @@ Glib::RefPtr<Gio::Menu> note_menu() {
     todo->append_submenu("Project", project);
     menu->append_section(todo);
 
+    // s045: building up and taking down -- the outliner verbs. The keys
+    // (Enter, Tab, Shift+Tab, Alt+Up / Down) work in the tree; this is where
+    // they can be found.
+    auto arrange = Gio::Menu::create();
+    arrange->append("New Note Below", "win.new-sibling");
+    arrange->append("Indent", "win.indent");
+    arrange->append("Outdent", "win.outdent");
+    arrange->append("Move Up", "win.move-up");
+    arrange->append("Move Down", "win.move-down");
+    menu->append_section(arrange);
+
     auto name = Gio::Menu::create();
     name->append("Rename", "win.rename-note");
     name->append("Move to\u2026", "win.move-to");   // s029

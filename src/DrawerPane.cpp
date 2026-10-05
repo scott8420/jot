@@ -89,17 +89,18 @@ struct SectionSpec {
     const char* heading;
     bool        default_open;
     bool        hide_empty;
+    int         cap_px = 0;   // s045: >0 = the rows scroll inside the section past this height
 };
 
 constexpr SectionSpec kSections[] = {
     {"project",   "Project",     true,  false},   // s037b
-    {"packet",    "Packet",      true,  false},   // s044
+    {"packet",    "Packet",      true,  false, 200},   // s044; s045 capped
     {"todo",      "Todo",        true,  false},
     {"structure", "Structure",   true,  false},
-    {"links",     "Links",       true,  true },
-    {"backlinks", "Linked from", true,  true },
+    {"links",     "Links",       true,  true,  200},
+    {"backlinks", "Linked from", true,  true,  200},
     {"tags",      "Tags",        true,  false},   // s035b: always -- it holds the field
-    {"enclosures","Enclosures",  true,  true },
+    {"enclosures","Enclosures",  true,  true,  260},
     {"file",      "File",        false, false},
     {"identity",  "Identity",    false, false},
 };
@@ -236,6 +237,7 @@ DrawerPane::DrawerPane(std::string_view name)
 
     build_task_block();
     build_tag_field();   // s035b
+
 
     // ── Packet (s044, J2) ───────────────────────────────────────────────────
     // The mark, then what it adds up to, then one row per required item. The
@@ -1193,7 +1195,24 @@ DrawerPane::Section DrawerPane::add_section(const std::string& key) {
     s.body->set_margin_bottom(6);
     s.rows = Gtk::make_managed<widgets::Box>("drawer." + key + ".rows",
                                              Gtk::Orientation::VERTICAL, 2);
-    s.body->append(*s.rows);
+    // s045 (Scott: "the metadata items will need to be in a scrolling window
+    // now that there are many items"). A list that can grow without limit --
+    // a packet's items, links, backlinks, enclosures -- scrolls inside its own
+    // section past cap_px, so Todo, Structure and Tags below stay within reach
+    // instead of a long scroll away. Built HERE, around the rows, rather than
+    // moved in afterwards: taking a managed widget out of its box drops its
+    // last reference (that crashed the first try).
+    if (sp && sp->cap_px > 0) {
+        auto* sc = Gtk::make_managed<widgets::ScrolledWindow>("drawer." + key + ".rows_scroll");
+        sc->set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
+        sc->set_propagate_natural_height(true);   // a short list takes only its own height
+        sc->set_max_content_height(sp->cap_px);
+        sc->set_child(*s.rows);
+        s.body->append(*sc);
+        s.cap = sc;
+    } else {
+        s.body->append(*s.rows);
+    }
     s.frame->append(*s.body);
     m_column.append(*s.frame);
 
@@ -1391,7 +1410,24 @@ void DrawerPane::show_node(const core::NodeId& id) {
     // a section whose content is all HELD widgets (Todo, Identity) would carry
     // a gap above them. Hidden when empty, it costs nothing.
     for (Section* sec : m_all)
-        if (sec->rows) sec->rows->set_visible(sec->rows->get_first_child() != nullptr);
+        if (sec->rows) {
+            const bool any = sec->rows->get_first_child() != nullptr;
+            sec->rows->set_visible(any);
+            if (sec->cap) {
+                sec->cap->set_visible(any);   // s045: an empty scroller is a gap too
+                // A scroller inside the drawer's own scroller is handed its
+                // MINIMUM height, which is next to nothing -- so it is told
+                // its minimum: the list's own height, up to the cap.
+                if (any) {
+                    int min_h = 0, nat_h = 0, b1 = 0, b2 = 0;
+                    sec->rows->measure(Gtk::Orientation::VERTICAL, -1, min_h, nat_h, b1, b2);
+                    const SectionSpec* sp = spec_for(sec->key);
+                    const int cap = sp ? sp->cap_px : nat_h;
+                    static_cast<Gtk::ScrolledWindow*>(sec->cap)
+                        ->set_min_content_height(std::min(nat_h, cap));
+                }
+            }
+        }
 
     // The trace channel's half. The drawer's whole job is to report what is
     // true of a note, so "what did it think was true" is the first question
@@ -1470,7 +1506,9 @@ void DrawerPane::fill_packet(const core::Node& n) {
         return;
     }
     const core::PacketState st = core::packet_state(n.body);
-    m_packet_says.set_text(core::packet_line(st));
+    // s045: the counts only -- the rows below name what is missing, and a
+    // long missing list said twice was what made the section run away.
+    m_packet_says.set_text(core::packet_count(st));
     m_packet_says.set_visible(true);
     m_packet_says.remove_css_class("jot-packet-done");
     if (st.complete()) m_packet_says.add_css_class("jot-packet-done");

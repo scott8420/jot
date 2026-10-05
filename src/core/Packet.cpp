@@ -75,4 +75,10 @@ std::string packet_line(const PacketState& s) {
     return out;
 }
 
+std::string packet_count(const PacketState& s) {
+    if (s.total == 0 || s.complete()) return packet_line(s);
+    return std::to_string(s.in) + " of " + std::to_string(s.total) + " in  \u00b7  " +
+           std::to_string(s.total - s.in) + " missing";
+}
+
 }  // namespace jot::core

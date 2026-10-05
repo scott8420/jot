@@ -50,4 +50,8 @@ PacketState packet_state(const std::string& body);
 // three ("and 2 more").
 std::string packet_line(const PacketState& s);
 
+// s045: just the counts, for where the items are listed anyway (Note
+// details): "3 of 5 in  ·  2 missing" / "All 5 in" / the no-items hint.
+std::string packet_count(const PacketState& s);
+
 }  // namespace jot::core

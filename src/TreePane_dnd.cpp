@@ -280,7 +280,8 @@ bool TreePane::drop_at(const core::NodeId& dragged, const core::NodeId& target,
         return false;
     }
 
-    const bool ok = m_src->move(dragged, parent, index);
+    bool ok = false;
+    journaled("Move", dragged, true, [&] { ok = m_src->move(dragged, parent, index); });   // s045
     if (auto lg = log::get(log::Area::Tree))
         lg->info("drop '{}' {} '{}' -> parent '{}' index {}: {}", dragged, zone_name,
                  where, parent.empty() ? "(top level)" : parent, index,

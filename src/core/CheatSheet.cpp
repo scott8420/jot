@@ -126,6 +126,16 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Or ⋮ › Delete. A protected note, or one holding one, is refused."},
 
         // ── Todos ───────────────────────────────────────────────────────────
+        // ── Building up and taking down (s045) ──────────────────────────────
+        {"Notes", "", "Ctrl+Z  /  Ctrl+Shift+Z (in the tree)", "Undo / redo in the outline",
+         "New, delete, move, indent, rename, tick, flag. A deleted note comes back with "
+         "everything under it. Also in the main menu. In the note body Ctrl+Z is the text's own."},
+        {"Notes", "", "Enter (in the tree)", "New note just below, ready to name",
+         "Type its name, Enter, and Enter again for the next one."},
+        {"Notes", "", "Tab  /  Shift+Tab (in the tree)", "Indent under the note above / outdent",
+         "Or the note's ⋮ menu › Indent, Outdent."},
+        {"Notes", "", "Alt+Up  /  Alt+Down (in the tree)", "Move the note up / down among its siblings",
+         "Or the note's ⋮ menu › Move Up, Move Down."},
         {"Todos", "win.toggle-todo", "", "Make the note a todo, or a plain note again",
          "A todo is still a note: its text, children and links stay."},
         {"Todos", "win.toggle-done", "", "Tick it done, or not", ""},

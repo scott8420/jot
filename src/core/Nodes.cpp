@@ -409,8 +409,32 @@ bool MemoryNodes::remove(const NodeId& id) {
     std::erase_if(m_nodes, [&](const Node& x) {
         return std::find(doomed.begin(), doomed.end(), x.id) != doomed.end();
     });
-    reindex();
+    // s045: NOT reindex(). Sibling order lives in m_kids, and a move changes
+    // m_kids without touching storage order -- so rebuilding m_kids from
+    // storage here quietly undid every earlier reorder among the survivors.
+    // Take the doomed ids out of the lists that hold them, and rebuild only
+    // the id -> index map (storage indices shifted).
+    for (auto& [p, kids] : m_kids)
+        std::erase_if(kids, [&](const NodeId& k) {
+            return std::find(doomed.begin(), doomed.end(), k) != doomed.end();
+        });
+    for (const auto& d : doomed) m_kids.erase(d);
+    m_by_id.clear();
+    for (std::size_t i = 0; i < m_nodes.size(); ++i) m_by_id[m_nodes[i].id] = i;
     notify(Change::Removed, id);
+    return true;
+}
+
+bool MemoryNodes::restore(const Node& n, int index) {
+    if (n.id.empty() || m_by_id.count(n.id)) return false;
+    if (!n.parent_id.empty() && !m_by_id.count(n.parent_id)) return false;
+    m_by_id[n.id] = m_nodes.size();
+    m_nodes.push_back(n);
+    auto& sib = m_kids[n.parent_id];
+    const int at = (index < 0 || index > static_cast<int>(sib.size()))
+                       ? static_cast<int>(sib.size()) : index;
+    sib.insert(sib.begin() + at, n.id);
+    notify(Change::Created, n.id);
     return true;
 }
 

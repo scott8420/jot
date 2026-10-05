@@ -685,6 +685,18 @@ bool Project::move(const NodeId& id, const NodeId& new_parent, int index) {
     return true;
 }
 
+// s045: un-delete. The body file comes back (it was unlinked), and the id
+// leaves the deleted set so the next flush does not unlink it again.
+bool Project::restore(const Node& n, int index) {
+    if (!MemoryNodes::restore(n, index)) return false;
+    if (m_loading) return true;
+    m_deleted.erase(n.id);
+    m_dirty_bodies.insert(n.id);
+    m_structure_dirty = true;
+    flush();
+    return true;
+}
+
 bool Project::remove(const NodeId& id) {
     // Collect the subtree BEFORE the base forgets it -- afterwards there is
     // nothing left to ask which files to unlink.

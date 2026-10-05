@@ -253,6 +253,8 @@ void Shell::save_scratch(const std::string& target) {
 
     m_project = jots.get();
     m_store = std::move(jots);
+    m_journal.clear();          // s045: steps name ids of the OLD store; none of them carry over
+    update_undo_actions();
     m_store->on_changed(sigc::mem_fun(*this, &Shell::on_model_changed));
     m_tree->set_source(m_store.get());
     m_editor->set_source(m_store.get());
@@ -387,6 +389,7 @@ void Shell::open_store() {  // helper: construct the NodeSource
             m_project = nullptr;
             m_stress = true;
             m_store = std::move(mem);
+            m_journal.clear();   // s045: a new store -- no step carries over
             return;
         }
     }
@@ -401,6 +404,7 @@ void Shell::open_store() {  // helper: construct the NodeSource
             lg->info("no jots folder -- running on a scratch buffer, nothing on disk yet");
         m_project = nullptr;
         m_store = std::make_unique<core::MemoryNodes>();
+        m_journal.clear();   // s045: a new store -- no step carries over
         return;
     }
 
@@ -411,6 +415,7 @@ void Shell::open_store() {  // helper: construct the NodeSource
         if (auto lg = log::get(log::Area::Io)) lg->error("jots folder '{}': cannot open", dir);
         m_project = nullptr;
         m_store = std::make_unique<core::MemoryNodes>();
+        m_journal.clear();   // s045: a new store -- no step carries over
         return;
     }
     if (auto lg = log::get(log::Area::Io))
@@ -421,6 +426,7 @@ void Shell::open_store() {  // helper: construct the NodeSource
                      : std::string{});
     m_project = jots.get();
     m_store = std::move(jots);
+    m_journal.clear();   // s045: a new store -- no step carries over
     core::recents_add(m_recents, dir);
     core::save_recents(m_recents_file, m_recents);
     // The header is repainted by build_ui once the menu model exists; there is
@@ -438,6 +444,7 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     }
     m_project = jots.get();
     m_store = std::move(jots);
+    m_journal.clear();   // s045: a new store -- no step carries over
     m_store->on_changed(sigc::mem_fun(*this, &Shell::on_model_changed));
     m_tree->set_source(m_store.get());
     m_editor->set_source(m_store.get());
@@ -473,6 +480,21 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
 // An action that can't do anything should not look like an offer. Greying is
 // the honest form of "protected" and "nothing selected" -- CANON's "in your
 // face" design, applied to the menu rather than to a dialog.
+// s045. One door for an undoable navigator verb: the journal records the
+// before / after pictures around it, and Undo / Redo learn their new words.
+bool Shell::undoable(const std::string& label, const std::vector<core::NodeId>& ids, bool subtree,
+                     const core::Journal::Op& op) {  // helper: a model verb as one undo step
+    if (!m_store) return false;
+    const bool kept = m_journal.run(*m_store, label, ids, subtree, op);
+    update_undo_actions();
+    return kept;
+}
+
+void Shell::update_undo_actions() {  // helper: Undo / Redo enabled when they would do something
+    if (m_act_undo_nav) m_act_undo_nav->set_enabled(m_journal.can_undo());
+    if (m_act_redo_nav) m_act_redo_nav->set_enabled(m_journal.can_redo());
+}
+
 void Shell::update_note_actions() {  // helper: grey what the selection can't do
     const auto id = m_tree ? m_tree->selected() : core::NodeId{};
     const core::Node* n = (!id.empty() && m_store) ? m_store->find(id) : nullptr;

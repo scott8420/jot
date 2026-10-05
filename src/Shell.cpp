@@ -100,6 +100,8 @@ void Shell::build_ui() {
     build_find_menu();   // s038b: needs the find-* actions and the prefs' perspectives
 
     m_tree->set_source(m_store.get());
+    m_tree->set_journal(&m_journal);   // s045
+    update_undo_actions();
     m_editor->set_source(m_store.get());
     m_links.rebuild(*m_store);        // one pass at load -- the backlink index
     m_tasks.rebuild(*m_store);        // and one for the todos

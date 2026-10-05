@@ -47,7 +47,8 @@ namespace jot {
 // find out the same way an outside change would tell them: on_model_changed.
 
 void Shell::on_new_note() {  // handler: new top-level note
-    const auto id = m_store->create("", "");
+    core::NodeId id;
+    undoable("New note", {}, false, [&] { id = m_store->create("", ""); return std::vector<core::NodeId>{id}; });
     if (!id.empty()) m_tree->select(id);
     on_selection_changed(id);
     m_editor->focus_capture();
@@ -56,7 +57,9 @@ void Shell::on_new_note() {  // handler: new top-level note
 void Shell::on_new_child() {  // handler: new note under the selection
     const auto parent = m_tree->selected();
     if (parent.empty()) return on_new_note();
-    const auto id = m_store->create(parent, "");
+    core::NodeId id;
+    undoable("New child note", {}, false,
+             [&] { id = m_store->create(parent, ""); return std::vector<core::NodeId>{id}; });
     if (!id.empty()) m_tree->select(id);
     on_selection_changed(id);
     m_editor->focus_capture();
@@ -65,7 +68,12 @@ void Shell::on_new_child() {  // handler: new note under the selection
 void Shell::on_delete_note() {  // handler: delete the selected subtree
     const auto id = m_tree->selected();
     if (id.empty()) return;
-    if (!m_store->remove(id))
+    // s045: undoable -- the whole subtree, text and all, comes back with Ctrl+Z.
+    const core::Node* n = m_store->find(id);
+    const std::string label = "Delete \u201c" + (n && !n->title.empty() ? n->title : std::string("Untitled")) + "\u201d";
+    bool ok = false;
+    undoable(label, {id}, true, [&] { ok = m_store->remove(id); return std::vector<core::NodeId>{}; });
+    if (!ok)
         if (auto lg = log::get(log::Area::Model))
             lg->info("delete '{}': refused (protected, here or below)", id);
 }
@@ -73,7 +81,8 @@ void Shell::on_delete_note() {  // handler: delete the selected subtree
 void Shell::on_toggle_protect() {  // handler: lock/unlock the selection
     const auto id = m_tree->selected();
     const core::Node* n = id.empty() ? nullptr : m_store->find(id);
-    if (n) m_store->set_protect(id, !n->protect);
+    if (n) undoable(n->protect ? "Unprotect" : "Protect", {id}, false,
+                    [&] { m_store->set_protect(id, !n->protect); return std::vector<core::NodeId>{}; });
 }
 
 // Enter in the capture line. The box keeps the focus afterwards, because the
@@ -95,19 +104,24 @@ void Shell::on_capture_activate() {  // handler: Enter in the capture line
 void Shell::on_toggle_todo() {  // handler: make the selection a todo (or not)
     const auto id = m_tree->selected();
     const core::Node* n = id.empty() ? nullptr : m_store->find(id);
-    if (n) m_store->make_task(id, !n->task.is_task);
+    if (n) undoable(n->task.is_task ? "Not a todo" : "Make a todo", {id}, false,
+                    [&] { m_store->make_task(id, !n->task.is_task); return std::vector<core::NodeId>{}; });
 }
 
 void Shell::on_toggle_done() {  // handler: tick/untick the selection
     const auto id = m_tree->selected();
     const core::Node* n = id.empty() ? nullptr : m_store->find(id);
-    if (n && n->task.is_task) m_store->set_done(id, !n->task.done);
+    if (n && n->task.is_task)
+        undoable(n->task.done ? "Untick" : "Tick", {id}, false,
+                 [&] { m_store->set_done(id, !n->task.done); return std::vector<core::NodeId>{}; });
 }
 
 void Shell::on_toggle_flag() {  // handler: flag/unflag the selection
     const auto id = m_tree->selected();
     const core::Node* n = id.empty() ? nullptr : m_store->find(id);
-    if (n && n->task.is_task) m_store->set_flagged(id, !n->task.flagged);
+    if (n && n->task.is_task)
+        undoable(n->task.flagged ? "Unflag" : "Flag", {id}, false,
+                 [&] { m_store->set_flagged(id, !n->task.flagged); return std::vector<core::NodeId>{}; });
 }
 
 // F2 and the context menu's Rename both land here. The tree owns what an inline
@@ -374,7 +388,8 @@ void Shell::on_project_state(const Glib::ustring& which) {  // handler: set the 
 void Shell::on_toggle_inbox() {  // handler: selection in / out of the Inbox
     const auto id = m_tree->selected();
     const core::Node* n = id.empty() ? nullptr : m_store->find(id);
-    if (n) m_store->set_inbox(id, !n->inbox);
+    if (n) undoable(n->inbox ? "Out of the Inbox" : "Into the Inbox", {id}, false,
+                    [&] { m_store->set_inbox(id, !n->inbox); return std::vector<core::NodeId>{}; });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -410,7 +425,9 @@ void Shell::open_move(const core::NodeId& id) {  // handler: the picker, for any
                 if (auto lg = log::get(log::Area::Shell)) lg->warn("move to: refused ({})", why);
                 return;
             }
-            const bool ok = m_store->move(id, target, -1);
+            bool ok = false;
+            undoable("Move to\u2026", {id}, true,
+                     [&] { ok = m_store->move(id, target, -1); return std::vector<core::NodeId>{}; });
             if (ok && !folder.empty() && !target.empty()) {
                 auto& list = m_prefs.move_recent[folder];
                 core::remember_target(list, target);
@@ -440,6 +457,9 @@ void Shell::on_selection_changed(const core::NodeId& id) {  // handler: tree row
 // repaints: a body edit changes no row, so it must not rebuild the tree -- at
 // 5000 nodes that would be a full repaint per keystroke.
 void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& id) {
+    // s045: a step the TREE recorded (a tick, a drag, a rename) changes what
+    // Undo / Redo would do; cheap enough to ask on every change.
+    update_undo_actions();
     using C = core::NodeSource::Change;
     // QUEUED, not immediate. A model change can arrive from inside a click on
     // a tree row -- the drawer's date entries commit on focus-leave -- and a
@@ -1394,6 +1414,124 @@ void Shell::import_files(const std::vector<std::string>& paths, const core::Node
                                           : "Some things were not imported",
                        detail);
     }
+}
+
+}  // namespace jot
+
+namespace jot {
+
+// ─────────────────────────────────────────────────────────────────────────────
+// s045 -- the navigator's undo, and the outliner verbs.
+//
+// Scott: "easier ways to build up and take down, with undo, in the navigator".
+// Each verb is a model call wrapped in undoable(), so Ctrl+Z (in the tree) or
+// Edit › Undo puts it back -- a delete with its whole subtree and text, under
+// the same ids. The keys are the outliner's: Enter for a sibling, Tab /
+// Shift+Tab to indent / outdent, Alt+Up / Alt+Down to reorder; the tree binds
+// them while IT has focus, so none of them is taken from the note body.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void Shell::on_undo_nav() {  // handler: undo the last navigator step
+    if (!m_store) return;
+    const std::string what = m_journal.undo(*m_store);
+    if (what.empty()) return;
+    const core::NodeId f = m_journal.last_focus();
+    if (!f.empty() && m_store->find(f)) { m_tree->select(f); on_selection_changed(f); }
+    if (auto lg = log::get(log::Area::Shell)) lg->info("undo: {}", what);
+    update_undo_actions();
+}
+
+void Shell::on_redo_nav() {  // handler: redo the last undone step
+    if (!m_store) return;
+    const std::string what = m_journal.redo(*m_store);
+    if (what.empty()) return;
+    const core::NodeId f = m_journal.last_focus();
+    if (!f.empty() && m_store->find(f)) { m_tree->select(f); on_selection_changed(f); }
+    if (auto lg = log::get(log::Area::Shell)) lg->info("redo: {}", what);
+    update_undo_actions();
+}
+
+// Enter: a new note right after the selection, same parent, already in rename
+// -- type its name, Enter, and Enter again for the next. With nothing
+// selected it is a new top-level note.
+void Shell::on_new_sibling() {  // handler: Enter in the tree
+    const core::NodeId sel = m_tree->selected();
+    const core::Node* n = sel.empty() ? nullptr : m_store->find(sel);
+    const core::NodeId parent = n ? n->parent_id : core::NodeId{};
+    int at = -1;
+    if (n) {
+        const auto sibs = m_store->children(parent);
+        at = static_cast<int>(std::find(sibs.begin(), sibs.end(), sel) - sibs.begin()) + 1;
+    }
+    core::NodeId id;
+    undoable("New note", {}, false, [&] {
+        id = m_store->create(parent, "");
+        if (!id.empty() && at >= 0) m_store->move(id, parent, at);
+        return std::vector<core::NodeId>{id};
+    });
+    if (id.empty()) return;
+    on_left_view("notes");
+    m_tree->select(id);
+    on_selection_changed(id);
+    // AFTER the tree rebuild the create queued (an idle of its own): a rename
+    // opened now would be torn down by that rebuild -- its entry loses focus,
+    // which ends the rename -- and the name typed next would go nowhere.
+    Glib::signal_idle().connect_once([this, id]() {
+        if (!m_store || !m_store->find(id)) return;
+        m_tree->select(id);
+        m_tree->begin_rename(id);
+    }, Glib::PRIORITY_LOW);
+}
+
+// Tab: under the note just above it, as its last child.
+void Shell::on_indent() {  // handler: Tab in the tree
+    const core::NodeId id = m_tree->selected();
+    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
+    if (!n) return;
+    const auto sibs = m_store->children(n->parent_id);
+    const auto it = std::find(sibs.begin(), sibs.end(), id);
+    if (it == sibs.begin() || it == sibs.end()) return;   // nothing above to go under
+    const core::NodeId above = *(it - 1);
+    if (!core::can_move(*m_store, id, above, nullptr)) return;
+    undoable("Indent", {id}, true, [&] { m_store->move(id, above, -1); return std::vector<core::NodeId>{}; });
+    m_tree->focus_row(id);
+}
+
+// Shift+Tab: out of its parent, to just after it.
+void Shell::on_outdent() {  // handler: Shift+Tab in the tree
+    const core::NodeId id = m_tree->selected();
+    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
+    if (!n || n->parent_id.empty()) return;               // already top level
+    const core::Node* p = m_store->find(n->parent_id);
+    if (!p) return;
+    const auto sibs = m_store->children(p->parent_id);
+    const int at = static_cast<int>(std::find(sibs.begin(), sibs.end(), p->id) - sibs.begin()) + 1;
+    if (!core::can_move(*m_store, id, p->parent_id, nullptr)) return;
+    undoable("Outdent", {id}, true, [&] { m_store->move(id, p->parent_id, at); return std::vector<core::NodeId>{}; });
+    m_tree->focus_row(id);
+}
+
+void Shell::on_move_up() {  // handler: Alt+Up in the tree
+    const core::NodeId id = m_tree->selected();
+    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
+    if (!n) return;
+    const auto sibs = m_store->children(n->parent_id);
+    const int i = static_cast<int>(std::find(sibs.begin(), sibs.end(), id) - sibs.begin());
+    if (i <= 0) return;
+    undoable("Move up", {id}, false, [&] { m_store->move(id, n->parent_id, i - 1); return std::vector<core::NodeId>{}; });
+    m_tree->focus_row(id);
+}
+
+void Shell::on_move_down() {  // handler: Alt+Down in the tree
+    const core::NodeId id = m_tree->selected();
+    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
+    if (!n) return;
+    const auto sibs = m_store->children(n->parent_id);
+    const int i = static_cast<int>(std::find(sibs.begin(), sibs.end(), id) - sibs.begin());
+    if (i < 0 || i + 1 >= static_cast<int>(sibs.size())) return;
+    // move() counts the index before taking the node out: one past the next.
+    undoable("Move down", {id}, false, [&] { m_store->move(id, n->parent_id, i + 2); return std::vector<core::NodeId>{}; });
+    m_tree->focus_row(id);
 }
 
 }  // namespace jot
