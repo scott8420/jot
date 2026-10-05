@@ -47,6 +47,17 @@ struct RowLook {
 
 RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now);
 
+// s048. A project's steps at a glance -- its DIRECT children that are todos,
+// and how many are done ("1 of 3" on the tree row). Total 0: show nothing.
+struct StepCount { int done = 0; int total = 0; };
+
+// s048. The chip for a narrow row (the tree): the time is kept only where it
+// is the news -- "Today 17:00", "Overdue 17:00" -- and dropped elsewhere
+// ("Tomorrow 19:02" -> "Tomorrow", "Tue 09:00" -> "Tue"). The tooltip still
+// has the whole date.
+std::string compact_due(const std::string& chip);
+StepCount step_count(const NodeSource& src, const NodeId& id);
+
 // The due chip, short enough for a narrow pane:
 //   due today            "Today" or "Today 17:00" (a bare date shows no time)
 //   later today, passed  "Overdue 17:00"

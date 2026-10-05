@@ -2,6 +2,9 @@
 #include "Log.hpp"
 #include "Menus.hpp"
 #include "core/Tasks.hpp"
+#include "core/RowLook.hpp"   // s048: the tree's todo rows are cards
+#include "core/Review.hpp"
+#include <ctime>
 
 #include <glibmm/markup.h>
 
@@ -36,6 +39,7 @@ TreePane::TreePane(std::string_view name)
     // jot does not use row activation (a double-click renames in the row).
     m_list.set_activate_on_single_click(false);
     m_list.add_css_class("navigation-sidebar");
+    m_list.add_css_class("jot-tree");   // s048: the outline's own look (Appearance.cpp)
     m_scroll.set_child(m_list);
     m_scroll.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
     m_scroll.set_vexpand(true);
@@ -315,6 +319,22 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
     box->set_margin_top(2);
     box->set_margin_bottom(2);
 
+    // ── s048: a todo row is a CARD -- the look Today, Forecast, Tags and Find
+    // already have (s042 / s043), from the same core::row_look, so a todo
+    // reads the same wherever it is: rounded, a stripe and a round tick in
+    // its state's colour, the due chip on the right. ONE line, not the
+    // list cards' two: the outline is dense, and the project a list card
+    // names is the row right above it here. Plain notes stay plain -- an
+    // outline of mostly notes would otherwise be a wall of boxes.
+    const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    core::RowLook look;
+    if (n.task.is_task && m_src) {
+        look = core::row_look(*m_src, n, now);
+        box->add_css_class("jot-card");
+        box->add_css_class("jot-tree-card");
+        box->add_css_class(std::string("st-") + core::row_state_word(look.state));
+    }
+
     // The twisty is built for EVERY row, children or not. A leaf's copy is
     // invisible and inert, which is what keeps its title on the same x as its
     // siblings' -- a hand-sized spacer does not match a GTK button's natural
@@ -335,7 +355,9 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         twisty->set_sensitive(false);
         twisty->set_can_focus(false);
     }
-    box->append(*twisty);
+    // s048: a leaf todo's card starts with its tick, in the twisty's column --
+    // an invisible twisty inside the card left a gap after the stripe.
+    if (has_children || !n.task.is_task) box->append(*twisty);
 
     // ── the todo half of a row ──────────────────────────────────────────────
     // A todo is a NODE (D2), so it is not a separate list living somewhere
@@ -351,6 +373,7 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         auto* tick = Gtk::make_managed<widgets::CheckButton>(widgets::unregistered,
                                                              "tree.done." + n.id);
         tick->set_valign(Gtk::Align::CENTER);
+        tick->add_css_class("jot-tick");    // s048: the cards' round tick
         tick->set_active(n.task.done);      // BEFORE the handler: set_active emits
         tick->set_can_focus(false);         // Space belongs to the list, not the box
         const core::NodeId id = n.id;
@@ -434,16 +457,44 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         if (!n.title.empty()) label->set_tooltip_text(n.title);
         label->set_hexpand(true);
         box->append(*label);
+        // s048: a project reads as a heading, with its steps counted.
+        if (m_src && core::is_project(*m_src, n.id)) {
+            label->add_css_class("jot-tree-project");
+            const core::StepCount sc = core::step_count(*m_src, n.id);
+            if (sc.total > 0) {
+                auto* count = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                                "tree.steps." + n.id);
+                count->set_text(std::to_string(sc.done) + " of " + std::to_string(sc.total));
+                count->add_css_class("jot-chip");
+                count->add_css_class("jot-count");
+                count->set_valign(Gtk::Align::CENTER);
+                count->set_tooltip_text(std::to_string(sc.done) + " of its " + std::to_string(sc.total) +
+                                        " todos done");
+                box->append(*count);
+            }
+        }
     }
 
     // Flagged: "this one, today". It earns a marker in the tree because the
     // whole point of flagging is seeing it without opening anything.
+    // s048: the cards' ⚑ in the flag colour (was a star icon) -- the same
+    // mark as Today, and a glyph draws on every theme.
+    // s048: ⏱ the estimate, quiet, before the marks.
+    if (n.task.is_task && !look.estimate.empty() && !n.task.done) {
+        auto* est = Gtk::make_managed<widgets::Label>(widgets::unregistered, "tree.est." + n.id);
+        est->set_text("\u23f1 " + look.estimate);
+        est->add_css_class("dim-label");
+        est->add_css_class("caption");
+        est->set_tooltip_text("Takes about " + look.estimate);
+        box->append(*est);
+    }
     if (n.task.is_task && n.task.flagged && !n.task.done) {
-        auto* star = Gtk::make_managed<widgets::Image>(widgets::unregistered,
+        auto* flag = Gtk::make_managed<widgets::Label>(widgets::unregistered,
                                                        "tree.flag." + n.id);
-        star->set_from_icon_name("starred-symbolic");
-        star->set_tooltip_text("Flagged");
-        box->append(*star);
+        flag->set_text("\u2691");
+        flag->add_css_class("jot-flag");
+        flag->set_tooltip_text("Flagged");
+        box->append(*flag);
     }
 
     // s033. A repeating todo: ticking it brings it back, which is surprising
@@ -456,6 +507,20 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         rep->set_tooltip_text("Repeats " + core::repeat_text(n.task.repeat));
         rep->add_css_class("dim-label");
         box->append(*rep);
+    }
+
+    // s048: the due chip, last on the row as on every card -- "2d late",
+    // "Today 17:00", "Tue". Coloured only for late / today (the chip rule).
+    if (n.task.is_task && !look.due.empty() && !n.task.done) {
+        auto* due = Gtk::make_managed<widgets::Label>(widgets::unregistered, "tree.due." + n.id);
+        due->set_text(core::compact_due(look.due));   // the pane is narrow
+        due->add_css_class("jot-chip");
+        due->add_css_class("jot-due");
+        due->add_css_class(std::string("st-") + core::row_state_word(look.state));
+        due->set_valign(Gtk::Align::CENTER);
+        due->set_tooltip_text("Due " + core::format_date(core::effective_due(*m_src, n.id)) +
+                              (look.due_inherited ? " (from a parent)" : ""));
+        box->append(*due);
     }
 
     // s031. The project's word, as a mark you can see without opening it --

@@ -5873,6 +5873,28 @@ int main() {
         check("multi: ...one undo unflags both", !m.find(a1)->task.flagged && !m.find(a2)->task.flagged);
     }
 
+    // ── s048: the tree's cards ─────────────────────────────────────────────
+    std::cout << "\n-- tree cards (s048) --\n";
+    {
+        check("compact due: the time goes on a later day", core::compact_due("Tomorrow 19:02") == "Tomorrow" &&
+                                                            core::compact_due("Tue 9:00") == "Tue");
+        check("compact due: kept where it is the news", core::compact_due("Today 17:00") == "Today 17:00" &&
+                                                        core::compact_due("Overdue 17:00") == "Overdue 17:00");
+        check("compact due: no time, nothing to drop", core::compact_due("Oct 12 2027") == "Oct 12 2027" &&
+                                                        core::compact_due("2d late") == "2d late" &&
+                                                        core::compact_due("Tomorrow") == "Tomorrow");
+        core::MemoryNodes m;
+        const auto p = m.create("", "P");
+        const auto t1 = m.create(p, "a"), t2 = m.create(p, "b");
+        m.create(p, "a note");
+        const auto deep = m.create(t1, "deep");
+        m.make_task(t1, true); m.make_task(t2, true); m.make_task(deep, true);
+        m.set_done(t2, true);
+        const auto sc = core::step_count(m, p);
+        check("steps: direct todo children only, done counted", sc.total == 2 && sc.done == 1);
+        check("steps: none -> total 0", core::step_count(m, deep).total == 0);
+    }
+
     std::cout << "-----------------------------------------------\n";
     std::cout << g_pass << " pass / " << g_fail << " fail\n";
     return g_fail == 0 ? 0 : 1;

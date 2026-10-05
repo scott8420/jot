@@ -83,6 +83,13 @@ std::string sheet(bool dark) {
     c += ".jot-chip { border-radius: 999px; padding: 0 8px; font-size: smaller; "
          "background-color: alpha(currentColor, 0.08); }\n";
     c += ".jot-project { color: alpha(currentColor, 0.75); }\n";
+    // s048: the outline. A todo row is a one-line card inside the sidebar's
+    // own rounded selection; a project is a heading with its steps counted.
+    c += ".jot-tree row { border-radius: 8px; }\n";
+    c += ".jot-tree-card { padding: 3px 8px 3px 4px; min-height: 26px; }\n";
+    c += ".jot-tree row:selected .jot-tree-card { background-color: alpha(currentColor, 0.04); }\n";
+    c += ".jot-tree-project { font-weight: 700; }\n";
+    c += ".jot-count { color: alpha(currentColor, 0.7); font-weight: 600; }\n";
     c += std::string(".jot-flag { color: ") + p.flagged + "; }\n";
     // s044: a packet's items -- in is green and quiet, missing is the text.
     c += std::string(".jot-packet-in { color: ") + p.done + "; }\n";

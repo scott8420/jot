@@ -123,4 +123,27 @@ std::string summary_text(const ViewSummary& v) {
     return s;
 }
 
+StepCount step_count(const NodeSource& src, const NodeId& id) {
+    StepCount c;
+    for (const auto& k : src.children(id))
+        if (const Node* n = src.find(k); n && n->task.is_task) {
+            ++c.total;
+            if (n->task.done) ++c.done;
+        }
+    return c;
+}
+
+std::string compact_due(const std::string& chip) {
+    if (chip.rfind("Today", 0) == 0 || chip.rfind("Overdue", 0) == 0) return chip;
+    // A trailing " H:MM" / " HH:MM".
+    const auto sp = chip.rfind(' ');
+    if (sp == std::string::npos) return chip;
+    const std::string t = chip.substr(sp + 1);
+    const auto colon = t.find(':');
+    if (colon == std::string::npos || colon == 0 || colon > 2 || t.size() != colon + 3) return chip;
+    for (std::size_t k = 0; k < t.size(); ++k)
+        if (k != colon && (t[k] < '0' || t[k] > '9')) return chip;
+    return chip.substr(0, sp);
+}
+
 }  // namespace jot::core
