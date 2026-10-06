@@ -44,6 +44,7 @@
 #include "core/Search.hpp"
 #include "core/Forecast.hpp"
 #include "core/Gather.hpp"
+#include "core/Nudge.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1428,6 +1429,147 @@ int main() {
                       v.find(b)->sent == 0 && v.find(b)->sent_to.empty());
         }
         fs::remove_all(root, ec);
+    }
+
+    // ── s052: packet nudges ────────────────────────────────────────────────
+    {
+        std::cout << "\n-- packet nudges (s052) --\n";
+        namespace fs = std::filesystem;
+        const auto at = [](int y, int mo, int d, int h) {
+            std::tm tm{};
+            tm.tm_year = y - 1900; tm.tm_mon = mo - 1; tm.tm_mday = d; tm.tm_hour = h; tm.tm_isdst = -1;
+            return static_cast<std::int64_t>(std::mktime(&tm));
+        };
+        const std::int64_t morning = at(2026, 10, 7, 10), early = at(2026, 10, 7, 8);
+        check("nudge: local days count up by one across a day",
+              core::local_day(at(2026, 10, 8, 10)) == core::local_day(morning) + 1 &&
+                  core::local_day(at(2026, 10, 7, 23)) == core::local_day(at(2026, 10, 7, 0)));
+
+        core::MemoryNodes m;
+        const auto home = m.create("", "Home");
+        const auto taxes = m.create(home, "Taxes");     // nested: found anyway
+        m.set_body(taxes, "- [ ] a [f](attachments/f.pdf)\n- [ ] b\n- [ ] c\n");
+        m.set_packet(taxes, true);
+        check("nudge: off by default", !core::nudges_now(*m.find(taxes), morning));
+        m.set_nudge(taxes, 7);
+        check("nudge: a packet set to nudge, with something missing, does",
+              core::nudges_now(*m.find(taxes), morning));
+
+        const auto r = core::packet_nudges(m, morning, {});
+        const std::string key = core::nudge_key(taxes, core::local_day(morning) / 7);
+        check("nudge: after 9:00 it is shown, keyed by the period",
+              r.to_show.size() == 1 && r.to_show[0].key == key && r.live == std::vector<std::string>{key} &&
+                  r.keep.empty(), r.to_show.empty() ? "none" : r.to_show[0].key);
+        check("nudge: the words",
+              !r.to_show.empty() && r.to_show[0].summary == "Taxes: 1 of 3 in" &&
+                  r.to_show[0].detail == "Missing: b, c", r.to_show.empty() ? "" : r.to_show[0].detail);
+        const auto r8 = core::packet_nudges(m, early, {});
+        check("nudge: before 9:00 it is live but quiet", r8.to_show.empty() && r8.live.size() == 1);
+        const auto rk = core::packet_nudges(m, morning, {key});
+        check("nudge: once delivered, quiet for the rest of the period",
+              rk.to_show.empty() && rk.keep == std::vector<std::string>{key});
+        check("nudge: the next period is a new key -- it says again",
+              core::packet_nudges(m, morning + 7 * 86400, {key}).to_show.size() == 1);
+        check("nudge: parked (In 3 days) stays quiet until then",
+              core::packet_nudges(m, morning, {}, {{key, morning + 3 * 86400}}).to_show.empty());
+        {
+            // Every day + In 3 days: tomorrow is a NEW period, and must stay quiet.
+            m.set_nudge(taxes, 1);
+            const std::string k1 = core::nudge_key(taxes, core::local_day(morning));
+            const std::vector<core::Snoozed> park{{k1, morning + 3 * 86400}};
+            const auto tmw = core::packet_nudges(m, morning + 86400, {}, park);
+            const auto fri = core::packet_nudges(m, morning + 3 * 86400 + 60, {}, park);
+            check("nudge: a park holds the packet across periods, and stays live till it wakes",
+                  tmw.to_show.empty() && tmw.live == std::vector<std::string>{k1} && fri.to_show.size() == 1 &&
+                      fri.to_show[0].key != k1, tmw.live.empty() ? "pruned" : tmw.live[0]);
+            m.set_nudge(taxes, 7);
+        }
+        {
+            // The due half is handed the same announced set and drops a nudge
+            // key from ITS keep -- the union is what keeps it.
+            core::TaskIndex idx;
+            idx.rebuild(m);
+            const auto due = core::due_announcements(m, idx, morning, {key});
+            check("nudge: the due half does not keep a nudge key; the nudge half does",
+                  std::find(due.keep.begin(), due.keep.end(), key) == due.keep.end() &&
+                      core::packet_nudges(m, morning, {key}).keep.size() == 1);
+        }
+
+        // When it stops.
+        {
+            core::MemoryNodes q;
+            const auto p = q.create("", "P");
+            q.set_body(p, "- [ ] a\n");
+            q.set_packet(p, true);
+            q.set_nudge(p, 1);
+            const bool on = core::nudges_now(*q.find(p), morning);
+            q.set_sent(p, morning, "/x.zip");
+            const bool sent = core::nudges_now(*q.find(p), morning);
+            q.set_sent(p, 0, "");
+            q.set_body(p, "- [x] a\n");
+            const bool all = core::nudges_now(*q.find(p), morning);
+            q.set_body(p, "- [ ] a\n");
+            q.make_task(p, true);
+            q.set_defer(p, morning + 86400);
+            const bool deferred = core::nudges_now(*q.find(p), morning);
+            q.set_defer(p, 0);
+            q.set_done(p, true);
+            const bool done = core::nudges_now(*q.find(p), morning);
+            check("nudge: stops when sent, all in, deferred or done",
+                  on && !sent && !all && !deferred && !done);
+        }
+
+        // Buttons and the act.
+        const auto st2 = core::packet_state(m.find(taxes)->body);
+        check("nudge: two missing -> In 3 days only (Open is the Shell's)",
+              core::nudge_buttons(key, st2).size() == 1 &&
+                  core::nudge_buttons(key, st2)[0].act.verb == core::NoticeVerb::Remind &&
+                  core::nudge_buttons(key, st2)[0].act.amount == 3);
+        const auto st1 = core::packet_state("- [x] a\n- [ ] b\n");
+        const auto b1 = core::nudge_buttons(key, st1);
+        check("nudge: one missing -> I've got it, carrying its line",
+              b1.size() == 2 && b1[1].act.verb == core::NoticeVerb::Got && b1[1].act.amount == 1);
+        const auto got = core::decode_notice_act(core::encode_notice_act(b1[1].act));
+        check("nudge: the act survives the wire; its key names the packet",
+              got && got->verb == core::NoticeVerb::Got && got->amount == 1 && got->key == key &&
+                  core::key_node(key) == taxes && core::is_nudge_key(key) &&
+                  !core::decode_notice_act("got:-1:" + key));
+        check("nudge: the target is checked now",
+              core::check_nudge_target(m, key) == core::NudgeState::Current &&
+                  core::check_nudge_target(m, core::nudge_key("nope", 1)) == core::NudgeState::Gone);
+        m.set_body(taxes, "- [x] a\n- [x] b\n- [x] c\n");
+        check("nudge: all in since -> nothing to do, and said",
+              core::check_nudge_target(m, key) == core::NudgeState::AllIn &&
+                  core::nudge_state_words(core::NudgeState::AllIn) == "everything is in now");
+        check("nudge: I've got it ticks that line and only that",
+              core::tick_line("x\n- [ ] a\n- [ ] b\n", 2) == "x\n- [ ] a\n- [x] b\n" &&
+                  core::tick_line("- [x] a\n", 0).empty() && core::tick_line("plain\n", 0).empty() &&
+                  core::tick_line("- [ ] a\n", 7).empty());
+        check("nudge: the choices read",
+              core::nudge_every_text(0) == "Never" && core::nudge_every_text(7) == "Every week" &&
+                  core::nudge_every_text(3) == "Every 3 days" && core::nudge_choices().front() == 0);
+        check("nudge: set refuses a no-op", !m.set_nudge(taxes, 7) && m.set_nudge(taxes, 0));
+
+        const fs::path jd = fs::temp_directory_path() / "jot_selftest_nudge";
+        std::error_code ec;
+        fs::remove_all(jd, ec);
+        core::NodeId a, b;
+        {
+            core::Project v;
+            v.open(jd.string());
+            a = v.create("", "Taxes");
+            b = v.create("", "plain");
+            v.set_packet(a, true);
+            v.set_nudge(a, 14);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(jd.string());
+            check("nudge/jots: the cadence survives a reopen, only where it was set",
+                  v.find(a) && v.find(a)->nudge == 14 && v.find(b) && v.find(b)->nudge == 0);
+        }
+        fs::remove_all(jd, ec);
     }
 
     // ── s045: undo in the navigator ────────────────────────────────────────
@@ -5736,7 +5878,7 @@ int main() {
                     const core::Task& t = n->task;
                     out += std::string(static_cast<std::size_t>(d) * 2, ' ') + id + " [" + n->title + "] {" +
                            n->body + "} p" + std::to_string(n->protect) + " i" + std::to_string(n->inbox) +
-                           " k" + std::to_string(n->packet) + " s" + std::to_string(n->sent) + n->sent_to +
+                           " k" + std::to_string(n->packet) + " s" + std::to_string(n->sent) + n->sent_to + " n" + std::to_string(n->nudge) +
                            " t" + std::to_string(t.is_task) +
                            std::to_string(t.done) + std::to_string(t.flagged) + " due" +
                            std::to_string(t.due) + " def" + std::to_string(t.defer) + " st" +
@@ -5786,6 +5928,7 @@ int main() {
             {"set_protect", [](Rig& r) { r.u.set_protect(r.home, true); }, "Protect"},
             {"set_inbox", [](Rig& r) { r.u.set_inbox(r.loose, false); }, "Out of the Inbox"},
             {"set_packet", [](Rig& r) { r.u.set_packet(r.taxes, true); }, "Packet"},
+            {"set_nudge", [](Rig& r) { r.u.set_nudge(r.taxes, 7); }, "Nudge"},
             {"set_sent", [](Rig& r) { r.u.set_sent(r.taxes, 1'800'000'000, "/tmp/Taxes.zip"); }, "Sent"},
             {"move", [](Rig& r) { r.u.move(r.home, r.taxes, 0); }, "Move"},
             {"remove", [](Rig& r) { r.u.remove(r.taxes); }, "Delete “Taxes”"},

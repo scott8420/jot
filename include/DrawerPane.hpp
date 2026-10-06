@@ -356,6 +356,10 @@ private:
     widgets::Box         m_sent_row;
     widgets::Label       m_sent_says;
     widgets::Button      m_sent_show;
+    // s052: how often it nudges while something is missing.
+    widgets::Box         m_nudge_row;
+    widgets::Label       m_nudge_label;
+    widgets::DropDown    m_nudge_pick;
     sigc::signal<void(std::string)> m_sig_gather;
     widgets::Box         m_proj_body;
     widgets::Label       m_proj_dates_note;

@@ -46,6 +46,7 @@ enum class NoticeVerb {
     Done,     // tick the todo the key names -- if it is still that occurrence
     Snooze,   // say it again in `amount` MINUTES
     Remind,   // say it again in `amount` CALENDAR DAYS, same wall-clock time
+    Got,      // s052: a packet nudge's "I've got it" -- tick item line `amount`
 };
 
 struct NoticeAct {

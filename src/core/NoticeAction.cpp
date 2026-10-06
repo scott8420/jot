@@ -13,6 +13,7 @@ const char* verb_word(NoticeVerb v) {
     case NoticeVerb::Done:   return "done";
     case NoticeVerb::Snooze: return "snooze";
     case NoticeVerb::Remind: return "remind";
+    case NoticeVerb::Got:    return "got";
     }
     return "done";
 }
@@ -21,6 +22,7 @@ std::optional<NoticeVerb> verb_of(std::string_view w) {
     if (w == "done")   return NoticeVerb::Done;
     if (w == "snooze") return NoticeVerb::Snooze;
     if (w == "remind") return NoticeVerb::Remind;
+    if (w == "got")    return NoticeVerb::Got;
     return std::nullopt;
 }
 
@@ -53,11 +55,15 @@ std::optional<NoticeAct> decode_notice_act(std::string_view s) {
     if (at == std::string::npos || at == 0) return std::nullopt;
     // A snooze of nothing, or of a negative time, would say it again at once --
     // indistinguishable from a button that does not work. Refuse it here.
-    if (a.verb != NoticeVerb::Done && a.amount <= 0) return std::nullopt;
+    if ((a.verb == NoticeVerb::Snooze || a.verb == NoticeVerb::Remind) && a.amount <= 0)
+        return std::nullopt;
+    if (a.verb == NoticeVerb::Got && a.amount < 0) return std::nullopt;   // a line number
     return a;
 }
 
 NodeId key_node(std::string_view key) {
+    // s052: a packet nudge's key is "nudge:<id>@<period>".
+    if (key.starts_with("nudge:")) key.remove_prefix(6);
     const auto at = key.rfind('@');
     if (at == std::string_view::npos) return {};
     return NodeId(key.substr(0, at));

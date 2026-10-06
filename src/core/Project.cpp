@@ -478,6 +478,7 @@ bool Project::load_project(std::vector<Node>& out) const {
         n.packet       = e.value("packet", false);  // s044; absent == not a packet
         n.sent         = e.value("sent", std::int64_t{0});       // s051; absent == not sent
         n.sent_to      = e.value("sent_to", std::string{});
+        n.nudge        = std::max(0, e.value("nudge", 0));          // s052; absent == never
         if (!n.id.empty()) out.push_back(std::move(n));
     }
     return true;
@@ -575,6 +576,7 @@ bool Project::save_project() const {
             if (n->packet)                     e["packet"]  = true;   // s044, same rule
             if (n->sent != 0)                  e["sent"]    = n->sent;          // s051
             if (!n->sent_to.empty())           e["sent_to"] = n->sent_to;
+            if (n->nudge > 0)                  e["nudge"]   = n->nudge;          // s052
             j["nodes"].push_back(std::move(e));
         }
         const auto kids = children(id);
@@ -671,6 +673,14 @@ bool Project::set_packet(const NodeId& id, bool on) {
 // s051: the sent stamp too.
 bool Project::set_sent(const NodeId& id, std::int64_t when, const std::string& to) {
     if (!MemoryNodes::set_sent(id, when, to)) return false;
+    m_structure_dirty = true;
+    flush();
+    return true;
+}
+
+// s052: the nudge cadence too.
+bool Project::set_nudge(const NodeId& id, int days) {
+    if (!MemoryNodes::set_nudge(id, days)) return false;
     m_structure_dirty = true;
     flush();
     return true;

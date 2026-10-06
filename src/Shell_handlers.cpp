@@ -676,6 +676,11 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
     // s037: a tick, a move, a state, a new child -- not a keystroke.
     if (what != C::Body) queue_projects_refresh();
     queue_search_refresh();   // s038: a word typed can make or break a match
+    // s052: a packet's nudge set, or a folder opened, speaks within the second
+    // rather than at the next minute tick. The outbox keeps a burst of these
+    // from asking twice.
+    if ((what == C::Flags || what == C::Reload) && m_prefs.notify_due)
+        Glib::signal_idle().connect_once([this]() { check_due_notifications(); });
 
     switch (what) {
         case C::Reload:

@@ -216,6 +216,11 @@ const std::vector<CheatLine>& cheat_sheet() {
          "(\u201c01 W-2 (employer).pdf\u201d) with a Contents list that also names the paper "
          "copies. The packet is stamped \u201cSent\u201d with the date; the folder button beside "
          "it shows where it went. Ctrl+Z takes the stamp back (the copies stay)."},
+        {"Projects", "", "Note details › Packet › Nudge me",
+         "Be reminded what a packet is still missing",
+         "Every day / 3 days / week / 2 weeks / month: while something is missing, a "
+         "notification after 9:00 says what. In 3 days quiets it; I’ve got it (when only "
+         "one is missing) ticks that item; Open goes to it. Stops when it is all in or sent."},
 
         // ── Today ───────────────────────────────────────────────────────────
         {"Today", "", "Today tab", "What you can actually do now",

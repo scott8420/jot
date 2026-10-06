@@ -1,4 +1,6 @@
 #include "Shell.hpp"
+#include "core/Nudge.hpp"
+#include "core/Packet.hpp"
 #include <gtkmm/editable.h>
 #include <gtkmm/textview.h>
 #include "DrawerPane.hpp"
@@ -477,6 +479,9 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     if (!roots.empty()) { m_tree->select(roots.front()); on_selection_changed(roots.front()); }
     update_note_actions();
     drain_pending();   // a folder just appeared -- whatever was spooled has a home now
+    // s052: a folder just opened may hold packets waiting on something (and
+    // dates already due) -- say so now, not at the next minute tick.
+    if (m_prefs.notify_due) Glib::signal_idle().connect_once([this]() { check_due_notifications(); });
 }
 
 // An action that can't do anything should not look like an offer. Greying is
@@ -1237,8 +1242,14 @@ void Shell::check_due_notifications() {  // helper: announce what has just come 
     if (!m_store || !m_prefs.notify_due || !m_notify_ok) return;
 
     const std::int64_t now = std::time(nullptr);
-    const auto r = core::due_announcements(*m_store, m_tasks, now,
-                                           m_prefs.announced, m_prefs.snoozed);
+    auto r = core::due_announcements(*m_store, m_tasks, now,
+                                     m_prefs.announced, m_prefs.snoozed);
+    // s052: packets' nudges, the same rules on a second key shape. Both halves
+    // were handed the whole announced set; each keeps only its own live keys,
+    // so the union is the new set and neither prunes the other's.
+    const auto nudges = core::packet_nudges(*m_store, now, m_prefs.announced, m_prefs.snoozed);
+    r.keep.insert(r.keep.end(), nudges.keep.begin(), nudges.keep.end());
+    r.live.insert(r.live.end(), nudges.live.begin(), nudges.live.end());
 
     // The announced set is rewritten even when nothing is shown, because
     // PRUNING is half of what it does: a todo that was ticked off or
@@ -1299,6 +1310,28 @@ void Shell::check_due_notifications() {  // helper: announce what has just come 
             lg->info("notify: asking for '{}' ({}) id={} try={}", a.summary,
                      a.overdue ? "overdue" : "due", a.id, m_outbox.tries(a.key) + 1);
 
+        m_notifier.send(n);
+    }
+
+    // s052: the packets that are waiting on something.
+    for (const auto& a : nudges.to_show) {
+        if (!m_outbox.begin(a.key)) continue;
+        const core::Node* pn = m_store->find(a.id);
+        if (!pn) continue;
+        Notice n;
+        n.key     = a.key;
+        n.tray_id = std::string(core::kNudgePrefix) + a.id;   // its own row, beside a due one
+        n.title   = a.summary;
+        n.body    = a.detail;
+        n.icon    = "jot-logo-symbolic";
+        n.action  = "app.goto-node";
+        n.target  = a.id;
+        for (const auto& b : core::nudge_buttons(a.key, core::packet_state(pn->body)))
+            n.buttons.push_back({b.label, "app.notice", core::encode_notice_act(b.act)});
+        n.buttons.push_back({"Open", "app.goto-node", a.id});
+        if (auto lg = log::get(log::Area::Shell))
+            lg->info("nudge: asking for '{}' -- {} key={} try={}", a.summary, a.detail, a.key,
+                     m_outbox.tries(a.key) + 1);
         m_notifier.send(n);
     }
 
@@ -1440,6 +1473,45 @@ std::string Shell::notice_act(const std::string& param) {  // helper: a notifica
 
     const core::NodeId id = core::key_node(act->key);
     const core::Node*  n  = m_store->find(id);
+    // s052: a packet's nudge -- its own target check and its own verbs.
+    if (core::is_nudge_key(act->key)) {
+        const std::string what =
+            "\u201c" + (n ? (n->title.empty() ? std::string("Untitled") : n->title)
+                           : std::string("that packet")) + "\u201d";
+        const core::NudgeState ns = core::check_nudge_target(*m_store, act->key);
+        const std::string tray = std::string(core::kNudgePrefix) + id;
+        std::string said;
+        if (ns != core::NudgeState::Current) {
+            said = "Nothing changed for " + what + ": " + core::nudge_state_words(ns) + ".";
+        } else if (act->verb == core::NoticeVerb::Got) {
+            const std::string body = core::tick_line(n->body, act->amount);
+            if (body.empty()) {
+                said = "Nothing changed for " + what + ": that item is not missing any more.";
+            } else {
+                core::as_step(m_undo, "I\u2019ve got it", {id}, false, [&] { m_undo.set_body(id, body); });
+                sync_editor_body();
+                if (m_project) m_project->flush();
+                m_notifier.withdraw(tray);
+                said = "Ticked the missing item in " + what + " from its nudge.";
+            }
+        } else {
+            const std::int64_t until = core::notice_until(*act, std::time(nullptr));
+            core::park(m_prefs.snoozed, m_prefs.announced, act->key, until);
+            core::save_prefs(m_prefs_file, m_prefs);
+            m_notifier.withdraw(tray);
+            char when[32] = "";
+            std::time_t t = static_cast<std::time_t>(until);
+            std::tm lt{};
+            localtime_r(&t, &lt);
+            std::strftime(when, sizeof when, "%a %H:%M", &lt);
+            said = "Will nudge about " + what + " again " + std::string(when) + ".";
+        }
+        if (lg) lg->info("notice: {} -> {}", param, said);
+        m_notify_last_act = said;
+        show_notify_status();
+        queue_drawer_refresh();
+        return said;
+    }
     const std::string  title =
         "\u201c" + (n ? (n->title.empty() ? std::string("Untitled") : n->title)
                        : std::string("that todo")) + "\u201d";

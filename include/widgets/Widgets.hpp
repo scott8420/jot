@@ -6,6 +6,7 @@
 #include <gtkmm/calendar.h>
 #include <gtkmm/checkbutton.h>
 #include <gtkmm/colordialogbutton.h>
+#include <gtkmm/dropdown.h>
 #include <gtkmm/entry.h>
 #include <gtkmm/expander.h>
 #include <gtkmm/flowbox.h>
@@ -33,6 +34,7 @@ using Button         = Named<Gtk::Button>;
 using Calendar       = Named<Gtk::Calendar>;
 using CheckButton    = Named<Gtk::CheckButton>;
 using ColorDialogButton = Named<Gtk::ColorDialogButton>;   // s050b
+using DropDown       = Named<Gtk::DropDown>;   // s052
 using Entry          = Named<Gtk::Entry>;
 using Expander       = Named<Gtk::Expander>;
 using FlowBox        = Named<Gtk::FlowBox>;

@@ -2,6 +2,8 @@
 #include "core/Undo.hpp"
 #include "core/Packet.hpp"
 #include "core/Gather.hpp"
+#include "core/Nudge.hpp"
+#include <cstdlib>
 #include "core/Review.hpp"
 #include "core/Tags.hpp"
 
@@ -162,6 +164,13 @@ DrawerPane::DrawerPane(std::string_view name)
       m_sent_row("drawer.sent_row", Gtk::Orientation::HORIZONTAL, 6),
       m_sent_says("drawer.sent_says"),
       m_sent_show("drawer.sent_show"),
+      m_nudge_row("drawer.nudge_row", Gtk::Orientation::HORIZONTAL, 6),
+      m_nudge_label("drawer.nudge_label"),
+      m_nudge_pick("drawer.nudge_pick", [] {
+          std::vector<Glib::ustring> v;
+          for (int d : core::nudge_choices()) v.push_back(core::nudge_every_text(d));
+          return v;
+      }()),
       m_proj_body("drawer.proj_body", Gtk::Orientation::VERTICAL, 6),
       m_proj_dates_note("drawer.proj_dates_note"),
       m_when_box("drawer.when_box", Gtk::Orientation::VERTICAL, 6),
@@ -318,6 +327,24 @@ DrawerPane::DrawerPane(std::string_view name)
     m_sent_show.signal_clicked().connect([this]() { if (!m_loading) m_sig_gather.emit("show"); });
     m_sent_row.append(m_sent_says);
     m_sent_row.append(m_sent_show);
+    // s052: Nudge me -- above the way out, because it is about the waiting.
+    m_nudge_label.set_text("Nudge me");
+    m_nudge_label.set_xalign(0.0f);
+    m_nudge_label.set_hexpand(true);
+    m_nudge_label.set_tooltip_text(
+        "While something is missing, a notification (after 9:00) says what -- with "
+        "In 3 days, I\u2019ve got it (when only one is missing) and Open. Stops once it is "
+        "all in or sent.");
+    m_nudge_pick.property_selected().signal_changed().connect([this]() {
+        if (m_loading || !m_src || m_id.empty()) return;
+        const auto i = m_nudge_pick.get_selected();
+        const auto& c = core::nudge_choices();
+        if (i < c.size()) m_src->set_nudge(m_id, c[i]);
+    });
+    m_nudge_row.append(m_nudge_label);
+    m_nudge_row.append(m_nudge_pick);
+    m_nudge_row.set_margin_top(6);
+    m_packet_sec.body->append(m_nudge_row);
     m_packet_sec.body->append(m_gather_row);
     m_packet_sec.body->append(m_sent_row);
 
@@ -1656,11 +1683,24 @@ void DrawerPane::fill_packet(const core::Node& n) {
         m_packet_says.set_visible(false);
         m_gather_row.set_visible(false);
         m_sent_row.set_visible(false);
+        m_nudge_row.set_visible(false);
         return;
     }
     const core::PacketState st = core::packet_state(n.body);
     // s051: the way out opens when everything is in; until then it says why.
     m_gather_row.set_visible(st.total > 0);
+    // s052: the cadence. An unlisted value (typed into jot.json) is added as
+    // the nearest the list can say -- show the closest choice rather than lie.
+    m_nudge_row.set_visible(st.total > 0 && n.sent == 0);
+    {
+        const auto& c = core::nudge_choices();
+        guint best = 0;
+        for (guint i = 0; i < c.size(); ++i)
+            if (std::abs(c[i] - n.nudge) < std::abs(c[best] - n.nudge)) best = i;
+        m_loading = true;
+        m_nudge_pick.set_selected(best);
+        m_loading = false;
+    }
     const bool ready = st.complete();
     m_gather_folder.set_sensitive(ready);
     m_gather_zip.set_sensitive(ready);

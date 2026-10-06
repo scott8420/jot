@@ -22,3 +22,7 @@ compile_commands.json
 *.swp
 *~
 .DS_Store
+
+# s052: ready-made test folders ride in the session zip, not in git --
+# opening one rewrites its jot.json, which must never dirty a push.
+tests/*.jots/

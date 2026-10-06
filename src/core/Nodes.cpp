@@ -216,6 +216,15 @@ bool MemoryNodes::set_sent(const NodeId& id, std::int64_t when, const std::strin
     return true;
 }
 
+bool MemoryNodes::set_nudge(const NodeId& id, int days) {
+    Node* n = mutable_find(id);
+    if (days < 0) days = 0;
+    if (!n || n->nudge == days) return false;
+    n->nudge = days;
+    notify(Change::Flags, id);
+    return true;
+}
+
 std::int64_t MemoryNodes::now() const { return m_clock ? m_clock() : now_seconds(); }
 
 // s032. How a task record is finished: 0 not, 1 done / completed, 2 dropped.

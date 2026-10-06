@@ -106,6 +106,7 @@ bool apply(NodeSource& src, const Snapshot& want, const Snapshot* other) {
         if (changed([](const Node& n) { return std::make_pair(n.sent, n.sent_to); }) &&
             (cur.sent != w.sent || cur.sent_to != w.sent_to))
             src.set_sent(s->id, w.sent, w.sent_to);
+        if (changed([](const Node& n) { return n.nudge; }) && cur.nudge != w.nudge) src.set_nudge(s->id, w.nudge);
         // Place. move() counts the index BEFORE taking the node out, so a
         // later place among the same siblings needs one more.
         const bool place_changed = whole || o->node.parent_id != w.parent_id || o->index != s->index;
@@ -208,6 +209,7 @@ bool Journal::commit(const NodeSource& src) {
                                a.node.body == b.node.body && a.node.task == b.node.task &&
                                a.node.inbox == b.node.inbox && a.node.packet == b.node.packet &&
                                a.node.sent == b.node.sent && a.node.sent_to == b.node.sent_to &&
+                               a.node.nudge == b.node.nudge &&
                                a.node.protect == b.node.protect));
     }
     if (same) return false;
@@ -386,6 +388,12 @@ bool UndoSource::set_sent(const NodeId& id, std::int64_t when, const std::string
     return recorded(m_j, *in, when ? "Sent" : "Not sent", "", {id}, false,
                     [&] { return in->set_sent(id, when, to); });
 }
+bool UndoSource::set_nudge(const NodeId& id, int days) {
+    NodeSource* in = inner();
+    if (!in) return false;
+    return recorded(m_j, *in, days ? "Nudge" : "No nudge", "", {id}, false,
+                    [&] { return in->set_nudge(id, days); });
+}
 bool UndoSource::move(const NodeId& id, const NodeId& new_parent, int index) {
     NodeSource* in = inner();
     if (!in) return false;
@@ -435,7 +443,7 @@ void Gesture::touch(const std::vector<NodeId>& ids, bool subtrees) {
 // ── raw_writes ──────────────────────────────────────────────────────────────
 std::vector<std::string> raw_writes(const std::string& file, const std::string& text) {
     static const std::regex write_on_store(
-        R"(m_store\s*->\s*(set_title|set_body|set_protect|set_task|set_inbox|set_packet|set_sent|set_done|)"
+        R"(m_store\s*->\s*(set_title|set_body|set_protect|set_task|set_inbox|set_packet|set_sent|set_nudge|set_done|)"
         R"(set_flagged|set_due|set_defer|set_status|set_repeat|set_estimate|make_task|move|remove|)"
         R"(restore|create)\s*\()");
     static const std::regex store_to_writer(
