@@ -247,6 +247,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     m_search->signal_open().connect(sigc::mem_fun(*this, &Shell::on_search_open));   // s038
     m_projects->signal_new().connect(sigc::mem_fun(*this, &Shell::on_new_project));  // s037b
     m_drawer->signal_reviewed().connect([this]() { on_mark_reviewed(); });          // s037
+    m_drawer->signal_gather().connect([this](std::string how) { on_packet_gather(std::move(how)); });  // s051
     m_drawer->signal_tag().connect(sigc::mem_fun(*this, &Shell::on_show_tag));    // s035
     m_drawer->signal_tag_add().connect([this](std::string n) { on_tag_edit(true, n); });      // s035b
     m_drawer->signal_tag_remove().connect([this](std::string n) { on_tag_edit(false, n); });  // s035b

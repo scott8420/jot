@@ -134,6 +134,7 @@ std::string sheet(bool dark) {
     c += std::string(".jot-packet-in { color: ") + p.done + "; }\n";
     c += ".jot-packet-missing { font-weight: 600; }\n";
     c += std::string(".jot-packet-done { color: ") + p.done + "; font-weight: 600; }\n";
+    c += std::string(".jot-packet-sent { color: ") + p.done + "; }\n";   // s051
 
     const auto state = [&](const char* st, const char* col, bool chip) {
         c += std::string(".jot-card.") + st + " { border-left-color: " + col + "; }\n";

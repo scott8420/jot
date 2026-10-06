@@ -1,6 +1,7 @@
 #include "DrawerPane.hpp"
 #include "core/Undo.hpp"
 #include "core/Packet.hpp"
+#include "core/Gather.hpp"
 #include "core/Review.hpp"
 #include "core/Tags.hpp"
 
@@ -154,6 +155,13 @@ DrawerPane::DrawerPane(std::string_view name)
       m_proj_why("drawer.proj_why"),
       m_packet_check("drawer.packet_check"),
       m_packet_says("drawer.packet_says"),
+      m_gather_row("drawer.gather_row", Gtk::Orientation::HORIZONTAL, 6),
+      m_gather_label("drawer.gather_label"),
+      m_gather_folder("drawer.gather_folder"),
+      m_gather_zip("drawer.gather_zip"),
+      m_sent_row("drawer.sent_row", Gtk::Orientation::HORIZONTAL, 6),
+      m_sent_says("drawer.sent_says"),
+      m_sent_show("drawer.sent_show"),
       m_proj_body("drawer.proj_body", Gtk::Orientation::VERTICAL, 6),
       m_proj_dates_note("drawer.proj_dates_note"),
       m_when_box("drawer.when_box", Gtk::Orientation::VERTICAL, 6),
@@ -273,6 +281,45 @@ DrawerPane::DrawerPane(std::string_view name)
     m_packet_says.add_css_class("caption");
     m_packet_sec.body->prepend(m_packet_says);
     m_packet_sec.body->prepend(m_packet_check);
+
+    // s051: Gather for sending, under the items. One control with two ways
+    // out (a folder, or one zip) -- the same act, so they sit joined.
+    m_gather_label.set_text("Gather for sending");
+    m_gather_label.set_xalign(0.0f);
+    m_gather_label.set_hexpand(true);
+    m_gather_folder.set_label("Folder…");
+    m_gather_folder.set_tooltip_text(
+        "Copy every item's file into a new folder you choose, named so whoever "
+        "gets them can read them, with a Contents list -- and mark the packet sent");
+    m_gather_zip.set_label("Zip…");
+    m_gather_zip.set_tooltip_text(
+        "The same, as one zip file -- ready to attach to an email -- and mark the packet sent");
+    m_gather_folder.signal_clicked().connect([this]() { if (!m_loading) m_sig_gather.emit("folder"); });
+    m_gather_zip.signal_clicked().connect([this]() { if (!m_loading) m_sig_gather.emit("zip"); });
+    {
+        auto* pair = Gtk::make_managed<widgets::Box>(widgets::unregistered, "drawer.gather_pair",
+                                                     Gtk::Orientation::HORIZONTAL, 0);
+        pair->add_css_class("linked");
+        pair->append(m_gather_folder);
+        pair->append(m_gather_zip);
+        m_gather_row.append(m_gather_label);
+        m_gather_row.append(*pair);
+    }
+    m_gather_row.set_margin_top(6);
+    m_sent_says.set_xalign(0.0f);
+    m_sent_says.set_hexpand(true);
+    m_sent_says.set_wrap(true);                                  // the name in full: it is what you look for
+    m_sent_says.set_wrap_mode(Pango::WrapMode::WORD_CHAR);
+    m_sent_says.add_css_class("caption");
+    m_sent_says.add_css_class("jot-packet-sent");
+    m_sent_show.set_icon_name("folder-open-symbolic");
+    m_sent_show.add_css_class("flat");
+    m_sent_show.set_tooltip_text("Show what was sent, in Files");
+    m_sent_show.signal_clicked().connect([this]() { if (!m_loading) m_sig_gather.emit("show"); });
+    m_sent_row.append(m_sent_says);
+    m_sent_row.append(m_sent_show);
+    m_packet_sec.body->append(m_gather_row);
+    m_packet_sec.body->append(m_sent_row);
 
     // ── Identity: folded away, not removed ──────────────────────────────────
     // The uuid is a developer's correlation key -- it matches a line in the log
@@ -1607,9 +1654,26 @@ void DrawerPane::fill_packet(const core::Node& n) {
     m_loading = false;
     if (!n.packet) {
         m_packet_says.set_visible(false);
+        m_gather_row.set_visible(false);
+        m_sent_row.set_visible(false);
         return;
     }
     const core::PacketState st = core::packet_state(n.body);
+    // s051: the way out opens when everything is in; until then it says why.
+    m_gather_row.set_visible(st.total > 0);
+    const bool ready = st.complete();
+    m_gather_folder.set_sensitive(ready);
+    m_gather_zip.set_sensitive(ready);
+    m_gather_label.set_tooltip_text(
+        ready ? std::string("Everything is in: copy it all to one place, once")
+              : "When all " + std::to_string(st.total) + " are in -- " +
+                    std::to_string(st.total - st.in) + " still missing");
+    m_gather_label.remove_css_class("dim-label");
+    if (!ready) m_gather_label.add_css_class("dim-label");
+    m_sent_row.set_visible(n.sent != 0);
+    m_sent_says.set_text(core::sent_line(n.sent, n.sent_to));
+    m_sent_says.set_tooltip_text(n.sent_to.empty() ? std::string{} : n.sent_to);
+    m_sent_show.set_visible(!n.sent_to.empty());
     // s045: the counts only -- the rows below name what is missing, and a
     // long missing list said twice was what made the section run away.
     m_packet_says.set_text(core::packet_count(st));
@@ -1626,6 +1690,9 @@ void DrawerPane::fill_packet(const core::Node& n) {
         std::string text = (it.in() ? "\u2713  " : "\u25cb  ") + it.label;
         if (!it.files.empty()) {
             std::string f = it.files[0];
+            // s051: a linked file by its own name ("Bank Statement.pdf"), not
+            // its URI's escaped tail ("Bank%20Statement.pdf").
+            if (const std::string lp = core::linked_path(f); !lp.empty()) f = lp;
             if (const auto slash = f.rfind('/'); slash != std::string::npos) f = f.substr(slash + 1);
             text += "  \u00b7  " + f + (it.files.size() > 1 ? " +" + std::to_string(it.files.size() - 1) : "");
         } else if (it.ticked) {

@@ -174,6 +174,7 @@ private:
     void on_perspectives();                      // category: handler: s038b Ctrl+J: the filter menu, open
     void on_show_projects();                     // category: handler: s037 Ctrl+Shift+P -> Projects (again: Review <-> All)
     void on_mark_reviewed();
+    void on_packet_gather(std::string how);  // category: handler: s051 -- Gather for sending ("folder" / "zip" / "show")
     void on_toggle_project();                    // category: handler: s037b the selection is / is not a project, on purpose
     void on_new_project();                       // category: handler: s037b Projects tab + -> a new top-level project, named in the tree                     // category: handler: s037 Ctrl+Shift+R -> the selection reviewed, on to the next
     void on_show_tags();                         // category: handler: s035 Ctrl+Shift+T -> the Tags view

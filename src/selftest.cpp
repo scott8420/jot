@@ -43,6 +43,7 @@
 #include "core/Review.hpp"
 #include "core/Search.hpp"
 #include "core/Forecast.hpp"
+#include "core/Gather.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1263,6 +1264,170 @@ int main() {
                   v.find(a) && v.find(a)->packet && v.find(b) && !v.find(b)->packet);
         }
         fs::remove_all(dir, ec);
+    }
+
+    // ── s051: Gather for sending ───────────────────────────────────────────
+    {
+        std::cout << "\n-- gather for sending (s051) --\n";
+        namespace fs = std::filesystem;
+        check("gather: names are safe on any desktop",
+              core::safe_file_name("W-2: employer/copy?") == "W-2 employer copy" &&
+                  core::safe_file_name(" .hidden. ") == "hidden" && core::safe_file_name("") == "untitled" &&
+                  core::safe_file_name("a\tb  <c>|d") == "a b c d",
+              core::safe_file_name("W-2: employer/copy?"));
+        {
+            std::string lng;
+            for (int i = 0; i < 40; ++i) lng += "é";   // 80 bytes of two-byte letters, then one more
+            lng += "xé";
+            const std::string cut = core::safe_file_name(lng);
+            check("gather: a long name is cut on a character boundary",
+                  cut.size() <= 80 && (static_cast<unsigned char>(cut.back()) & 0xC0) != 0xC0 &&
+                      cut.size() % 2 == 0, std::to_string(cut.size()));
+        }
+        check("gather: crc32 of the check string", core::crc32("123456789") == 0xCBF43926u);
+
+        const fs::path root = fs::temp_directory_path() / "jot_selftest_gather";
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        fs::create_directories(root / "attachments", ec);
+        fs::create_directories(root / "out", ec);
+        fs::create_directories(root / "elsewhere", ec);
+        const auto put = [](const fs::path& p, const std::string& bytes) {
+            std::ofstream o(p, std::ios::binary);
+            o << bytes;
+        };
+        const auto get = [](const fs::path& p) {
+            std::ifstream i(p, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(i)), std::istreambuf_iterator<char>());
+        };
+        put(root / "attachments" / "w2-2026.pdf", "%PDF w2");
+        put(root / "attachments" / "hsa-a.pdf", "%PDF hsa one");
+        put(root / "attachments" / "pasted-20261006-101010.jpg", std::string("\xff\xd8 jpeg\0bytes", 13));
+        put(root / "elsewhere" / "Bank Statement.PDF", "%PDF bank");
+        core::AttachStore store;
+        store.dir = (root / "attachments").string();
+        const std::string linked = core::file_uri((root / "elsewhere" / "Bank Statement.PDF").string());
+        const std::string body =
+            "Send to Pat by March.\n"
+            "- [ ] W-2 (employer) [w2](attachments/w2-2026.pdf)\n"
+            "- [x] Property tax receipt\n"
+            "- [ ] HSA: 5498 [a](attachments/hsa-a.pdf) ![b](attachments/pasted-20261006-101010.jpg)\n"
+            "- [ ] 1099-INT (bank) [s](" + linked + ")\n";
+        const auto st = core::packet_state(body);
+        const std::int64_t when = 1'791'300'000;   // a fixed moment
+        const auto plan = core::gather_plan("Taxes 2026", st, store, when);
+        std::vector<std::string> names;
+        for (const auto& f : plan.files) names.push_back(f.as);
+        check("gather: every file under its ITEM's name, numbered by place",
+              names == std::vector<std::string>{"01 W-2 (employer).pdf", "03 HSA 5498 - 1.pdf",
+                                                "03 HSA 5498 - 2.jpg", "04 1099-INT (bank).PDF"},
+              names.size() > 1 ? names[1] : std::string("?"));
+        check("gather: a complete packet has no problems, one paper item",
+              plan.problems.empty() && plan.paper == 1, std::to_string(plan.problems.size()));
+        check("gather: the folder is the packet's name and the day",
+              plan.name.rfind("Taxes 2026 - 20", 0) == 0 && plan.name.size() == 23, plan.name);
+        check("gather: Contents names each item, says where the paper one is, and what a file was",
+              plan.contents.find("02  Property tax receipt\n      paper copy") != std::string::npos &&
+                  plan.contents.find("01 W-2 (employer).pdf   (was w2-2026.pdf)") != std::string::npos &&
+                  plan.contents.find("4 items, 4 files.") != std::string::npos,
+              plan.contents);
+
+        // Refusals: not all in; a file gone.
+        const auto half = core::packet_state("- [ ] W-2 [w2](attachments/w2-2026.pdf)\n- [ ] 1099\n");
+        const auto hp = core::gather_plan("Half", half, store, when);
+        std::string made, err;
+        check("gather: an incomplete packet is refused and makes nothing",
+              !hp.problems.empty() && !core::gather_to_folder(hp, (root / "out").string(), made, err) &&
+                  fs::is_empty(root / "out"), err);
+        const auto gone = core::gather_plan("Gone", core::packet_state("- [ ] x [x](attachments/nope.pdf)\n"),
+                                            store, when);
+        check("gather: a file that is not there is a problem by name",
+              gone.problems.size() == 1 && gone.problems[0] == "x: nope.pdf is not there", 
+              gone.problems.empty() ? "" : gone.problems[0]);
+
+        // Into a folder.
+        const bool ok = core::gather_to_folder(plan, (root / "out").string(), made, err);
+        const fs::path dir = made;
+        check("gather/folder: made, with Contents and every file, bytes intact",
+              ok && fs::is_directory(dir) && dir.filename() == plan.name &&
+                  get(dir / core::kContentsName) == plan.contents &&
+                  get(dir / "01 W-2 (employer).pdf") == "%PDF w2" &&
+                  get(dir / "03 HSA 5498 - 2.jpg") == std::string("\xff\xd8 jpeg\0bytes", 13) &&
+                  get(dir / "04 1099-INT (bank).PDF") == "%PDF bank",
+              err);
+        std::string made2;
+        check("gather/folder: again the same day -> a second folder, (2), no .part left",
+              core::gather_to_folder(plan, (root / "out").string(), made2, err) &&
+                  fs::path(made2).filename() == plan.name + " (2)" &&
+                  std::distance(fs::directory_iterator(root / "out"), fs::directory_iterator{}) == 2,
+              made2);
+        check("gather/folder: the attachments are untouched",
+              get(root / "attachments" / "w2-2026.pdf") == "%PDF w2" &&
+                  fs::exists(root / "elsewhere" / "Bank Statement.PDF"));
+
+        // Into a zip -- read back by walking its central directory.
+        const std::string zp = (root / "out" / "packet.zip").string();
+        check("gather/zip: written", core::gather_to_zip(plan, zp, err) && !fs::exists(zp + ".jot-tmp"), err);
+        {
+            const std::string z = get(zp);
+            const auto u16 = [&](std::size_t at) {
+                return static_cast<unsigned>(static_cast<unsigned char>(z[at])) |
+                       static_cast<unsigned>(static_cast<unsigned char>(z[at + 1])) << 8;
+            };
+            const auto u32 = [&](std::size_t at) {
+                return static_cast<std::uint32_t>(u16(at)) | static_cast<std::uint32_t>(u16(at + 2)) << 16;
+            };
+            const std::size_t eocd = z.size() >= 22 ? z.size() - 22 : 0;
+            bool good = z.size() > 22 && u32(eocd) == 0x06054b50u && u16(eocd + 10) == plan.files.size() + 1;
+            std::vector<std::string> got;
+            std::size_t at = good ? u32(eocd + 16) : 0;
+            for (unsigned i = 0; good && i < u16(eocd + 10); ++i) {
+                good = u32(at) == 0x02014b50u && u16(at + 10) == 0 && (u16(at + 8) & 0x800);
+                const std::uint32_t crc = u32(at + 16), size = u32(at + 20), local = u32(at + 42);
+                const unsigned nl = u16(at + 28);
+                const std::string name = z.substr(at + 46, nl);
+                const std::size_t data = local + 30 + u16(local + 26) + u16(local + 28);
+                good = good && u32(local) == 0x04034b50u && core::crc32(z.substr(data, size)) == crc;
+                if (name == plan.name + "/01 W-2 (employer).pdf") good = good && z.substr(data, size) == "%PDF w2";
+                got.push_back(name);
+                at += 46 + nl + u16(at + 30) + u16(at + 32);
+            }
+            check("gather/zip: a stored zip whose CRCs and bytes check out",
+                  good && got.size() == 5 && got[0] == plan.name + "/" + core::kContentsName &&
+                      got[4] == plan.name + "/04 1099-INT (bank).PDF",
+                  got.empty() ? "unreadable" : got.back());
+        }
+
+        // The stamp: a field, through every door.
+        core::MemoryNodes m;
+        const auto t = m.create("", "Taxes");
+        check("gather/stamp: sets, and a no-op is refused",
+              m.set_sent(t, when, zp) && m.find(t)->sent == when && m.find(t)->sent_to == zp &&
+                  !m.set_sent(t, when, zp) && m.set_sent(t, 0, "") && m.find(t)->sent == 0);
+        check("gather/stamp: the line says when and what",
+              core::sent_line(when, zp).rfind("Sent ", 0) == 0 &&
+                  core::sent_line(when, zp).find("·  packet.zip") != std::string::npos &&
+                  core::sent_line(0, zp).empty(),
+              core::sent_line(when, zp));
+        const std::string jd = (root / "jots").string();
+        core::NodeId a, b;
+        {
+            core::Project v;
+            v.open(jd);
+            a = v.create("", "Taxes 2026");
+            b = v.create("", "plain");
+            v.set_packet(a, true);
+            v.set_sent(a, when, zp);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(jd);
+            check("gather/jots: the stamp survives a reopen, only where it was set",
+                  v.find(a) && v.find(a)->sent == when && v.find(a)->sent_to == zp && v.find(b) &&
+                      v.find(b)->sent == 0 && v.find(b)->sent_to.empty());
+        }
+        fs::remove_all(root, ec);
     }
 
     // ── s045: undo in the navigator ────────────────────────────────────────
@@ -5571,7 +5736,8 @@ int main() {
                     const core::Task& t = n->task;
                     out += std::string(static_cast<std::size_t>(d) * 2, ' ') + id + " [" + n->title + "] {" +
                            n->body + "} p" + std::to_string(n->protect) + " i" + std::to_string(n->inbox) +
-                           " k" + std::to_string(n->packet) + " t" + std::to_string(t.is_task) +
+                           " k" + std::to_string(n->packet) + " s" + std::to_string(n->sent) + n->sent_to +
+                           " t" + std::to_string(t.is_task) +
                            std::to_string(t.done) + std::to_string(t.flagged) + " due" +
                            std::to_string(t.due) + " def" + std::to_string(t.defer) + " st" +
                            std::to_string(static_cast<int>(t.status)) + " ps" +
@@ -5620,6 +5786,7 @@ int main() {
             {"set_protect", [](Rig& r) { r.u.set_protect(r.home, true); }, "Protect"},
             {"set_inbox", [](Rig& r) { r.u.set_inbox(r.loose, false); }, "Out of the Inbox"},
             {"set_packet", [](Rig& r) { r.u.set_packet(r.taxes, true); }, "Packet"},
+            {"set_sent", [](Rig& r) { r.u.set_sent(r.taxes, 1'800'000'000, "/tmp/Taxes.zip"); }, "Sent"},
             {"move", [](Rig& r) { r.u.move(r.home, r.taxes, 0); }, "Move"},
             {"remove", [](Rig& r) { r.u.remove(r.taxes); }, "Delete “Taxes”"},
             {"restore", [](Rig& r) { core::Node n; n.id = "back"; n.title = "Back"; r.u.restore(n, 0); }, "Restore"},

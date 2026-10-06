@@ -210,6 +210,12 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Make a note a packet: a set of things the work needs",
          "Each checkbox line is an item. It is in when a file is dropped onto its line, or "
          "ticked (a paper copy). Note details says \u201c3 of 5 in \u00b7 missing: ...\u201d."},
+        {"Projects", "", "Note details \u203a Packet \u203a Gather for sending: Folder\u2026 / Zip\u2026",
+         "Send a packet once everything is in",
+         "Every item's file is copied into one new folder, or one zip, named for its item "
+         "(\u201c01 W-2 (employer).pdf\u201d) with a Contents list that also names the paper "
+         "copies. The packet is stamped \u201cSent\u201d with the date; the folder button beside "
+         "it shows where it went. Ctrl+Z takes the stamp back (the copies stay)."},
 
         // ── Today ───────────────────────────────────────────────────────────
         {"Today", "", "Today tab", "What you can actually do now",

@@ -153,6 +153,9 @@ public:
     sigc::signal<void(std::string)>& signal_tag_remove() { return m_sig_tag_remove; }
     // s037: "Reviewed" pressed. The Shell marks it (and walks on, in Review).
     sigc::signal<void()>& signal_reviewed() { return m_sig_reviewed; }
+    // s051: Gather for sending -- "folder" or "zip" -- and "show" (the last
+    // one made, in Files). The Shell asks where, gathers and stamps.
+    sigc::signal<void(std::string)>& signal_gather() { return m_sig_gather; }
 
 private:
     // One collapsible section (s016a). The header is a flat button: arrow,
@@ -344,6 +347,16 @@ private:
     // s044 (J2): the packet -- a mark and what it adds up to.
     widgets::CheckButton m_packet_check;
     widgets::Label       m_packet_says;
+    // s051: Gather for sending -- the line it adds up to, the two ways out,
+    // and the stamp once it has gone.
+    widgets::Box         m_gather_row;
+    widgets::Label       m_gather_label;
+    widgets::Button      m_gather_folder;
+    widgets::Button      m_gather_zip;
+    widgets::Box         m_sent_row;
+    widgets::Label       m_sent_says;
+    widgets::Button      m_sent_show;
+    sigc::signal<void(std::string)> m_sig_gather;
     widgets::Box         m_proj_body;
     widgets::Label       m_proj_dates_note;
     // Flag, Due and Defer: ONE set of controls, shown with the todo when the

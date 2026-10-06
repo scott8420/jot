@@ -119,6 +119,7 @@ add_library(jot_core STATIC
     src/core/RowLook.cpp
     # s044 (J2): a packet -- required items, each in when a file sits on its line.
     src/core/Packet.cpp
+    src/core/Gather.cpp
     # s045: undo / redo for the navigator's verbs -- two pictures per step.
     src/core/Undo.cpp
     src/core/Selection.cpp   # s047

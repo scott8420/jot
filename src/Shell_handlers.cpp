@@ -1,5 +1,7 @@
 #include <algorithm>
 #include "Shell.hpp"
+#include "core/Gather.hpp"
+#include "core/Packet.hpp"
 #include "Appearance.hpp"
 #include "AboutWindow.hpp"
 #include "CheatSheetWindow.hpp"
@@ -321,6 +323,113 @@ void Shell::on_mark_reviewed() {  // handler: mark the selection reviewed
         if (!next.empty()) on_goto_note(next);
     }
     update_note_actions();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// s051 (J2): GATHER FOR SENDING. A packet whose items are all in: ask where,
+// copy every item's file there under the item's own name (core/Gather), then
+// stamp the packet sent -- through the undo door, so Ctrl+Z takes the stamp
+// back (the copies, being the user's now, stay where they were made). The
+// choice is for THAT note: if another is on screen when the dialog returns,
+// it still gathers the one it was asked for.
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::on_packet_gather(std::string how) {  // handler: Gather for sending
+    const auto id = m_tree->selected();
+    const core::Node* n = (m_store && !id.empty()) ? m_store->find(id) : nullptr;
+    if (!n || !n->packet) return;
+
+    if (how == "show") {
+        std::error_code ec;
+        if (n->sent_to.empty() || !std::filesystem::exists(n->sent_to, ec)) {
+            report_problem("That is not there any more",
+                           n->sent_to.empty() ? std::string("jot does not know where it went.")
+                                              : n->sent_to + " has been moved or deleted.");
+            return;
+        }
+        auto launcher = Gtk::FileLauncher::create(Gio::File::create_for_path(n->sent_to));
+        launcher->open_containing_folder(*this, [this, launcher](Glib::RefPtr<Gio::AsyncResult>& r) {
+            try {
+                launcher->open_containing_folder_finish(r);
+            } catch (const Glib::Error& e) {
+                if (e.matches(GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED)) return;
+                report_problem("Could not show it in Files", e.what());
+            }
+        });
+        return;
+    }
+
+    const core::AttachStore* store = attach_store();
+    const core::PacketState st = core::packet_state(n->body);
+    const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    const core::GatherPlan plan =
+        core::gather_plan(n->title, st, store ? *store : core::AttachStore{}, now);
+    if (auto lg = log::get(log::Area::Io))
+        lg->info("gather: {} '{}' -- {} of {} in, {} file(s), {} paper, {} problem(s)", how, n->title,
+                 st.in, st.total, plan.files.size(), plan.paper, plan.problems.size());
+    if (!st.complete()) {
+        report_problem("Not everything is in yet", core::packet_line(st));
+        return;
+    }
+    if (!plan.problems.empty()) {
+        std::string detail;
+        for (const auto& p : plan.problems) detail += p + "\n";
+        report_problem("Some of its files are not there", detail +
+                       "\nRelink them from Note details › Enclosures, then gather again.");
+        return;
+    }
+
+    // Start where the last one went, else at home.
+    std::string start = Glib::get_home_dir();
+    {
+        std::error_code ec;
+        const auto last = std::filesystem::path(n->sent_to).parent_path();
+        if (!n->sent_to.empty() && std::filesystem::is_directory(last, ec)) start = last.string();
+    }
+    auto dialog = Gtk::FileDialog::create();
+    dialog->set_initial_folder(Gio::File::create_for_path(start));
+
+    const auto finish = [this, id, now](bool ok, const std::string& made, const std::string& err) {
+        if (!ok) {
+            report_problem("Could not gather it", err);
+            return;
+        }
+        m_undo.set_sent(id, now, made);
+        if (auto lg = log::get(log::Area::Io)) lg->info("gather: sent {} -> {}", id, made);
+        queue_drawer_refresh();
+    };
+
+    if (how == "zip") {
+        dialog->set_title("Gather for sending \u2014 save the zip");
+        dialog->set_initial_name(plan.name + ".zip");
+        dialog->save(*this, [this, dialog, plan, finish](Glib::RefPtr<Gio::AsyncResult>& r) {
+            Glib::RefPtr<Gio::File> picked;
+            try {
+                picked = dialog->save_finish(r);
+            } catch (const Glib::Error&) {
+                return;   // cancelled
+            }
+            if (!picked || picked->get_path().empty()) return;
+            std::string err;
+            const std::string path = picked->get_path();
+            const bool ok = core::gather_to_zip(plan, path, err);
+            finish(ok, path, err);
+        });
+        return;
+    }
+    dialog->set_title("Gather for sending \u2014 choose where the folder goes");
+    dialog->set_accept_label("Gather Here");
+    dialog->select_folder(*this, [this, dialog, plan, finish](Glib::RefPtr<Gio::AsyncResult>& r) {
+        Glib::RefPtr<Gio::File> dir;
+        try {
+            dir = dialog->select_folder_finish(r);
+        } catch (const Glib::Error&) {
+            return;   // cancelled
+        }
+        if (!dir || dir->get_path().empty()) return;
+        std::string made, err;
+        const bool ok = core::gather_to_folder(plan, dir->get_path(), made, err);
+        finish(ok, made, err);
+    });
 }
 
 // s037b. ⋮ › Project › Is a Project: said on purpose, the opposite of what

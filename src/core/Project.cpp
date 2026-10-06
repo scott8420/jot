@@ -476,6 +476,8 @@ bool Project::load_project(std::vector<Node>& out) const {
             n.task.mark = e["is_project"].get<bool>() ? ProjectMark::On : ProjectMark::Off;
         n.inbox        = e.value("inbox", false);   // s028; absent == processed
         n.packet       = e.value("packet", false);  // s044; absent == not a packet
+        n.sent         = e.value("sent", std::int64_t{0});       // s051; absent == not sent
+        n.sent_to      = e.value("sent_to", std::string{});
         if (!n.id.empty()) out.push_back(std::move(n));
     }
     return true;
@@ -571,6 +573,8 @@ bool Project::save_project() const {
                 e["is_project"] = n->task.mark == ProjectMark::On;
             if (n->inbox)                      e["inbox"]   = true;   // s028, same rule
             if (n->packet)                     e["packet"]  = true;   // s044, same rule
+            if (n->sent != 0)                  e["sent"]    = n->sent;          // s051
+            if (!n->sent_to.empty())           e["sent_to"] = n->sent_to;
             j["nodes"].push_back(std::move(e));
         }
         const auto kids = children(id);
@@ -659,6 +663,14 @@ bool Project::set_inbox(const NodeId& id, bool on) {
 // s044: the packet mark is structure, like the Inbox mark.
 bool Project::set_packet(const NodeId& id, bool on) {
     if (!MemoryNodes::set_packet(id, on)) return false;
+    m_structure_dirty = true;
+    flush();
+    return true;
+}
+
+// s051: the sent stamp too.
+bool Project::set_sent(const NodeId& id, std::int64_t when, const std::string& to) {
+    if (!MemoryNodes::set_sent(id, when, to)) return false;
     m_structure_dirty = true;
     flush();
     return true;
