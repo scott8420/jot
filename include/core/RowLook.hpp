@@ -91,4 +91,14 @@ std::string summary_text(const ViewSummary& v);   // "Nothing to do" when empty
 std::string accent_css(double r, double g, double b);
 inline constexpr const char* kDefaultAccent = "#3584e4";   // GNOME's blue
 
+// s050b. "#rrggbb", exactly (what Prefs::accent holds when it is not "").
+bool is_hex_colour(const std::string& s);
+
+// s050b. The swatches in Preferences: GNOME's own accent set, so a picked
+// one matches the rest of the desktop.
+struct AccentPreset { const char* name; const char* hex; };
+const std::vector<AccentPreset>& accent_presets();
+// "Purple" for a preset's hex, "Custom" for any other colour, "" for "".
+std::string accent_name(const std::string& hex);
+
 }  // namespace jot::core

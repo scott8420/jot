@@ -1,4 +1,5 @@
 #include "Shell.hpp"
+#include "Appearance.hpp"
 #include "AboutWindow.hpp"      // complete type for ~unique_ptr<AboutWindow> in ~Shell()
 #include "CheatSheetWindow.hpp"  // s030 -- same singleton shape, same dtor requirement
 #include "ShortcutsDialog.hpp"  // ditto -- same singleton shape, same dtor requirement
@@ -83,6 +84,7 @@ void Shell::build_ui() {
     // showing the opposite of the layout for one frame.
     m_prefs_file = prefs_file();
     m_prefs      = core::load_prefs(m_prefs_file);
+    appearance::set_chosen_accent(m_prefs.accent);   // s050b: before the first frame
     // Named now, created on the first image that needs it -- a scratch buffer
     // nobody drops a picture into never touches the disk.
     m_scratch_attach.dir =

@@ -92,6 +92,11 @@ struct Prefs {
     // one, whichever this says (s019c: Ctrl+Shift never reaches jot on GNOME
     // Wayland; Shift arrives as the MOVE action).
     bool drop_links = false;
+    // s050b: the selection colour (Scott: "use system coloring or custom").
+    // "" follows the desktop's accent (the settings portal); otherwise
+    // "#rrggbb" -- one of core::accent_presets() or any colour picked.
+    // Anything else read from the file is dropped back to "".
+    std::string accent;
 
     // ── the second fingerprint, and why it is a LIST ───────────────────────
     // m_desktop_sig remembers what the desktop was last SENT -- one string,

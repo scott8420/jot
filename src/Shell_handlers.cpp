@@ -1,5 +1,6 @@
 #include <algorithm>
 #include "Shell.hpp"
+#include "Appearance.hpp"
 #include "AboutWindow.hpp"
 #include "CheatSheetWindow.hpp"
 #include "ShortcutsDialog.hpp"
@@ -840,6 +841,15 @@ void Shell::on_preferences() {  // handler: open the preferences window
             [this](bool) { activate_action("win.toggle-background"); });
         // s019: no menu item mirrors this one, so no action -- the box is
         // the only writer, and the Shell just keeps and saves it.
+        // s050b: the highlight colour. Like drop_links, the row is its only
+        // writer; the Shell keeps it and Appearance repaints.
+        m_preferences->signal_accent_chosen().connect([this](std::string hex) {
+            m_prefs.accent = hex;
+            core::save_prefs(m_prefs_file, m_prefs);
+            appearance::set_chosen_accent(hex);
+            if (auto lg = log::get(log::Area::App))
+                lg->info("highlight colour: {}", hex.empty() ? "the desktop's" : hex);
+        });
         m_preferences->signal_drop_links_toggled().connect([this](bool on) {
             m_prefs.drop_links = on;
             core::save_prefs(m_prefs_file, m_prefs);
@@ -852,6 +862,7 @@ void Shell::on_preferences() {  // handler: open the preferences window
     m_preferences->set_notify_on(m_prefs.notify_due);
     m_preferences->set_background_on(m_prefs.background);
     m_preferences->set_drop_links_on(m_prefs.drop_links);
+    m_preferences->set_accent(m_prefs.accent, appearance::desktop_accent());   // s050b
     m_preferences->show(*this);
 }
 

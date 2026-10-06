@@ -1,4 +1,8 @@
 #include "PreferencesWindow.hpp"
+#include <gtkmm/colordialog.h>
+#include <gtkmm/stylecontext.h>
+#include <gtkmm/cssprovider.h>
+#include "core/RowLook.hpp"
 
 #include "Keybinding.hpp"
 #include "Log.hpp"
@@ -51,6 +55,7 @@ PreferencesWindow::PreferencesWindow() {
     m_grid.set_hexpand(true);
 
     int r = 0;
+    r = build_look_section(r);   // s050b: first -- the one you see before you read
     r = add_heading("Capture", r);
     r = build_hotkey_section(r);
     // s016a: one heading per FEATURE, where s014 had one heading for all three
@@ -216,6 +221,111 @@ int PreferencesWindow::build_enclosure_section(int row) {
                    "says when it has changed or gone missing. Hold Shift "
                    "while dropping to do the other one.", row);
     return row;
+}
+
+// s050b (Scott: "allow the user to choose their highlight colors ... use
+// system coloring or custom"). The Mac's row of accent dots: the first is
+// System (a multicolour dot -- follow GNOME), then GNOME's own nine, then a
+// colour button for anything else. The line under it says what is in force.
+int PreferencesWindow::build_look_section(int row) {
+    auto css = Gtk::CssProvider::create();
+    std::string sheet =
+        ".jot-swatch { min-width: 22px; min-height: 22px; padding: 0; border-radius: 999px; "
+        "border: 2px solid alpha(currentColor, 0.15); box-shadow: none; }\n"
+        ".jot-swatch:checked { border: 2px solid @theme_bg_color; "
+        "box-shadow: 0 0 0 2px alpha(currentColor, 0.75); }\n"
+        ".jot-swatch-system { background-color: #3584e4; background-image: linear-gradient(135deg, "
+        "#3584e4, #9141ac 30%, #e62d42 50%, #ed5b00 65%, #c88800 80%, #3a944a); }\n";
+    for (const auto& p : core::accent_presets())
+        sheet += std::string(".jot-swatch-") + p.name + " { background-color: " + p.hex +
+                 "; background-image: none; }\n";
+    css->load_from_data(sheet);
+    Gtk::StyleContext::add_provider_for_display(get_display(), css,
+                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+    auto* line = Gtk::make_managed<widgets::Box>("prefs.accent.row", Gtk::Orientation::HORIZONTAL, 8);
+    auto add = [&](const std::string& key, const std::string& hex, const std::string& tip) {
+        auto* b = Gtk::make_managed<widgets::ToggleButton>("prefs.accent." + key);
+        b->add_css_class("jot-swatch");
+        b->add_css_class("jot-swatch-" + key);
+        b->set_valign(Gtk::Align::CENTER);
+        b->set_tooltip_text(tip);
+        b->signal_toggled().connect([this, b, hex]() {
+            if (m_setting) return;
+            if (!b->get_active()) { show_accent(); return; }   // a pressed dot stays pressed
+            choose_accent(hex);
+        });
+        m_swatches.push_back({hex, b});
+        line->append(*b);
+    };
+    add("system", "", "System — follow GNOME's accent colour (Settings › Appearance)");
+    for (const auto& p : core::accent_presets()) add(p.name, p.hex, p.name);
+
+    m_custom = Gtk::make_managed<widgets::ColorDialogButton>("prefs.accent.custom",
+                                                             Gtk::ColorDialog::create());
+    m_custom->get_dialog()->set_with_alpha(false);
+    m_custom->get_dialog()->set_title("Highlight colour");
+    m_custom->set_tooltip_text("Any colour");
+    m_custom->set_valign(Gtk::Align::CENTER);
+    m_custom->property_rgba().signal_changed().connect([this]() {
+        if (m_setting) return;
+        const Gdk::RGBA c = m_custom->get_rgba();
+        const std::string hex = core::accent_css(c.get_red(), c.get_green(), c.get_blue());
+        if (!hex.empty()) choose_accent(hex);
+    });
+    line->append(*m_custom);
+
+    row = add_heading("Appearance", row);
+    row = add_row("Highlight colour", *line, row);
+    m_accent_says.set_halign(Gtk::Align::START);
+    m_accent_says.set_xalign(0.0f);
+    m_accent_says.set_wrap(true);
+    m_accent_says.add_css_class("dim-label");
+    m_grid.attach(m_accent_says, 1, row++, 1, 1);
+    show_accent();
+    return row;
+}
+
+void PreferencesWindow::choose_accent(const std::string& hex) {
+    m_accent = hex;
+    show_accent();
+    m_sig_accent.emit(hex);
+}
+
+void PreferencesWindow::set_accent(const std::string& chosen, const std::string& desktop) {
+    m_accent = chosen;
+    m_desktop_accent = desktop;
+    show_accent();
+}
+
+void PreferencesWindow::show_accent() {
+    m_setting = true;
+    bool any = false;
+    for (auto& sw : m_swatches) {
+        std::string a = m_accent, b = sw.hex;
+        for (auto* s : {&a, &b})
+            for (auto& ch : *s) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        const bool on = (a == b);
+        any = any || on;
+        sw.button->set_active(on);
+    }
+    if (m_custom) {   // shows the colour in force, so its dialog opens there
+        Gdk::RGBA c;
+        const std::string now = m_accent.empty()
+            ? (m_desktop_accent.empty() ? std::string(core::kDefaultAccent) : m_desktop_accent)
+            : m_accent;
+        if (c.set(now)) m_custom->set_rgba(c);
+    }
+    m_setting = false;
+    const std::string name = core::accent_name(m_accent);
+    if (m_accent.empty()) {
+        const std::string d = core::accent_name(m_desktop_accent);
+        m_accent_says.set_text("System: follows the accent you pick in GNOME Settings › Appearance"
+                               " (now " + (d == "Custom" ? m_desktop_accent : d) + ").");
+    } else {
+        m_accent_says.set_text(name == "Custom" ? "Custom: " + m_accent + "." : name + ".");
+    }
+    (void)any;
 }
 
 void PreferencesWindow::set_drop_links_on(bool on) {

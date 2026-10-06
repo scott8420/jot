@@ -5999,6 +5999,29 @@ int main() {
         check("accent: out of range is 'none set'", core::accent_css(-1, 0, 0).empty() &&
                                                      core::accent_css(0, 2, 0).empty());
         check("accent: NaN is 'none set'", core::accent_css(0, 0, std::nan("")).empty());
+        // s050b: the preference
+        check("accent pref: hex check", core::is_hex_colour("#9141ac") && !core::is_hex_colour("9141ac") &&
+                                         !core::is_hex_colour("#9141a") && !core::is_hex_colour("#zz41ac"));
+        check("accent pref: presets are GNOME's nine, all valid", core::accent_presets().size() == 9 &&
+              std::all_of(core::accent_presets().begin(), core::accent_presets().end(),
+                          [](const core::AccentPreset& p) { return core::is_hex_colour(p.hex); }));
+        check("accent pref: names", core::accent_name("#9141AC") == "Purple" &&
+                                    core::accent_name("#123456") == "Custom" && core::accent_name("").empty());
+        {
+            const auto dir = std::filesystem::temp_directory_path() / "jot_s050b_prefs";
+            std::filesystem::create_directories(dir);
+            const std::string file = (dir / "prefs.json").string();
+            core::Prefs a;
+            a.accent = "#9141ac";
+            core::save_prefs(file, a);
+            check("accent pref: round trip", core::load_prefs(file).accent == "#9141ac");
+            a.accent = "";
+            core::save_prefs(file, a);
+            check("accent pref: '' (follow the desktop) round trips", core::load_prefs(file).accent.empty());
+            { std::ofstream f(file); f << "{\"accent\": \"chartreuse\"}"; }
+            check("accent pref: junk in the file -> follow the desktop", core::load_prefs(file).accent.empty());
+            std::filesystem::remove_all(dir);
+        }
     }
 
     std::cout << "-----------------------------------------------\n";

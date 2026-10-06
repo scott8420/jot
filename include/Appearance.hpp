@@ -58,6 +58,8 @@
 // default alone rather than to force light and override a theme the user may
 // have chosen by other means.
 // ─────────────────────────────────────────────────────────────────────────────
+#include <string>
+
 namespace jot::appearance {
 
 // Apply the desktop's colour-scheme preference to this application, and keep
@@ -70,5 +72,13 @@ namespace jot::appearance {
 // GTK's default in place. A desktop with no portal, no GNOME schemas and no
 // opinion is a supported configuration, not an error.
 void follow_system();
+
+// s050b. The highlight colour chosen in Preferences: "#rrggbb", or "" to
+// follow the desktop's accent (read from the settings portal, live). Repaints
+// at once. Anything that is not a hex colour counts as "".
+void set_chosen_accent(const std::string& hex);
+// What the desktop's accent is right now (GNOME blue when it says nothing) --
+// for Preferences to show under "System".
+std::string desktop_accent();
 
 }  // namespace jot::appearance

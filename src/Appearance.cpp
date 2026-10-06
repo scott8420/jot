@@ -67,9 +67,10 @@ constexpr Palette kDark {"#ff7b9c", "#ffa348", "#f6d32d", "#78aeed", "#57e389"};
 // resolve paints NOTHING (the selection vanished under Xvfb). So jot asks the
 // settings portal itself (accent-color, GNOME 47+), live like dark mode, and
 // falls back to GNOME's blue.
-std::string g_accent = jot::core::kDefaultAccent;
+std::string g_accent = jot::core::kDefaultAccent;   // what the DESKTOP says
+std::string g_chosen;            // s050b: Preferences' pick; "" = follow the desktop
 bool        g_dark   = false;   // the scheme last applied, for an accent-only repaint
-std::string accent_ref() { return g_accent; }
+std::string accent_ref() { return g_chosen.empty() ? g_accent : g_chosen; }
 
 std::string sheet(bool dark) {
     const Palette& p = dark ? kDark : kLight;
@@ -110,6 +111,8 @@ std::string sheet(bool dark) {
     c += ".jot-tree row:selected { background-color: alpha(" + accent + ", 0.20); }\n";
     c += ".jot-tree row:selected:hover { background-color: alpha(" + accent + ", 0.26); }\n";
     c += ".jot-tree row:selected .jot-tree-card { background-color: alpha(" + accent + ", 0.06); }\n";
+    // s050b: and the keyboard ring, or a chosen orange wears a blue outline.
+    c += ".jot-tree row:focus-visible { outline-color: alpha(" + accent + ", 0.8); }\n";
     // The side pane a shade off the editor -- a Mac source list. A tint of
     // the text colour: darker on a light theme, a touch lighter on a dark one
     // (the way macOS does it in dark mode). Its lists go transparent so the
@@ -160,7 +163,8 @@ void apply_css(bool dark) {
     g_dark = dark;
     g_css->load_from_data(sheet(dark));
     if (auto lg = log::get(log::Area::App))
-        lg->info("appearance: stylesheet {} with accent {}", dark ? "dark" : "light", g_accent);
+        lg->info("appearance: stylesheet {} with accent {} ({})", dark ? "dark" : "light", accent_ref(),
+                 g_chosen.empty() ? "the desktop's" : "chosen in Preferences");
 }
 
 void apply(Scheme s) {
@@ -258,7 +262,7 @@ void set_accent(const std::string& hex) {
         lg->info("appearance: accent {}{}", want, hex.empty() ? " (none set; GNOME blue)" : "");
     if (want == g_accent) return;
     g_accent = want;
-    if (g_css) apply_css(g_dark);
+    if (g_css && g_chosen.empty()) apply_css(g_dark);   // a chosen colour stands
 }
 
 // Live updates. The desktop's dark toggle is a switch a person flips while
@@ -427,5 +431,15 @@ void try_gsettings() {
 void follow_system() {
     if (!try_portal()) try_gsettings();
 }
+
+// s050b. Preferences' highlight colour: "#rrggbb", or "" to follow the desktop.
+void set_chosen_accent(const std::string& hex) {
+    const std::string want = jot::core::is_hex_colour(hex) ? hex : std::string();
+    if (want == g_chosen) return;
+    g_chosen = want;
+    if (g_css) apply_css(g_dark);
+}
+
+std::string desktop_accent() { return g_accent; }
 
 }  // namespace jot::appearance

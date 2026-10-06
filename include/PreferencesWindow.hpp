@@ -1,4 +1,6 @@
 #pragma once
+#include <string>
+#include <vector>
 #include "widgets/Widgets.hpp"
 
 #include <gtkmm/eventcontrollerkey.h>
@@ -48,16 +50,23 @@ public:
     void set_notify_on(bool on);
     void set_background_on(bool on);
     void set_drop_links_on(bool on);
+    // s050b: the highlight colour -- "" (System) or "#rrggbb" -- and what the
+    // desktop's own accent is, for the line under the swatches.
+    void set_accent(const std::string& chosen, const std::string& desktop);
 
     sigc::signal<void(bool)>& signal_desktop_toggled()    { return m_sig_desktop; }
     sigc::signal<void(bool)>& signal_notify_toggled()     { return m_sig_notify; }
     sigc::signal<void(bool)>& signal_background_toggled() { return m_sig_background; }
     sigc::signal<void(bool)>& signal_drop_links_toggled() { return m_sig_drop_links; }
+    sigc::signal<void(std::string)>& signal_accent_chosen() { return m_sig_accent; }   // s050b
 
 private:
     int  build_hotkey_section(int row);
     int  build_running_section(int row);
     int  build_enclosure_section(int row);
+    int  build_look_section(int row);          // s050b
+    void choose_accent(const std::string& hex);   // a swatch or the picker -> the Shell
+    void show_accent();                           // swatches + the line, from m_accent
 
     // Read GNOME's settings and repaint the row from what is ACTUALLY there.
     void refresh_hotkey();
@@ -94,6 +103,18 @@ private:
     sigc::signal<void(bool)> m_sig_notify;
     sigc::signal<void(bool)> m_sig_background;
     sigc::signal<void(bool)> m_sig_drop_links;
+
+    // ── s050b: the highlight colour ────────────────────────────────────────
+    // One control: System, GNOME's nine, then any colour. Exclusive by hand
+    // (not a GTK toggle group) because a custom colour leaves NO swatch
+    // pressed, which a group cannot do.
+    struct Swatch { std::string hex; widgets::ToggleButton* button = nullptr; };
+    std::vector<Swatch>        m_swatches;   // [0] is System ("")
+    widgets::ColorDialogButton* m_custom = nullptr;
+    widgets::Label             m_accent_says{"prefs.accent.says"};
+    std::string                m_accent;            // "" or "#rrggbb"
+    std::string                m_desktop_accent;
+    sigc::signal<void(std::string)> m_sig_accent;
 
     Glib::RefPtr<Gtk::EventControllerKey> m_keys;
     bool m_grabbing  = false;   // the window is swallowing keys, waiting for a chord

@@ -4,6 +4,7 @@
 
 #include <ctime>
 
+#include <cctype>
 #include <cstdio>
 
 namespace jot::core {
@@ -155,6 +156,31 @@ std::string accent_css(double r, double g, double b) {
     char buf[8];
     std::snprintf(buf, sizeof buf, "#%02x%02x%02x", byte(r), byte(g), byte(b));
     return buf;
+}
+
+bool is_hex_colour(const std::string& s) {
+    if (s.size() != 7 || s[0] != '#') return false;
+    for (std::size_t i = 1; i < 7; ++i)
+        if (!std::isxdigit(static_cast<unsigned char>(s[i]))) return false;
+    return true;
+}
+
+const std::vector<AccentPreset>& accent_presets() {
+    static const std::vector<AccentPreset> k{
+        {"Blue", "#3584e4"},  {"Teal", "#2190a4"}, {"Green", "#3a944a"},
+        {"Yellow", "#c88800"}, {"Orange", "#ed5b00"}, {"Red", "#e62d42"},
+        {"Pink", "#d56199"},  {"Purple", "#9141ac"}, {"Slate", "#6f8396"},
+    };
+    return k;
+}
+
+std::string accent_name(const std::string& hex) {
+    if (hex.empty()) return {};
+    std::string low = hex;
+    for (auto& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (const auto& p : accent_presets())
+        if (low == p.hex) return p.name;
+    return "Custom";
 }
 
 }  // namespace jot::core
