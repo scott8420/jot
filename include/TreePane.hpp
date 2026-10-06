@@ -50,6 +50,10 @@ public:
     void set_source(core::NodeSource* src);      // category: glue
     void rebuild();                              // category: zone: the full repaint (timed)
     void select(const core::NodeId& id);         // category: glue
+    // s049: several at once (an undo putting a group back), `primary` among
+    // them. Ids with no row (gone, or under a folded parent) are skipped; one
+    // left, or `primary` not among them, is a plain select(primary).
+    void select_many(const std::vector<core::NodeId>& ids, const core::NodeId& primary);   // category: glue
     void focus_row(const core::NodeId& id);      // category: glue -- s045: select + keyboard focus
     // Select a node that may not currently be on screen: expand every collapsed
     // ancestor, rebuild, then select. select() alone is a NO-OP on a row that

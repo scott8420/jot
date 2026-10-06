@@ -152,6 +152,7 @@ void Journal::begin(const NodeSource& src, const std::string& label, const std::
     m_open = UndoStep{};
     m_open.label = label;
     m_open.merge = merge;
+    if (m_selection_of) m_open.selection = m_selection_of();   // s049
     m_open_seen.clear();
 }
 
@@ -238,6 +239,7 @@ std::string Journal::undo(NodeSource& src) {
     const UndoStep& st = m_steps[--m_at];
     apply(src, st.before, &st.after);
     m_last_focus = st.focus;
+    m_last_selection = st.selection;   // s049
     m_quiet = false;
     changed();
     return st.label;
@@ -250,12 +252,14 @@ std::string Journal::redo(NodeSource& src) {
     const UndoStep& st = m_steps[m_at++];
     apply(src, st.after, &st.before);
     m_last_focus = st.focus;
+    m_last_selection = st.selection;   // s049
     m_quiet = false;
     changed();
     return st.label;
 }
 
 void Journal::clear() {
+    m_last_selection.clear();   // s049
     m_steps.clear();
     m_at = 0;
     m_depth = 0;

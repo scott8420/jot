@@ -1,4 +1,5 @@
 #include "DrawerPane.hpp"
+#include "core/Undo.hpp"
 #include "core/Packet.hpp"
 #include "core/Review.hpp"
 #include "core/Tags.hpp"
@@ -140,6 +141,7 @@ const SectionSpec* spec_for(const std::string& key) {
 
 DrawerPane::DrawerPane(std::string_view name)
     : widgets::Box(name, Gtk::Orientation::VERTICAL, 0),
+      m_many_note("drawer.many_note"),
       m_scroll("drawer.scroll"),
       m_column("drawer.column", Gtk::Orientation::VERTICAL, 6),
       m_empty("drawer.empty"),
@@ -245,6 +247,13 @@ DrawerPane::DrawerPane(std::string_view name)
 
     build_task_block();
     build_tag_field();   // s035b
+    // s049: on top of Todo when several are selected -- what a set reaches.
+    m_many_note.set_xalign(0.0f);
+    m_many_note.set_wrap(true);
+    m_many_note.add_css_class("dim-label");
+    m_many_note.add_css_class("caption");
+    m_many_note.set_visible(false);
+    m_todo_sec.body->prepend(m_many_note);
 
 
     // ── Packet (s044, J2) ───────────────────────────────────────────────────
@@ -340,6 +349,12 @@ void DrawerPane::build_task_block() {
     m_todo.set_label("This is a todo");
     m_todo.signal_toggled().connect([this]() {
         if (m_loading || !m_src || m_id.empty()) return;
+        if (multi()) {   // s049: a mixed box goes ON first (the toggle rule)
+            const bool on = m_todo.get_active();
+            write_all(on ? "Make a todo" : "Not a todo", false,
+                      [&](const core::NodeId& id) { m_src->make_task(id, on); });
+            return;
+        }
         m_src->make_task(m_id, m_todo.get_active());
     });
     m_todo_sec.body->append(m_todo);
@@ -347,6 +362,12 @@ void DrawerPane::build_task_block() {
     m_done.set_label("Done");
     m_done.signal_toggled().connect([this]() {
         if (m_loading || !m_src || m_id.empty()) return;
+        if (multi()) {
+            const bool on = m_done.get_active();
+            write_all(on ? "Tick" : "Untick", true,
+                      [&](const core::NodeId& id) { m_src->set_done(id, on); });
+            return;
+        }
         m_src->set_done(m_id, m_done.get_active());
     });
     m_task_body.append(m_done);
@@ -356,6 +377,12 @@ void DrawerPane::build_task_block() {
                             "purpose \u2014 drag it up the list instead.");
     m_flag.signal_toggled().connect([this]() {
         if (m_loading || !m_src || m_id.empty()) return;
+        if (multi()) {
+            const bool on = m_flag.get_active();
+            write_all(on ? "Flag" : "Unflag", true,
+                      [&](const core::NodeId& id) { m_src->set_flagged(id, on); });
+            return;
+        }
         m_src->set_flagged(m_id, m_flag.get_active());
     });
     m_when_box.append(m_flag);
@@ -457,6 +484,17 @@ void DrawerPane::build_task_block() {
                                    "(watering the plants).");
     m_repeat_done.signal_toggled().connect([this]() {
         if (m_loading || !m_src || m_id.empty()) return;
+        if (multi()) {   // s049: only shown when they all repeat alike
+            const bool on = m_repeat_done.get_active();
+            write_all("Repeat", true, [&](const core::NodeId& id) {
+                const core::Node* n = m_src->find(id);
+                if (!n || !n->task.repeat.on() || n->task.repeat.from_done == on) return;
+                core::Repeat r = n->task.repeat;
+                r.from_done = on;
+                m_src->set_repeat(id, r);
+            });
+            return;
+        }
         const core::Node* n = m_src->find(m_id);
         if (!n) return;
         core::Repeat r = n->task.repeat;
@@ -703,10 +741,34 @@ void DrawerPane::commit_review() {
 // turning red, and the old value stays: silently storing 0 for "next thursday"
 // would drop a date the user thinks they set, which is the same class of
 // failure as a task wrongly hidden.
-void DrawerPane::commit_date(core::DateKind kind) {
+void DrawerPane::commit_date(core::DateKind kind, bool picked) {
     if (m_loading || !m_src || m_id.empty()) return;
     widgets::Entry& e = (kind == core::DateKind::Due) ? m_due : m_defer;
     const std::string text = std::string(e.get_text());
+    if (multi()) {
+        // s049. A mixed field left blank is "nothing typed", not "clear them
+        // all" -- leaving it must not wipe three different dates. The picker's
+        // No date is the way to clear.
+        const bool mixed = kind == core::DateKind::Due ? m_common.due.mixed : m_common.defer.mixed;
+        if (text.empty() && mixed && !picked) { e.remove_css_class("error"); return; }
+        if (!core::date_parses(text)) {
+            e.add_css_class("error");
+            if (auto lg = log::get(log::Area::Drawer))
+                lg->info("date '{}' on {} notes: refused (unparseable)", text, m_ids.size());
+            return;
+        }
+        e.remove_css_class("error");
+        const std::int64_t when =
+            core::parse_date(text, kind, static_cast<std::int64_t>(std::time(nullptr)));
+        const bool due = kind == core::DateKind::Due;
+        write_all(due ? "Due date" : "Defer date", true, [&](const core::NodeId& id) {
+            const core::Node* n = m_src->find(id);
+            if (!n || (due ? n->task.due : n->task.defer) == when) return;   // no bump for a re-read
+            if (due) m_src->set_due(id, when);
+            else     m_src->set_defer(id, when);
+        });
+        return;
+    }
     const core::Node* n = m_src->find(m_id);
     if (!n) return;
 
@@ -762,7 +824,7 @@ Gtk::Widget* DrawerPane::date_picker(core::DateKind kind) {
             if (sp != std::string::npos && core::date_parses(cur)) text += cur.substr(sp);
         }
         entry.set_text(text);
-        commit_date(kind);
+        commit_date(kind, true);
         pop->popdown();
     };
 
@@ -829,7 +891,7 @@ Gtk::Widget* DrawerPane::date_picker(core::DateKind kind) {
         *shown = {dt.get_year(), dt.get_month()};
         if (before_due) {
             const core::Node* n = m_src ? m_src->find(m_id) : nullptr;
-            before_due->set_sensitive(n && n->task.due != 0);
+            before_due->set_sensitive(!multi() && n && n->task.due != 0);   // s049: whose due?
         }
     });
     // Whether paging emits day-selected differs between GTK releases (4.14,
@@ -885,7 +947,7 @@ Gtk::Widget* DrawerPane::repeat_picker() {
         const std::string text = p.text;
         b->signal_clicked().connect([this, text, pop]() {
             m_repeat.set_text(text);
-            commit_repeat();
+            commit_repeat(true);
             pop->popdown();
         });
         col->append(*b);
@@ -922,7 +984,7 @@ Gtk::Widget* DrawerPane::estimate_picker() {
         const std::string text = p.text;
         b->signal_clicked().connect([this, text, pop]() {
             m_est.set_text(text);
-            commit_estimate();
+            commit_estimate(true);
             pop->popdown();
         });
         col->append(*b);
@@ -932,8 +994,9 @@ Gtk::Widget* DrawerPane::estimate_picker() {
     return mb;
 }
 
-void DrawerPane::commit_estimate() {
+void DrawerPane::commit_estimate(bool picked) {
     if (m_loading || !m_src || m_id.empty()) return;
+    if (multi() && m_est.get_text().empty() && m_common.estimate.mixed && !picked) return;   // s049
     const core::Node* n = m_src->find(m_id);
     if (!n) return;
     const int m = core::parse_estimate(std::string(m_est.get_text()));
@@ -944,14 +1007,22 @@ void DrawerPane::commit_estimate() {
         return;
     }
     m_est.remove_css_class("error");
+    if (multi()) {
+        write_all("Estimate", true, [&](const core::NodeId& id) {
+            const core::Node* k = m_src->find(id);
+            if (k && k->task.estimate != m) m_src->set_estimate(id, m);
+        });
+        return;
+    }
     if (m == n->task.estimate) return;
     m_src->set_estimate(m_id, m);
 }
 
 // s033. Same contract as commit_date: a rule that does not parse turns the
 // field red and changes nothing.
-void DrawerPane::commit_repeat() {
+void DrawerPane::commit_repeat(bool picked) {
     if (m_loading || !m_src || m_id.empty()) return;
+    if (multi() && m_repeat.get_text().empty() && m_common.repeat.mixed && !picked) return;   // s049
     const core::Node* n = m_src->find(m_id);
     if (!n) return;
     core::Repeat r = n->task.repeat;
@@ -963,6 +1034,18 @@ void DrawerPane::commit_repeat() {
         return;
     }
     m_repeat.remove_css_class("error");
+    if (multi()) {
+        // Each keeps its own "count from when it is done"; the rule is what is set.
+        const std::string text = std::string(m_repeat.get_text());
+        write_all("Repeat", true, [&](const core::NodeId& id) {
+            const core::Node* k = m_src->find(id);
+            if (!k) return;
+            core::Repeat want = k->task.repeat;
+            if (!core::repeat_parse(text, want) || want == k->task.repeat) return;
+            m_src->set_repeat(id, want);
+        });
+        return;
+    }
     if (r == n->task.repeat) return;
     m_src->set_repeat(m_id, r);
 }
@@ -1378,6 +1461,19 @@ void DrawerPane::show_node(const core::NodeId& id) {
     for (Section* sec : m_all) clear(*sec);
 
     const core::Node* n = (m_src && !id.empty()) ? m_src->find(id) : nullptr;
+    // s049: the selection is several and this note is one of them -- the
+    // pane is about what they share. (A primary outside the set is a stale
+    // set: the one note's pane until the tree says otherwise.)
+    if (n && multi() && std::find(m_ids.begin(), m_ids.end(), id) != m_ids.end()) {
+        show_many();
+        return;
+    }
+    m_many_note.set_visible(false);
+    m_name_head.set_text("Name");
+    for (auto* e : {&m_due, &m_defer}) e->set_placeholder_text("none");
+    m_repeat.set_placeholder_text("never");
+    m_est.set_placeholder_text("how long?");
+    for (auto* b : {&m_todo, &m_done, &m_flag}) b->set_inconsistent(false);
     if (!n) {
         m_id.clear();
         m_empty.set_visible(true);
@@ -1602,7 +1698,7 @@ void DrawerPane::fill_tags(const core::Node& n) {
     flow->set_max_children_per_line(20);
     flow->set_column_spacing(2);
     flow->set_row_spacing(2);
-    flow->set_halign(Gtk::Align::START);
+    flow->set_hexpand(true);   // s049: START left it one chip wide (the rest unseen)
     for (std::size_t i = 0; i < names.size(); ++i) {
         auto* chip = Gtk::make_managed<widgets::Box>(widgets::unregistered,
                                                      "drawer.tagchip." + keys[i],
@@ -1688,7 +1784,11 @@ void DrawerPane::fill_tag_picks() {
     if (!m_src) return;
     const core::Node* n = m_src->find(m_id);
     std::vector<std::string> mine;
-    if (n) mine = core::node_tag_keys(*n);
+    if (multi()) {   // s049: offer what not ALL of them carry
+        for (const auto& t : m_common.tags_all) mine.push_back(core::tag_key(t));
+    } else if (n) {
+        mine = core::node_tag_keys(*n);
+    }
     std::string want = core::tag_key(core::clean_tag_name(std::string(m_tag_entry->get_text())));
 
     int shown = 0;
@@ -2081,11 +2181,206 @@ void DrawerPane::fill_identity(const core::Node& n) {
 }  // namespace jot
 
 namespace jot {
-void DrawerPane::set_also_selected(std::size_t others) {
-    if (others == 0) { m_also.set_visible(false); return; }
-    m_also.set_text("+ " + std::to_string(others) + " more selected. Details below are this note's; "
-                    "Delete, Tick, Flag, Todo, Inbox and Move to\u2026 act on all " +
-                    std::to_string(others + 1) + ".");
-    m_also.set_visible(true);
+// s049. The tree's whole selection. Two or more and the pane shows what they
+// share; otherwise the one note's pane. Re-shows whatever is on screen, so a
+// Ctrl+click that only GROWS the set (the primary unchanged) still lands.
+void DrawerPane::set_selection(const std::vector<core::NodeId>& ids) {
+    std::vector<core::NodeId> next = ids.size() > 1 ? ids : std::vector<core::NodeId>{};
+    if (next == m_ids) return;
+    m_ids = std::move(next);
+    if (auto lg = log::get(log::Area::Drawer)) lg->info("selection: {} note(s)", ids.size());
+    if (!m_id.empty()) refresh();
+}
+
+std::size_t DrawerPane::write_all(const std::string& what, bool todos_only,
+                                  const std::function<void(const core::NodeId&)>& fn) {
+    const auto ids = core::writable(*m_src, m_ids, todos_only);
+    if (auto lg = log::get(log::Area::Drawer))
+        lg->info("set on many: {} -> {} of {} note(s)", what, ids.size(), m_ids.size());
+    if (ids.empty()) { refresh(); return 0; }   // nothing to write: put the controls back
+    {
+        core::Gesture g(*m_src, core::many_label(what, ids.size()));
+        for (const auto& id : ids) fn(id);
+    }
+    return ids.size();
+}
+
+void DrawerPane::show_field(widgets::Entry& e, bool mixed, const std::string& text, const char* plain) {
+    e.set_placeholder_text(mixed ? "mixed" : plain);
+    const std::string want = mixed ? std::string() : text;
+    // Only when it differs: a field being typed in is not rewritten under the cursor.
+    if (std::string(e.get_text()) != want && !e.has_focus()) e.set_text(want);
+    e.remove_css_class("error");
+}
+
+// The pane for two or more. What it is for is SETTING, so it keeps only what
+// can be set on many: Todo and Tags. Where a note sits, what it links to, its
+// file and its id are each one note's, and the tree is showing them.
+void DrawerPane::show_many() {
+    m_common = core::common(*m_src, m_ids);
+    const std::size_t n = m_common.count;
+
+    m_empty.set_visible(false);
+    m_also.set_visible(false);
+    m_copy_link.set_visible(false);
+    m_name.set_visible(false);
+    m_name_head.set_visible(true);
+    m_name_head.set_text(std::to_string(n) + " notes");
+    show_sections(false);
+    m_todo_sec.frame->set_visible(true);
+    m_tags.frame->set_visible(true);
+
+    fill_task_common();
+    fill_tags_common();
+    for (Section* sec : m_all)
+        if (sec->rows) sec->rows->set_visible(sec->rows->get_first_child() != nullptr);
+
+    if (auto lg = log::get(log::Area::Drawer))
+        lg->info("common: {} notes, {} todos, {} protected; due {} defer {} est {} repeat {} "
+                 "done {} flag {}; tags all {} some {}",
+                 n, m_common.todos, m_common.locked,
+                 m_common.due.mixed ? "mixed" : core::format_date(m_common.due.value),
+                 m_common.defer.mixed ? "mixed" : core::format_date(m_common.defer.value),
+                 m_common.estimate.mixed ? "mixed" : std::to_string(m_common.estimate.value),
+                 m_common.repeat.mixed ? "mixed" : core::repeat_text(m_common.repeat.value),
+                 m_common.done.mixed ? "mixed" : (m_common.done.value ? "on" : "off"),
+                 m_common.flagged.mixed ? "mixed" : (m_common.flagged.value ? "on" : "off"),
+                 m_common.tags_all.size(), m_common.tags_some.size());
+}
+
+void DrawerPane::fill_task_common() {
+    const core::Common& c = m_common;
+    m_loading = true;
+
+    // Mixed checkboxes show the dash; a click turns every one ON (the s047
+    // toggle rule), so it is cleared to "off" underneath.
+    auto box = [](widgets::CheckButton& b, const core::Shared<bool>& v) {
+        b.set_inconsistent(v.mixed);
+        b.set_active(!v.mixed && v.value);
+    };
+    box(m_todo, c.is_task);
+    const bool any_todo = c.todos > 0;
+    m_task_body.set_visible(any_todo);
+    place_when_box(true);              // dates live with the todo here, never the project
+    m_proj_dates_note.set_visible(false);
+
+    if (any_todo) {
+        box(m_done, c.done);
+        box(m_flag, c.flagged);
+        show_field(m_due, c.due.mixed, core::format_date(c.due.value), "none");
+        show_field(m_defer, c.defer.mixed, core::format_date(c.defer.value), "none");
+        show_field(m_est, c.estimate.mixed, core::format_estimate(c.estimate.value), "how long?");
+        show_field(m_repeat, c.repeat.mixed, core::repeat_text(c.repeat.value), "never");
+        m_repeat_done.set_active(!c.repeat.mixed && c.repeat.value.from_done);
+        m_repeat_done.set_visible(!c.repeat.mixed && c.repeat.value.on());
+
+        // The derived line, for many: how they stand, counted.
+        const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+        std::size_t avail = 0, done = 0, waiting = 0;
+        for (const auto& id : m_ids) {
+            const core::Node* k = m_src->find(id);
+            if (!k || !k->task.is_task) continue;
+            switch (core::availability(*m_src, id, now)) {
+                case core::Avail::Available: ++avail; break;
+                case core::Avail::Done:      ++done;  break;
+                case core::Avail::NotTask:   break;
+                default:                     ++waiting; break;
+            }
+        }
+        std::string why;
+        auto part = [&](std::size_t k, const char* w) {
+            if (!k) return;
+            if (!why.empty()) why += ", ";
+            why += std::to_string(k) + " " + w;
+        };
+        part(avail, "available");
+        part(waiting, "waiting");
+        part(done, "done");
+        m_avail.set_text(why.empty() ? std::string() : "Of the todos: " + why + ".");
+    }
+
+    // What a set reaches. Said once, in the section that does the setting.
+    std::string note = (c.count == 2 ? std::string("What both share")
+                                     : "What all " + std::to_string(c.count) + " share") +
+                       " shows as itself; "
+                       "“mixed” where they differ. A change here goes on all of them "
+                       "— one Ctrl+Z.";
+    if (any_todo && c.todos < c.count)
+        note += " Done, Flagged and the dates go on the " + std::to_string(c.todos) +
+                (c.todos == 1 ? " todo." : " todos.");
+    if (c.locked)
+        note += " " + std::to_string(c.locked) + " protected " +
+                (c.locked == 1 ? "note is" : "notes are") + " left alone.";
+    m_many_note.set_text(note);
+    m_many_note.set_visible(true);
+
+    for (auto* w : std::initializer_list<Gtk::Widget*>{&m_todo, &m_done, &m_flag, &m_repeat_done})
+        w->set_sensitive(c.locked < c.count);
+    for (auto* e : {&m_due, &m_defer, &m_repeat, &m_est}) e->set_editable(c.locked < c.count);
+    m_loading = false;
+}
+
+// Tags over many. A tag they ALL carry is a plain chip (x takes it off every
+// tag line it is on). A tag SOME carry says how many, with + to put it on the
+// rest and x to take it off the ones that have it on their line.
+void DrawerPane::fill_tags_common() {
+    const core::Common& c = m_common;
+    if (m_tag_entry) m_tag_entry->set_sensitive(c.locked < c.count);
+    set_count(m_tags, c.tags_all.size() + c.tags_some.size());
+    if (c.tags_all.empty() && c.tags_some.empty()) return;
+
+    auto* flow = Gtk::make_managed<widgets::FlowBox>(widgets::unregistered, "drawer.tags.flow");
+    flow->set_selection_mode(Gtk::SelectionMode::NONE);
+    flow->set_max_children_per_line(20);
+    flow->set_column_spacing(2);
+    flow->set_row_spacing(2);
+    flow->set_hexpand(true);   // s049: START left it one chip wide (the rest unseen)
+    auto chip = [&](const std::string& name, std::size_t carried) {
+        const std::string key = core::tag_key(name);
+        auto* box = Gtk::make_managed<widgets::Box>(widgets::unregistered, "drawer.tagchip." + key,
+                                                    Gtk::Orientation::HORIZONTAL, 0);
+        box->set_halign(Gtk::Align::START);
+        auto* b = Gtk::make_managed<widgets::Button>(widgets::unregistered, "drawer.tag." + key);
+        b->set_label("#" + name);
+        b->set_has_frame(false);
+        b->add_css_class("jot-drawer-tag");
+        b->set_tooltip_text("Show everything tagged #" + name);
+        b->signal_clicked().connect([this, name]() { m_sig_tag.emit(name); });
+        box->append(*b);
+        const bool some = carried < c.count;
+        if (some) {
+            auto* how = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.tag_some." + key);
+            how->set_text(std::to_string(carried) + " of " + std::to_string(c.count));
+            how->add_css_class("dim-label");
+            how->add_css_class("caption");
+            box->append(*how);
+        }
+        if (c.locked < c.count) {
+            if (some) {
+                auto* plus = Gtk::make_managed<widgets::Button>(widgets::unregistered,
+                                                                "drawer.tag_all." + key);
+                plus->set_label("+");
+                plus->set_has_frame(false);
+                plus->add_css_class("jot-drawer-tag-x");
+                plus->set_tooltip_text("Put #" + name + " on the other " +
+                                       std::to_string(c.count - carried));
+                plus->signal_clicked().connect([this, name]() { m_sig_tag_add.emit(name); });
+                box->append(*plus);
+            }
+            auto* x = Gtk::make_managed<widgets::Button>(widgets::unregistered, "drawer.tag_remove." + key);
+            x->set_label("×");
+            x->set_has_frame(false);
+            x->add_css_class("jot-drawer-tag-x");
+            x->set_tooltip_text(some ? "Take #" + name + " off the ones that have it on their tag line"
+                                     : "Take #" + name + " off all of them (a tag written in the text "
+                                       "stays -- remove it there)");
+            x->signal_clicked().connect([this, name]() { m_sig_tag_remove.emit(name); });
+            box->append(*x);
+        }
+        flow->append(*box);
+    };
+    for (const auto& t : c.tags_all) chip(t, c.count);
+    for (const auto& [t, k] : c.tags_some) chip(t, k);
+    m_tags.rows->append(*flow);
 }
 }  // namespace jot

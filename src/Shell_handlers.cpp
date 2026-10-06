@@ -382,6 +382,30 @@ void Shell::on_show_tags() {  // handler: Ctrl+Shift+T
 // put. The body comes from the editor's buffer, not the store, so an edit
 // typed a moment ago and not yet written through is not lost.
 void Shell::on_tag_edit(bool add, const std::string& name) {  // handler: tag field
+    // s049: several selected -- the tag goes on (or off) every one, ONE step.
+    // The note in the editor takes its edit through the editor (its buffer is
+    // the body's writer); the others are written through the door.
+    if (m_tree->selection_size() > 1) {
+        const auto ids = m_tree->selection();
+        const auto edits = core::tag_edits(m_undo, ids, name, add);
+        if (auto lg = log::get(log::Area::Shell))
+            lg->info("tag {} #{} on {} selected: {} edit(s)", add ? "add" : "remove", name,
+                     ids.size(), edits.size());
+        if (edits.empty()) return;
+        std::vector<core::NodeId> touched;
+        for (const auto& e : edits) touched.push_back(e.first);
+        const std::string label =
+            core::many_label((add ? "Add tag #" : "Remove tag #") + name, edits.size());
+        core::as_step(m_undo, label, touched, false, [&] {
+            for (const auto& [id, ed] : edits) {
+                if (id == m_editor->current()) m_editor->apply_outside_edit(ed);
+                else if (const core::Node* n = m_undo.find(id))
+                    m_undo.set_body(id, core::apply(n->body, ed));
+            }
+        });
+        queue_drawer_refresh();
+        return;
+    }
     const core::NodeId id = m_editor->current();
     if (id.empty() || !m_store->find(id)) return;
     const std::string body = m_editor->body_text();
@@ -1518,7 +1542,11 @@ void Shell::on_undo_nav() {  // handler: undo the last navigator step
     if (what.empty()) return;
     sync_editor_body();   // s046b: a step may have changed the text on screen
     const core::NodeId f = m_journal.last_focus();
-    if (!f.empty() && m_store->find(f)) { m_tree->select(f); on_selection_changed(f); }
+    if (!f.empty() && m_store->find(f)) {
+        // s049: a group set together comes back selected together.
+        m_tree->select_many(m_journal.last_selection(), f);
+        on_selection_changed(m_tree->selected());
+    }
     if (auto lg = log::get(log::Area::Shell)) lg->info("undo: {}", what);
     update_undo_actions();
     keys_to_tree(!f.empty() && m_store->find(f) ? f : core::NodeId{});   // s046: the next Ctrl+Z is the outline's too
@@ -1530,7 +1558,11 @@ void Shell::on_redo_nav() {  // handler: redo the last undone step
     if (what.empty()) return;
     sync_editor_body();   // s046b: a step may have changed the text on screen
     const core::NodeId f = m_journal.last_focus();
-    if (!f.empty() && m_store->find(f)) { m_tree->select(f); on_selection_changed(f); }
+    if (!f.empty() && m_store->find(f)) {
+        // s049: a group set together comes back selected together.
+        m_tree->select_many(m_journal.last_selection(), f);
+        on_selection_changed(m_tree->selected());
+    }
     if (auto lg = log::get(log::Area::Shell)) lg->info("redo: {}", what);
     update_undo_actions();
     keys_to_tree(!f.empty() && m_store->find(f) ? f : core::NodeId{});   // s046

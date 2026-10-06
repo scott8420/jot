@@ -226,7 +226,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // Note details says how many are selected.
     m_tree->signal_selection_changed().connect([this]() {
         update_note_actions();
-        if (m_drawer) m_drawer->set_also_selected(m_tree->selection_size() > 1 ? m_tree->selection_size() - 1 : 0);
+        if (m_drawer) m_drawer->set_selection(m_tree->selection());   // s049: what they share
     });
     m_tree->signal_selected().connect(
         sigc::mem_fun(*this, &Shell::on_selection_changed));

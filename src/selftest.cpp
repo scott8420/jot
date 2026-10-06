@@ -5895,6 +5895,101 @@ int main() {
         check("steps: none -> total 0", core::step_count(m, deep).total == 0);
     }
 
+    // ── s049: what several notes share, and a set on all of them ───────────
+    std::cout << "\n-- common metadata (s049) --\n";
+    {
+        core::MemoryNodes m;
+        const auto t1 = m.create("", "one"), t2 = m.create("", "two"), t3 = m.create("", "three");
+        const auto note = m.create("", "plain");
+        for (const auto& t : {t1, t2, t3}) m.make_task(t, true);
+        m.set_due(t1, 1800000000); m.set_due(t2, 1800000000); m.set_due(t3, 1800000000);
+        m.set_defer(t1, 1700000000);
+        m.set_estimate(t1, 30); m.set_estimate(t2, 30); m.set_estimate(t3, 30);
+        m.set_flagged(t2, true);
+        m.set_body(t1, "a\n\n#car #home");
+        m.set_body(t2, "b\n\n#car");
+        m.set_body(t3, "c #car in text");
+        using V = std::vector<core::NodeId>;
+        auto c = core::common(m, {t1, t2, t3});
+        check("common: three todos counted", c.count == 3 && c.todos == 3 && !c.is_task.mixed && c.is_task.value);
+        check("common: the same due shows as itself", !c.due.mixed && c.due.value == 1800000000);
+        check("common: one defer and two none -> mixed", c.defer.mixed);
+        check("common: one flagged -> mixed", c.flagged.mixed);
+        check("common: same estimate shows", !c.estimate.mixed && c.estimate.value == 30);
+        check("common: nobody repeats -> shared 'never'", !c.repeat.mixed && !c.repeat.value.on());
+        check("common: a tag all three carry (line or text) is shared",
+              c.tags_all == std::vector<std::string>{"car"});
+        check("common: a tag one carries is 'some', with its count",
+              c.tags_some.size() == 1 && c.tags_some[0].first == "home" && c.tags_some[0].second == 1);
+        auto c2 = core::common(m, {t1, note, "gone"});
+        check("common: a plain note makes 'is a todo' mixed; unknown ids dropped",
+              c2.count == 2 && c2.todos == 1 && c2.is_task.mixed);
+        check("common: todo fields read over the todos only", !c2.due.mixed && !c2.defer.mixed &&
+                                                              c2.defer.value == 1700000000);
+        m.set_protect(t3, true);
+        check("writable: protected left out", core::writable(m, {t1, t2, t3, note}, false) == V{t1, t2, note});
+        check("writable: todos only", core::writable(m, {t1, note, t2}, true) == V{t1, t2});
+        check("common: protected counted", core::common(m, {t1, t3}).locked == 1);
+        m.set_protect(t3, false);
+        check("label: one note, the verb alone", core::many_label("Due date", 1) == "Due date");
+        check("label: several, counted", core::many_label("Due date", 3) == "Due date 3 notes");
+
+        // Tags over many: only the notes it changes; a tag in text is not on the line.
+        auto adds = core::tag_edits(m, {t1, t2, t3}, "home", true);
+        check("tags: add goes to the ones without it", adds.size() == 2 && adds[0].first == t2 &&
+                                                        adds[1].first == t3);
+        auto rem = core::tag_edits(m, {t1, t2, t3}, "car", false);
+        check("tags: remove takes it off the line; 'in text' is left (removed where written)",
+              rem.size() == 2 && rem[0].first == t1 && rem[1].first == t2);
+
+        // Through the door: a set over three is ONE step, and one undo puts each back as it was.
+        core::Journal j;
+        core::UndoSource u(j, [&] { return static_cast<core::NodeSource*>(&m); });
+        {
+            core::Gesture g(u, core::many_label("Defer date", 3));
+            for (const auto& id : core::writable(u, {t1, t2, t3}, true)) u.set_defer(id, 1750000000);
+        }
+        check("set: defer on all three", m.find(t1)->task.defer == 1750000000 &&
+                                         m.find(t2)->task.defer == 1750000000 &&
+                                         m.find(t3)->task.defer == 1750000000);
+        check("set: one step, named for the many", j.size() == 1 && j.undo_label() == "Defer date 3 notes");
+        check("set: now shared", !core::common(m, {t1, t2, t3}).defer.mixed);
+        j.undo(m);
+        check("set: one undo -> each its own again (one had a defer, two none)",
+              m.find(t1)->task.defer == 1700000000 && m.find(t2)->task.defer == 0 &&
+                  m.find(t3)->task.defer == 0);
+        {
+            core::Gesture g(u, core::many_label("Add tag #home", 2));
+            for (const auto& [id, ed] : core::tag_edits(u, {t1, t2, t3}, "home", true))
+                u.set_body(id, core::apply(m.find(id)->body, ed));
+        }
+        auto c3 = core::common(m, {t1, t2, t3});
+        check("tags: after add-to-all, shared", std::find(c3.tags_all.begin(), c3.tags_all.end(), "home") !=
+                                                     c3.tags_all.end() && c3.tags_some.empty());
+        // s049: undo / redo hand back what was selected when the step was made.
+        {
+            core::Journal j2;
+            core::UndoSource u2(j2, [&] { return static_cast<core::NodeSource*>(&m); });
+            std::vector<core::NodeId> sel{t1, t2};
+            j2.set_selection_source([&] { return sel; });
+            core::as_step(u2, "Flag 2 notes", {t1, t2}, false, [&] { u2.set_flagged(t1, true); u2.set_flagged(t2, true); });
+            sel = {note};   // the user moved on
+            j2.undo(m);
+            check("selection: undo hands back the group selected at the time",
+                  j2.last_selection() == V{t1, t2});
+            j2.redo(m);
+            check("selection: ...and so does redo", j2.last_selection() == V{t1, t2});
+            core::Journal j3;   // no source: nothing to hand back
+            core::UndoSource u3(j3, [&] { return static_cast<core::NodeSource*>(&m); });
+            u3.set_flagged(t3, true);
+            j3.undo(m);
+            check("selection: no source said, none handed back", j3.last_selection().empty());
+        }
+        j.undo(m);
+        check("tags: one undo -> only the first has it", core::common(m, {t1, t2, t3}).tags_some.size() == 1 &&
+                                                         m.find(t2)->body == "b\n\n#car");
+    }
+
     std::cout << "-----------------------------------------------\n";
     std::cout << g_pass << " pass / " << g_fail << " fail\n";
     return g_fail == 0 ? 0 : 1;

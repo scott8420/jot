@@ -61,6 +61,7 @@ struct UndoStep {
     Snapshot    after;
     NodeId      focus;     // the node to select after undo / redo
     std::string merge;     // s046b: a later step with the same key, soon after, folds in
+    std::vector<NodeId> selection;   // s049: what was selected when it was made
     double      when = 0;  // s046b: the journal clock at commit (seconds)
 };
 
@@ -110,6 +111,11 @@ public:
     // The node the last undo / redo is about -- select it so the user SEES
     // what came back. Empty if none.
     NodeId last_focus() const { return m_last_focus; }
+    // s049. What was SELECTED when the last undone / redone step was made, if
+    // the Shell said (set_selection_source). Several notes set together come
+    // back selected together, so the next try reaches the same group.
+    const std::vector<NodeId>& last_selection() const { return m_last_selection; }
+    void set_selection_source(std::function<std::vector<NodeId>()> fn) { m_selection_of = std::move(fn); }
     std::string redo_label() const;
     // Each returns the step's label ("" if there was nothing to do).
     std::string undo(NodeSource& src);
@@ -137,6 +143,8 @@ private:
     double now() const;
     void changed() const { if (m_changed) m_changed(); }
     NodeId                m_last_focus;
+    std::vector<NodeId>   m_last_selection;              // s049
+    std::function<std::vector<NodeId>()> m_selection_of;  // s049
     const NodeSource*     m_seen = nullptr;   // a different store: forget every step
     // A different store: forget every step (not the gesture being opened).
     void guard(const NodeSource& src) {

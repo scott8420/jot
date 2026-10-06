@@ -2,12 +2,14 @@
 #include "core/Enclosures.hpp"
 #include "core/Links.hpp"
 #include "core/Nodes.hpp"
+#include "core/Selection.hpp"
 #include "core/Tasks.hpp"
 #include "widgets/Widgets.hpp"
 
 #include <gdkmm/texture.h>
 #include <sigc++/signal.h>
 
+#include <functional>
 #include <map>
 
 #include <string>
@@ -91,10 +93,11 @@ public:
 
     void set_source(core::NodeSource* src, const core::LinkIndex* index);
     void show_node(const core::NodeId& id);
-    // s047: how many OTHER notes are selected with the one shown. 0 hides the
-    // line; otherwise it says these details are the one note's, and which
-    // verbs reach all of them.
-    void set_also_selected(std::size_t others);
+    // s049: the whole selection, in document order (s047 said only how many
+    // others). Two or more and the pane shows what they SHARE -- a value every
+    // one has as itself, one that differs as "mixed" -- and a set writes to all
+    // of them as one step. One (or none) and it is the one note's pane.
+    void set_selection(const std::vector<core::NodeId>& ids);
 
     // A rename that happened SOMEWHERE ELSE (the tree, the editor's title).
     // Not show_node(): re-reading the whole node would rebuild every row and
@@ -193,17 +196,35 @@ private:
     // which is what stops an edit here from needing to know Today exists.
     void build_task_block();
     void fill_task(const core::Node& n);
-    void commit_date(core::DateKind kind);        // an entry -> the model
+    // `picked`: from a picker, so an empty field means "clear it" even over a
+    // mixed selection (typed, an empty mixed field means nothing was typed).
+    void commit_date(core::DateKind kind, bool picked = false);   // an entry -> the model
     void commit_review();                         // s037: the Review entry -> the model
     Gtk::Widget* review_picker();
-    void commit_repeat();                         // s033: the Repeat entry -> the model
-    void commit_estimate();                       // s040: the Time entry -> the model
+    void commit_repeat(bool picked = false);      // s033: the Repeat entry -> the model
+    void commit_estimate(bool picked = false);    // s040: the Time entry -> the model
     Gtk::Widget* estimate_picker();               // s040
     // s033b: the dropdowns beside the fields. Each writes TEXT into its entry
     // and commits it, so a pick and a typed value take one road to the model.
     Gtk::Widget* date_picker(core::DateKind kind);
     Gtk::Widget* repeat_picker();
     void update_task_sensitivity(const core::Node& n);
+
+    // ── s049: several at once ───────────────────────────────────────────────
+    bool multi() const { return m_ids.size() > 1; }
+    void show_many();                         // the pane for a selection of 2+
+    void fill_task_common();                  // the Todo block from m_common
+    void fill_tags_common();                  // shared chips, then "some" chips
+    // Every writable note (todos only when asked) gets `fn`, as ONE step named
+    // many_label(what, n). Returns how many it went to.
+    std::size_t write_all(const std::string& what, bool todos_only,
+                          const std::function<void(const core::NodeId&)>& fn);
+    // Puts `text` in a field, or blank with "mixed" as its placeholder; a
+    // single note's own placeholder comes back with `plain`.
+    void show_field(widgets::Entry& e, bool mixed, const std::string& text, const char* plain);
+    std::vector<core::NodeId> m_ids;          // the selection when 2+, else empty
+    core::Common              m_common;       // what m_ids share, as of the last fill
+    widgets::Label            m_many_note;    // in Todo: what a set reaches, and what it skips
 
     void fill_links(const core::Node& n);
     void fill_packet(const core::Node& n);   // s044

@@ -580,7 +580,9 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
 // s046: with no such row (an empty id, a delete that left nothing beside it)
 // the LIST still takes the keyboard -- so the next Ctrl+Z is the outline's.
 void TreePane::focus_row(const core::NodeId& id) {  // glue
-    if (!id.empty()) select(id);
+    // s049: a row already IN a several-selection keeps the set (an undo just
+    // put the group back); only the keyboard moves to it.
+    if (!id.empty() && !(m_selection.size() > 1 && m_selection.count(id))) select(id);
     for (std::size_t i = 0; !id.empty() && i < m_row_ids.size(); ++i)
         if (m_row_ids[i] == id) {
             if (auto* row = m_list.get_row_at_index(static_cast<int>(i))) row->grab_focus();
@@ -605,6 +607,29 @@ void TreePane::select(const core::NodeId& id) {
         }
     m_rebuilding = false;
     if (was_many) m_sig_sel_changed.emit();
+}
+
+void TreePane::select_many(const std::vector<core::NodeId>& ids, const core::NodeId& primary) {
+    std::set<core::NodeId> want;
+    for (const auto& id : ids)
+        if (std::find(m_row_ids.begin(), m_row_ids.end(), id) != m_row_ids.end()) want.insert(id);
+    // Only a group the step was ABOUT: a tick on a Today card while three
+    // other notes sat selected in the tree selects the card's note, as before.
+    if (want.size() < 2 || !want.count(primary)) {
+        select(primary);
+        return;
+    }
+    m_selected  = primary;
+    m_selection = want;
+    m_rebuilding = true;          // programmatic: not a user choice
+    m_list.unselect_all();
+    for (std::size_t i = 0; i < m_row_ids.size(); ++i)
+        if (want.count(m_row_ids[i]))
+            if (auto* row = m_list.get_row_at_index(static_cast<int>(i))) m_list.select_row(*row);
+    m_rebuilding = false;
+    if (auto lg = log::get(log::Area::Tree))
+        lg->info("selection: {} note(s) put back, primary {}", m_selection.size(), m_selected);
+    m_sig_sel_changed.emit();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

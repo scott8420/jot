@@ -137,7 +137,12 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Notes", "", "Ctrl+click  /  Shift+click (in the tree)", "Select several notes",
          "Ctrl+click adds or drops one, Shift+click a run, Ctrl+A every row. Delete, Tick, Flag, Make a todo, "
          "Protect, Inbox and Move to\u2026 then act on all of them -- one Ctrl+Z puts them all back. Tick "
-         "and Flag turn every one ON unless all already are. Note details shows the last one clicked."},
+         "and Flag turn every one ON unless all already are."},
+        // s049
+        {"Notes", "", "Note details, several selected", "See and set what they share",
+         "A value they all have shows as itself; one they differ on says \u201cmixed\u201d. Set Due, "
+         "Defer, Time, Repeat, Done, Flagged or a tag and it goes on all of them -- one Ctrl+Z, and the "
+         "group comes back selected. A tag some carry says \u201c2 of 3\u201d: + puts it on the rest."},
         {"Notes", "", "Enter (in the tree)", "New note just below, ready to name",
          "Type its name, Enter, and Enter again for the next one."},
         {"Notes", "", "Tab  /  Shift+Tab (in the tree)", "Indent under the note above / outdent",
