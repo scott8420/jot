@@ -11,6 +11,7 @@
 //
 //   cmake --build build --target jot_selftest && ./build/jot_selftest
 
+#include <cmath>
 #include "core/Format.hpp"
 #include <functional>
 #include "core/Links.hpp"
@@ -5988,6 +5989,16 @@ int main() {
         j.undo(m);
         check("tags: one undo -> only the first has it", core::common(m, {t1, t2, t3}).tags_some.size() == 1 &&
                                                          m.find(t2)->body == "b\n\n#car");
+    }
+
+    // ── s050: the accent from the portal ──────────────────────────────────
+    std::cout << "\n-- accent (s050) --\n";
+    {
+        check("accent: GNOME blue in, hex out", core::accent_css(0.2078, 0.5176, 0.8941) == "#3584e4");
+        check("accent: the corners", core::accent_css(0, 0, 0) == "#000000" && core::accent_css(1, 1, 1) == "#ffffff");
+        check("accent: out of range is 'none set'", core::accent_css(-1, 0, 0).empty() &&
+                                                     core::accent_css(0, 2, 0).empty());
+        check("accent: NaN is 'none set'", core::accent_css(0, 0, std::nan("")).empty());
     }
 
     std::cout << "-----------------------------------------------\n";

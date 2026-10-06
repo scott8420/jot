@@ -1,6 +1,7 @@
 #include <string>
 #include "Appearance.hpp"
 #include "Log.hpp"
+#include "core/RowLook.hpp"
 
 #include <gtkmm/settings.h>
 
@@ -61,6 +62,15 @@ struct Palette { const char *overdue, *today, *flagged, *available, *done; };
 constexpr Palette kLight{"#c01c28", "#c64600", "#9c6e00", "#1c71d8", "#26a269"};
 constexpr Palette kDark {"#ff7b9c", "#ffa348", "#f6d32d", "#78aeed", "#57e389"};
 
+// s050: the accent. GTK without libadwaita (s004) has no name for it that
+// holds across versions -- 4.14 has none, and a CSS colour that does not
+// resolve paints NOTHING (the selection vanished under Xvfb). So jot asks the
+// settings portal itself (accent-color, GNOME 47+), live like dark mode, and
+// falls back to GNOME's blue.
+std::string g_accent = jot::core::kDefaultAccent;
+bool        g_dark   = false;   // the scheme last applied, for an accent-only repaint
+std::string accent_ref() { return g_accent; }
+
 std::string sheet(bool dark) {
     const Palette& p = dark ? kDark : kLight;
     std::string c;
@@ -89,6 +99,32 @@ std::string sheet(bool dark) {
     c += ".jot-tree-card { padding: 3px 8px 3px 4px; min-height: 26px; }\n";
     c += ".jot-tree row:selected .jot-tree-card { background-color: alpha(currentColor, 0.04); }\n";
     c += ".jot-tree-project { font-weight: 700; }\n";
+    // ── s050: the Mac look pass ────────────────────────────────────────────
+    // Air: a little space between rows, so cards read as cards, not a stack.
+    c += ".jot-tree row { margin-top: 1px; margin-bottom: 1px; }\n";
+    // The selection in the ACCENT colour, as a source list does -- a tint,
+    // not a slab, so the cards' stripes still read on a selected row. GTK
+    // 4.16 moved its theme colours to CSS variables; before that they are
+    // named colours. Asked at run time, so one binary is right on both.
+    const std::string accent = accent_ref();
+    c += ".jot-tree row:selected { background-color: alpha(" + accent + ", 0.20); }\n";
+    c += ".jot-tree row:selected:hover { background-color: alpha(" + accent + ", 0.26); }\n";
+    c += ".jot-tree row:selected .jot-tree-card { background-color: alpha(" + accent + ", 0.06); }\n";
+    // The side pane a shade off the editor -- a Mac source list. A tint of
+    // the text colour: darker on a light theme, a touch lighter on a dark one
+    // (the way macOS does it in dark mode). Its lists go transparent so the
+    // shade is the pane's, not a white sheet laid over it.
+    c += ".jot-side { background-color: alpha(currentColor, 0.045); }\n";
+    c += ".jot-side list, .jot-side scrolledwindow, .jot-side viewport "
+         "{ background-color: transparent; }\n";
+    // A tick, once: the card flashes the done colour and the title fades to
+    // its struck-through dim. Only on the row just ticked (TreePane marks it
+    // jot-just-done); GTK skips animations when the desktop turns them off.
+    c += std::string("@keyframes jot-done-flash { from { background-color: alpha(") + p.done +
+         ", 0.35); } to { background-color: alpha(currentColor, 0.05); } }\n";
+    c += "@keyframes jot-done-fade { from { opacity: 1; } to { opacity: 0.55; } }\n";
+    c += ".jot-tree-card.jot-just-done { animation: jot-done-flash 500ms ease-out; }\n";
+    c += ".jot-just-done .jot-tree-title { animation: jot-done-fade 500ms ease-out; }\n";
     c += ".jot-count { color: alpha(currentColor, 0.7); font-weight: 600; }\n";
     c += std::string(".jot-flag { color: ") + p.flagged + "; }\n";
     // s044: a packet's items -- in is green and quiet, missing is the text.
@@ -121,7 +157,10 @@ void apply_css(bool dark) {
         Gtk::StyleContext::add_provider_for_display(
             display, g_css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     }
+    g_dark = dark;
     g_css->load_from_data(sheet(dark));
+    if (auto lg = log::get(log::Area::App))
+        lg->info("appearance: stylesheet {} with accent {}", dark ? "dark" : "light", g_accent);
 }
 
 void apply(Scheme s) {
@@ -183,6 +222,45 @@ bool unwrap_u32(GVariant* v, guint32& out) {
     return false;
 }
 
+// s050: (ddd) somewhere inside however many variant / tuple layers -> hex.
+bool unwrap_accent(GVariant* v, std::string& out) {
+    if (!v) return false;
+    GVariant* cur = g_variant_ref(v);
+    for (int depth = 0; depth < 8; ++depth) {
+        if (g_variant_is_of_type(cur, G_VARIANT_TYPE("(ddd)"))) {
+            double r = -1, g = -1, b = -1;
+            g_variant_get(cur, "(ddd)", &r, &g, &b);
+            g_variant_unref(cur);
+            out = jot::core::accent_css(r, g, b);
+            return true;
+        }
+        if (g_variant_is_of_type(cur, G_VARIANT_TYPE_VARIANT)) {
+            GVariant* inner = g_variant_get_variant(cur);
+            g_variant_unref(cur);
+            cur = inner;
+            continue;
+        }
+        if (g_variant_is_of_type(cur, G_VARIANT_TYPE_TUPLE) && g_variant_n_children(cur) > 0) {
+            GVariant* inner = g_variant_get_child_value(cur, 0);
+            g_variant_unref(cur);
+            cur = inner;
+            continue;
+        }
+        break;
+    }
+    g_variant_unref(cur);
+    return false;
+}
+
+void set_accent(const std::string& hex) {
+    const std::string want = hex.empty() ? std::string(jot::core::kDefaultAccent) : hex;
+    if (auto lg = log::get(log::Area::App))
+        lg->info("appearance: accent {}{}", want, hex.empty() ? " (none set; GNOME blue)" : "");
+    if (want == g_accent) return;
+    g_accent = want;
+    if (g_css) apply_css(g_dark);
+}
+
 // Live updates. The desktop's dark toggle is a switch a person flips while
 // looking at the screen, so an app that only reads at startup is correct
 // exactly until the moment the user tests it.
@@ -196,6 +274,13 @@ void on_setting_changed(GDBusProxy*, const gchar*, const gchar* signal_name,
     g_variant_get_child(parameters, 0, "&s", &ns);
     g_variant_get_child(parameters, 1, "&s", &key);
     if (g_strcmp0(ns, "org.freedesktop.appearance") != 0) return;
+    if (g_strcmp0(key, "accent-color") == 0) {   // s050
+        GVariant* value = g_variant_get_child_value(parameters, 2);
+        std::string hex;
+        if (unwrap_accent(value, hex)) set_accent(hex);
+        g_variant_unref(value);
+        return;
+    }
     if (g_strcmp0(key, "color-scheme") != 0) return;
 
     GVariant* value = g_variant_get_child_value(parameters, 2);
@@ -261,6 +346,20 @@ bool try_portal() {
     }
 
     if (lg) lg->info("appearance: portal says {}", scheme_name(static_cast<Scheme>(raw)));
+    // s050: the accent first, so the one stylesheet load below carries it.
+    {
+        GVariant* a = g_variant_new("(ss)", "org.freedesktop.appearance", "accent-color");
+        g_variant_ref_sink(a);
+        GVariant* r = g_dbus_proxy_call_sync(proxy, "ReadOne", a, G_DBUS_CALL_FLAGS_NONE, 1000,
+                                             nullptr, nullptr);
+        if (!r) r = g_dbus_proxy_call_sync(proxy, "Read", a, G_DBUS_CALL_FLAGS_NONE, 1000,
+                                           nullptr, nullptr);
+        g_variant_unref(a);
+        std::string hex;
+        if (r && unwrap_accent(r, hex)) g_accent = hex.empty() ? std::string(jot::core::kDefaultAccent) : hex;
+        if (lg) lg->info("appearance: accent {}{}", g_accent, r ? "" : " (portal has none; GNOME blue)");
+        if (r) g_variant_unref(r);
+    }
     apply(static_cast<Scheme>(raw));
 
     // Only now subscribe. Subscribing before the read would be a race the

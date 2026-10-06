@@ -84,4 +84,11 @@ struct ViewSummary {
 ViewSummary summarize(const NodeSource& src, const std::vector<NodeId>& ids, std::int64_t now);
 std::string summary_text(const ViewSummary& v);   // "Nothing to do" when empty
 
+// s050. The desktop's accent colour as the settings portal gives it
+// (org.freedesktop.appearance accent-color: three doubles, 0..1) -> "#rrggbb"
+// for the stylesheet. "" when any part is out of range -- the portal's way of
+// saying "no accent set" -- so the caller keeps its default.
+std::string accent_css(double r, double g, double b);
+inline constexpr const char* kDefaultAccent = "#3584e4";   // GNOME's blue
+
 }  // namespace jot::core

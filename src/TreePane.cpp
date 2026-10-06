@@ -251,6 +251,8 @@ void TreePane::set_source(core::NodeSource* src) {
     m_selected.clear();
     m_selection.clear();
     m_collapsed.clear();
+    m_open_todos.clear();       // s050: a new folder has nothing just done
+    m_open_known = false;
     rebuild();
 }
 
@@ -273,7 +275,10 @@ void TreePane::rebuild() {
     while (Gtk::Widget* child = m_list.get_first_child()) m_list.remove(*child);
     m_row_ids.clear();
 
+    m_open_next.clear();
     if (m_src) append_rows("", 0);
+    m_open_todos.swap(m_open_next);   // s050
+    m_open_known = m_src != nullptr;
 
     // Restore the selection if the node is still visible. Not a user choice, so
     // it must not re-emit -- hence the flag rather than a "last id" compare.
@@ -333,6 +338,16 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         box->add_css_class("jot-card");
         box->add_css_class("jot-tree-card");
         box->add_css_class(std::string("st-") + core::row_state_word(look.state));
+        // s050: ticked since the last rebuild -- by the ring, Ctrl+Return, a
+        // Today card, a notification. Wherever it came from, it shows here.
+        if (n.task.done) {
+            if (m_open_known && m_open_todos.count(n.id)) {
+                box->add_css_class("jot-just-done");
+                if (auto lg = log::get(log::Area::Tree)) lg->info("just done: {}", n.id);
+            }
+        } else {
+            m_open_next.insert(n.id);
+        }
     }
 
     // The twisty is built for EVERY row, children or not. A leaf's copy is
@@ -428,6 +443,7 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
     } else {
         auto* label = Gtk::make_managed<widgets::Label>(widgets::unregistered,
                                                         "tree.title." + n.id);
+        label->add_css_class("jot-tree-title");   // s050: the tick's fade targets it
         const std::string text = n.title.empty() ? "(untitled)" : n.title;
         // A finished todo is struck through and dimmed rather than removed: the
         // tree is the note tree, and a done task is still a note you may want

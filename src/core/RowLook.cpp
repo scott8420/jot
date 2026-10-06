@@ -4,6 +4,8 @@
 
 #include <ctime>
 
+#include <cstdio>
+
 namespace jot::core {
 namespace {
 
@@ -144,6 +146,15 @@ std::string compact_due(const std::string& chip) {
     for (std::size_t k = 0; k < t.size(); ++k)
         if (k != colon && (t[k] < '0' || t[k] > '9')) return chip;
     return chip.substr(0, sp);
+}
+
+std::string accent_css(double r, double g, double b) {
+    for (double v : {r, g, b})
+        if (!(v >= 0.0 && v <= 1.0)) return {};   // also catches NaN
+    auto byte = [](double v) { return static_cast<int>(v * 255.0 + 0.5); };
+    char buf[8];
+    std::snprintf(buf, sizeof buf, "#%02x%02x%02x", byte(r), byte(g), byte(b));
+    return buf;
 }
 
 }  // namespace jot::core

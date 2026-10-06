@@ -307,6 +307,7 @@ void Shell::build_left_pane() {  // zone: Notes | Today
     m_left_stack.set_transition_type(Gtk::StackTransitionType::CROSSFADE);
     m_left_stack.set_transition_duration(120);
 
+    m_left.add_css_class("jot-side");   // s050: the source-list shade (Appearance.cpp)
     m_left.append(m_left_tabs);
     m_left.append(m_left_stack);
 }

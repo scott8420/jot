@@ -140,6 +140,13 @@ private:
     sigc::signal<void()>      m_sig_sel_changed;
     void read_selection();                       // category: helper: s047, ListBox rows -> m_selection
     std::set<core::NodeId>    m_collapsed;       // default is expanded
+    // s050: a todo that was OPEN at the last rebuild and is done at this one
+    // gets `jot-just-done` -- a short fade and flash, once. A rebuild makes
+    // new widgets, so a CSS transition has nothing to run from; a keyframe
+    // animation on the new row is the way to show the change.
+    std::set<core::NodeId>    m_open_todos;      // as of the last rebuild
+    std::set<core::NodeId>    m_open_next;       // being collected by this one
+    bool                      m_open_known = false;   // false after a source swap
     std::vector<core::NodeId> m_row_ids;         // ListBox row index -> node id
 
     widgets::ScrolledWindow m_scroll;
