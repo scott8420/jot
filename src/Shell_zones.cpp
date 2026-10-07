@@ -1,4 +1,5 @@
 #include "Shell.hpp"
+#include "App.hpp"
 #include "TimelinePane.hpp"   // s059
 #include "DrawerPane.hpp"
 #include "EditorPane.hpp"
@@ -127,7 +128,43 @@ void Shell::build_shell() {  // zone: window + header + paned body
             m_prefs.note_width = m_paned_right.get_position();
     });
 
-    set_child(m_paned_left);
+    // s062e: a line over everything when this jot is older than its program
+    // file (rebuilt since it started). Hidden until then.
+    auto* outer = Gtk::make_managed<widgets::Box>("shell.outer", Gtk::Orientation::VERTICAL, 0);
+    m_stale_bar = Gtk::make_managed<widgets::Box>("shell.stale_bar", Gtk::Orientation::HORIZONTAL, 12);
+    m_stale_bar->add_css_class("jot-stale-bar");
+    m_stale_bar->set_margin_start(12);
+    m_stale_bar->set_margin_end(12);
+    m_stale_bar->set_margin_top(6);
+    m_stale_bar->set_margin_bottom(6);
+    auto* msg = Gtk::make_managed<widgets::Label>("shell.stale_bar.label");
+    msg->set_text("This jot is an older build \u2014 the program was rebuilt since it started.");
+    msg->set_xalign(0.0f);
+    msg->set_hexpand(true);
+    m_stale_bar->append(*msg);
+    auto* restart = Gtk::make_managed<widgets::Button>("shell.stale_bar.restart");
+    restart->set_label("Restart");
+    restart->add_css_class("suggested-action");
+    restart->set_tooltip_text("Save, quit, and start the new build");
+    restart->signal_clicked().connect([this]() {
+        if (auto* app = dynamic_cast<App*>(Gio::Application::get_default().get()))
+            app->restart_new_build();
+    });
+    m_stale_bar->append(*restart);
+    m_stale_bar->set_visible(false);
+    outer->append(*m_stale_bar);
+    m_paned_left.set_vexpand(true);
+    outer->append(m_paned_left);
+    set_child(*outer);
+    // Looked at whenever the window comes forward -- cheap (one readlink, one stat).
+    property_is_active().signal_changed().connect([this]() {
+        if (!is_active()) return;
+        auto* app = dynamic_cast<App*>(Gio::Application::get_default().get());
+        const bool old = app && app->stale();
+        if (old && !m_stale_bar->get_visible())
+            if (auto lg = log::get(log::Area::Shell)) lg->info("stale: this jot is older than its program file");
+        m_stale_bar->set_visible(old);
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -470,6 +507,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     file->append("Open jots\u2026", "win.open-jots");
     m_recents_menu = Gio::Menu::create();
     file->append_submenu("Recent jots", m_recents_menu);
+    file->append("Close jots", "win.close-jots");   // s062b
     // s021c: import is a jots-level verb -- it fills the folder you are in --
     // so it sits with Open, not only in the note menu (where the tree's
     // right-click still offers it).

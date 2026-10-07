@@ -100,33 +100,83 @@ std::string read_file(const fs::path& p) {
     return ss.str();
 }
 
-// Front-matter is deliberately minimal: the id and nothing else. Everything
-// else is the project file's job, and a second home for the title would be a
-// second thing to keep in step.
-std::string front_matter(const std::string& id) {
-    return "---\nid: " + id + "\n---\n";
+// Front-matter is deliberately minimal: the id, and (s062) the note's tags --
+// the one piece of metadata that belongs to the TEXT's world: Obsidian and
+// friends read `tags:` here, so a jots folder opened elsewhere keeps them.
+// Everything else is the project file's job.
+std::string front_matter(const std::string& id, const std::vector<std::string>& tags) {
+    std::string fm = "---\nid: " + id + "\n";
+    if (!tags.empty()) {
+        fm += "tags: [";
+        for (std::size_t i = 0; i < tags.size(); ++i) fm += (i ? ", " : "") + tags[i];
+        fm += "]\n";
+    }
+    return fm + "---\n";
 }
 
-// Split "---\n...\n---\n<body>" into its id and its body. A file with no
-// front-matter is not an error -- it yields an empty id and its whole content
-// as the body, which is exactly what a hand-dropped markdown file looks like.
-void split_front_matter(const std::string& text, std::string& id, std::string& body) {
+namespace {
+std::string fm_trim(std::string v) {
+    while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.erase(v.begin());
+    while (!v.empty() && (v.back() == '\r' || v.back() == ' ' || v.back() == '\t')) v.pop_back();
+    return v;
+}
+// One tag as YAML might spell it: quoted, with or without its hash.
+std::string fm_tag(std::string v) {
+    v = fm_trim(v);
+    if (v.size() >= 2 && (v.front() == '"' || v.front() == '\'') && v.back() == v.front())
+        v = v.substr(1, v.size() - 2);
+    while (!v.empty() && v.front() == '#') v.erase(v.begin());
+    return fm_trim(v);
+}
+}  // namespace
+
+// Split "---\n...\n---\n<body>" into its id, its tags and its body. A file
+// with no front-matter is not an error -- it yields an empty id and its whole
+// content as the body, which is exactly what a hand-dropped markdown file looks
+// like. Tags as jot writes them (`tags: [a, b]`) and as other apps do
+// (`tags: a, b`, or a block of `- a` lines under `tags:`).
+void split_front_matter(const std::string& text, std::string& id, std::string& body,
+                        std::vector<std::string>* tags = nullptr) {
     id.clear();
+    if (tags) tags->clear();
     if (text.rfind("---\n", 0) != 0) { body = text; return; }
     const std::size_t end = text.find("\n---\n", 3);
     if (end == std::string::npos) { body = text; return; }
     const std::string head = text.substr(4, end - 3);
     std::istringstream hs(head);
+    bool in_tags = false;
     for (std::string line; std::getline(hs, line);) {
+        if (in_tags) {
+            const std::string t = fm_trim(line);
+            if (t.rfind("- ", 0) == 0 || t == "-") {
+                if (tags) {
+                    const std::string one = fm_tag(t.substr(1));
+                    if (!one.empty()) tags->push_back(one);
+                }
+                continue;
+            }
+            in_tags = false;
+        }
         const std::size_t colon = line.find(':');
         if (colon == std::string::npos) continue;
-        const std::string key = line.substr(0, colon);
-        std::string value = line.substr(colon + 1);
-        while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
-            value.erase(value.begin());
-        while (!value.empty() && (value.back() == '\r' || value.back() == ' '))
-            value.pop_back();
+        const std::string key = fm_trim(line.substr(0, colon));
+        std::string value = fm_trim(line.substr(colon + 1));
         if (key == "id") id = value;
+        else if (key == "tags") {
+            if (value.empty()) { in_tags = true; continue; }
+            if (value.front() == '[') value.erase(value.begin());
+            if (!value.empty() && value.back() == ']') value.pop_back();
+            std::string cur;
+            auto push = [&] {
+                const std::string one = fm_tag(cur);
+                if (tags && !one.empty()) tags->push_back(one);
+                cur.clear();
+            };
+            for (char c : value) {
+                if (c == ',') push(); else cur += c;
+            }
+            push();
+        }
     }
     body = text.substr(end + 5);
 }
@@ -497,7 +547,7 @@ void Project::load_bodies(std::vector<Node>& nodes) const {
         const std::string text = read_file(note_path(n.id));
         if (text.empty()) continue;      // a note with no file yet is an empty note
         std::string id_in_file;
-        split_front_matter(text, id_in_file, n.body);
+        split_front_matter(text, id_in_file, n.body, &n.tags);
     }
 }
 
@@ -517,7 +567,8 @@ void Project::adopt_orphans(std::vector<Node>& nodes) {
         if (ec) break;
         if (!entry.is_regular_file() || entry.path().extension() != ".md") continue;
         std::string id, body;
-        split_front_matter(read_file(entry.path()), id, body);
+        std::vector<std::string> tags;
+        split_front_matter(read_file(entry.path()), id, body, &tags);
         if (id.empty()) id = entry.path().stem().string();   // trust the filename as a last resort
         if (id.empty() || known.count(id)) continue;
         known.insert(id);
@@ -526,6 +577,7 @@ void Project::adopt_orphans(std::vector<Node>& nodes) {
         n.title = title_from_body(body);
         if (n.title.empty()) n.title = "(recovered)";
         n.body  = std::move(body);
+        n.tags  = std::move(tags);
         found.push_back(std::move(n));
     }
     // Stable order for a recovery, so two rebuilds of the same folder agree.
@@ -609,7 +661,7 @@ bool Project::save_project() const {
 bool Project::save_body(const NodeId& id) const {
     const Node* n = find(id);
     if (!n) return false;
-    return write_atomic(note_path(id), front_matter(id) + n->body);
+    return write_atomic(note_path(id), front_matter(id, n->tags) + n->body);
 }
 
 bool Project::flush() {
@@ -689,6 +741,15 @@ bool Project::set_packet(const NodeId& id, bool on) {
 bool Project::set_sent(const NodeId& id, std::int64_t when, const std::string& to) {
     if (!MemoryNodes::set_sent(id, when, to)) return false;
     m_structure_dirty = true;
+    flush();
+    return true;
+}
+
+// s062: tags live in the note FILE's front matter, so they take the body's
+// path -- but written now, not deferred: a tag is not a keystroke.
+bool Project::set_tags(const NodeId& id, const std::vector<std::string>& tags) {
+    if (!MemoryNodes::set_tags(id, tags)) return false;
+    m_dirty_bodies.insert(id);
     flush();
     return true;
 }

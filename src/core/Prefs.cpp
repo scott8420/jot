@@ -43,6 +43,7 @@ Prefs load_prefs(const std::string& file) {
         f >> j;
         p.show_tree   = get_or(j, "show_tree", p.show_tree);
         p.show_drawer = get_or(j, "show_drawer", p.show_drawer);
+        p.jots_closed = get_or(j, "jots_closed", p.jots_closed);   // s062b
         p.reading     = get_or(j, "reading", p.reading);
         p.live_preview = get_or(j, "live_preview", p.live_preview);
         p.tree_width  = sane(get_or(j, "tree_width", p.tree_width), 120, 2000, 280);
@@ -122,6 +123,7 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     nlohmann::json j;
     j["show_tree"]   = p.show_tree;
     j["show_drawer"] = p.show_drawer;
+    j["jots_closed"] = p.jots_closed;   // s062b
     j["reading"]     = p.reading;
     j["live_preview"] = p.live_preview;
     j["tree_width"]  = p.tree_width;

@@ -40,6 +40,7 @@
 #include "core/Filing.hpp"
 #include "core/CheatSheet.hpp"
 #include "core/Tags.hpp"
+#include "core/Cli.hpp"
 #include "core/Review.hpp"
 #include "core/Search.hpp"
 #include "core/Forecast.hpp"
@@ -5870,6 +5871,175 @@ int main() {
                   core::capture(m, "   ").empty() && m.count() == 2);
         }
 
+        // s061e: -al / -a ... -l ... -> --both NAME "line" items
+        {
+            using V = std::vector<std::string>;
+            const auto J = [](V v) { return core::cli_join_append_list(v); };
+            check("cli: -al -- the name, the line, the items",
+                  J({"jot", "Groceries", "-al", "for the party", "milk", "eggs"}) ==
+                      V{"jot", "--both", "Groceries", "for the party", "milk", "eggs"});
+            check("cli: -la reads the same", J({"jot", "G", "-la", "x", "y"}) == V{"jot", "--both", "G", "x", "y"});
+            check("cli: -a words -l items -- each flag owns the words after it",
+                  J({"jot", "Groceries", "-a", "for", "the", "party", "-l", "milk", "rye bread"}) ==
+                      V{"jot", "--both", "Groceries", "for the party", "milk", "rye bread"});
+            check("cli: -l first, then -a -- the same",
+                  J({"jot", "Groceries", "-l", "milk", "--append", "for", "Sat"}) ==
+                      V{"jot", "--both", "Groceries", "for Sat", "milk"});
+            check("cli: -a alone, -l alone, --capture -- untouched",
+                  J({"jot", "G", "-a", "x"}) == V{"jot", "G", "-a", "x"} &&
+                      J({"jot", "G", "-l", "x"}) == V{"jot", "G", "-l", "x"} &&
+                      J({"jot", "--capture", "a", "-l", "b"}) == V{"jot", "--capture", "a", "-l", "b"});
+            check("cli: -al with nothing after keeps what there is (the app says usage)",
+                  J({"jot", "G", "-al"}) == V{"jot", "--both", "G"});
+            check("cli: -al \"\" milk eggs -- an empty line is a plain list (s061f)",
+                  J({"jot", "Groceries", "-al", "", "milk", "eggs"}) ==
+                      V{"jot", "Groceries", "--list", "milk", "eggs"});
+            check("cli: -al \"a line\" with no items is a plain append",
+                  J({"jot", "G", "-al", "for Sat"}) == V{"jot", "G", "--append", "for Sat"});
+            core::MemoryNodes m;
+            bool grew = true;
+            const auto id = core::capture_append(m, "Party", "for Saturday", &grew);
+            core::capture_list(m, "Party", {"crisps", "#errands"});
+            check("cli: a line then a list -- one note, the line on top, the tag on the list",
+                  !grew && m.find(id)->body == "for Saturday\n- [ ] crisps\n" &&
+                      m.find(id)->tags == std::vector<std::string>{"errands"}, m.find(id)->body);
+        }
+
+        // s061d / s062: #tags in a capture go to the note's tag list
+        {
+            core::MemoryNodes m;
+            std::vector<std::string> names;
+            check("tags in capture: pulled out, the gaps closed",
+                  core::pull_tags("ring #pets the vet #at/town", names) == "ring the vet" &&
+                      names == std::vector<std::string>{"pets", "at/town"});
+            const auto a = core::capture(m, "ring the vet #pets");
+            check("tags in capture: the title loses the tag, the LIST has it, the text has none",
+                  m.find(a)->title == "ring the vet" && m.find(a)->body.empty() &&
+                      m.find(a)->tags == std::vector<std::string>{"pets"},
+                  m.find(a)->body);
+            const auto b = core::capture(m, "call #mum back\nabout #sunday lunch");
+            check("tags in capture: from every line",
+                  m.find(b)->title == "call back" && m.find(b)->body == "about lunch" &&
+                      m.find(b)->tags == std::vector<std::string>{"mum", "sunday"},
+                  m.find(b)->body);
+            const auto c = core::capture(m, "#someday");
+            check("tags in capture: only a tag -- it stays the name",
+                  m.find(c)->title == "#someday" && m.find(c)->body.empty() && m.find(c)->tags.empty());
+            const auto d = core::capture(m, "issue #42 is back");
+            check("tags in capture: #42 is not a tag, so nothing moves",
+                  m.find(d)->title == "issue #42 is back" && m.find(d)->body.empty());
+
+            bool grew = false;
+            const auto g = core::capture_list(m, "Groceries", {"milk", "#errands", "rye #organic"}, &grew);
+            check("tags in a list: every item's tags tag the note; the item keeps its words",
+                  m.find(g)->body == "- [ ] milk\n- [ ] rye\n" &&
+                      m.find(g)->tags == std::vector<std::string>{"errands", "organic"},
+                  m.find(g)->body);
+            core::capture_list(m, "Groceries", {"eggs", "#town", "#Errands"}, &grew);
+            check("tags in a list: growing adds the new tag once (by key)",
+                  grew && m.find(g)->body == "- [ ] milk\n- [ ] rye\n- [ ] eggs\n" &&
+                      m.find(g)->tags == std::vector<std::string>{"errands", "organic", "town"},
+                  m.find(g)->body);
+            core::capture_append(m, "Groceries", "check the pantry #home");
+            check("tags: an append's tags go to the list too",
+                  m.find(g)->body == "- [ ] milk\n- [ ] rye\n- [ ] eggs\n\ncheck the pantry\n" &&
+                      m.find(g)->tags.size() == 4 && m.find(g)->tags.back() == "home",
+                  m.find(g)->body);
+            const auto t = core::capture_list(m, "Tagged only", {"#home"});
+            check("tags in a list: only tags still makes the note, tagged",
+                  !t.empty() && m.find(t)->body.empty() && m.find(t)->tags == std::vector<std::string>{"home"});
+        }
+
+        // s062: tags are the note's list
+        {
+            std::vector<std::string> n;
+            check("lift: a tag mid-line takes one space with it",
+                  core::lift_tags("call #mum back", n) == "call back");
+            n.clear();
+            check("lift: a tag line at the bottom goes, and the blank line before it",
+                  core::lift_tags("Shop list\n- [ ] milk\n\n#errands #town\n", n) == "Shop list\n- [ ] milk\n" &&
+                      n == std::vector<std::string>{"errands", "town"});
+            n.clear();
+            check("lift: \\#word, #1 and C# are not tags -- they stay",
+                  core::lift_tags("a \\#word, #1 and C# here", n) == "a \\#word, #1 and C# here" && n.empty());
+            n.clear();
+            check("lift: a heading is not a tag", core::lift_tags("# Title\nbody", n) == "# Title\nbody" && n.empty());
+            n.clear();
+            check("lift: indentation kept", core::lift_tags("  - [ ] rye #organic\n", n) == "  - [ ] rye\n");
+
+            check("tags_with: add once by key, remove by key",
+                  core::tags_with({"Home"}, "home", true) == std::vector<std::string>{"Home"} &&
+                      core::tags_with({"Home"}, "#at/town", true) == std::vector<std::string>{"Home", "at/town"} &&
+                      core::tags_with({"Home", "x"}, "HOME", false) == std::vector<std::string>{"x"});
+
+            core::MemoryNodes m;
+            const auto a = m.create("", "Alpha");
+            m.set_body(a, "text #inline\n");
+            m.set_tags(a, {"listed", "#Listed", " two words "});
+            check("set_tags: cleaned and deduped", m.find(a)->tags == std::vector<std::string>{"listed", "two-words"},
+                  m.find(a)->tags.size() ? m.find(a)->tags[0] : "(none)");
+            check("node_tags: the list first, then the text's",
+                  core::node_tags(*m.find(a)) == std::vector<std::string>{"listed", "two-words", "inline"});
+            const auto b = m.create("", "Beta");
+            m.set_tags(b, {"listed"});
+            const auto tl = core::tag_list(m, 0);
+            check("tag_list: counts the list", tl.size() == 3 && tl[1].key == "listed" && tl[1].notes == 2);
+            check("tag_members: finds a listed tag",
+                  core::tag_members(m, "listed", 0).notes.size() == 2);
+            check("notes_with_text_tags: only notes whose TEXT has one",
+                  core::notes_with_text_tags(m) == std::vector<core::NodeId>{a});
+            check("lift_all: moves them, once", core::lift_all_tags(m) == 1 && core::lift_all_tags(m) == 0 &&
+                                                   m.find(a)->body == "text\n" &&
+                                                   m.find(a)->tags.back() == "inline");
+
+            core::Journal j;
+            core::UndoSource u(j, [&] { return &m; });
+            u.set_tags(b, {"listed", "more"});
+            check("set_tags: one undo step", j.can_undo() && j.undo_label() == "Tags");
+            j.undo(m);
+            check("set_tags: undone", m.find(b)->tags == std::vector<std::string>{"listed"});
+        }
+
+        // s062: tags in the note file's front matter
+        {
+            const std::string dir =
+                (std::filesystem::temp_directory_path() / "jot_s062_tags").string();
+            std::error_code ec;
+            std::filesystem::remove_all(dir, ec);
+            core::NodeId a;
+            {
+                core::Project v;
+                v.open(dir);
+                a = v.create("", "Tagged");
+                v.set_body(a, "the text");
+                v.set_tags(a, {"pets", "at/town"});
+                v.flush();
+            }
+            std::ifstream f(std::filesystem::path(dir) / "notes" / (a + ".md"));
+            std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            check("front matter: tags written as a list, the text untouched",
+                  text == "---\nid: " + a + "\ntags: [pets, at/town]\n---\nthe text", text);
+            {
+                core::Project v;
+                v.open(dir);
+                check("front matter: tags read back",
+                      v.find(a) && v.find(a)->tags == std::vector<std::string>{"pets", "at/town"} &&
+                          v.find(a)->body == "the text");
+            }
+            {   // as another app writes them: a block list, quoted, with hashes
+                std::ofstream o(std::filesystem::path(dir) / "notes" / (a + ".md"));
+                o << "---\nid: " << a << "\ntags:\n  - \"#pets\"\n  - home\ntitle: x\n---\nthe text";
+            }
+            {
+                core::Project v;
+                v.open(dir);
+                check("front matter: a YAML block list reads too",
+                      v.find(a) && v.find(a)->tags == std::vector<std::string>{"pets", "home"},
+                      v.find(a) && !v.find(a)->tags.empty() ? v.find(a)->tags[0] : "(none)");
+            }
+            std::filesystem::remove_all(dir, ec);
+        }
+
         // s025c: jot --list NAME item...
         {
             core::MemoryNodes m;
@@ -7216,6 +7386,10 @@ int main() {
             a.accent = "";
             core::save_prefs(file, a);
             check("accent pref: '' (follow the desktop) round trips", core::load_prefs(file).accent.empty());
+            a.jots_closed = true;   // s062b
+            core::save_prefs(file, a);
+            check("jots_closed pref: round trips, and defaults off",
+                  core::load_prefs(file).jots_closed && !core::Prefs{}.jots_closed);
             { std::ofstream f(file); f << "{\"accent\": \"chartreuse\"}"; }
             check("accent pref: junk in the file -> follow the desktop", core::load_prefs(file).accent.empty());
             std::filesystem::remove_all(dir);

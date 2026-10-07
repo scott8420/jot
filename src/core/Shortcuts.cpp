@@ -116,6 +116,8 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         // ── General ───────────────────────────────────────────────────────────
         {"General", "win.new-jots",      {"<Ctrl><Shift>o"}, "", "Start a new set of jots"},
         {"General", "win.open-jots",     {"<Ctrl>o"}, "", "Open a folder of jots"},
+        {"General", "win.close-jots",    {"<Ctrl><Shift>w"}, "",
+         "Close the jots folder -- no folder open until you open one"},
         {"General", "win.save-as",       {"<Ctrl><Shift>s"}, "",
          "Write a second jots folder with everything in it, and switch to it"},
         {"General", "win.save-all",      {"<Ctrl>s"}, "",

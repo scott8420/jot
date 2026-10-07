@@ -45,6 +45,10 @@ struct Prefs {
     // opens into a note, not into metadata about one.
     bool show_tree   = true;
     bool show_drawer = false;
+    // s062b: the jots folder was CLOSED on purpose (Close Jots Folder) -- the
+    // next launch starts with none rather than reopening the last one. Opening
+    // or making a folder clears it.
+    bool jots_closed = false;
     // s021: the note shows as Reading (marks gone) rather than Source. Off by
     // default: jot opens into writing, and a scribble pad you cannot scribble
     // on until you find a toggle is not one.

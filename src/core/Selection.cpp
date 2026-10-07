@@ -93,13 +93,13 @@ Common common(const NodeSource& src, const std::vector<NodeId>& ids) {
             ++c.todos;
         }
         std::set<std::string> mine;
-        for (const auto& t : scan(n->body).tags) {
-            const std::string k = tag_key(t.name);
+        for (const auto& t : node_tags(*n)) {   // s062: the list, then the text
+            const std::string k = tag_key(t);
             if (k.empty() || !mine.insert(k).second) continue;
             auto it = std::find(keys.begin(), keys.end(), k);
             if (it == keys.end()) {
                 keys.push_back(k);
-                names.push_back(t.name);
+                names.push_back(t);
                 carried.push_back(1);
             } else {
                 ++carried[static_cast<std::size_t>(it - keys.begin())];

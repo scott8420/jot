@@ -142,6 +142,7 @@ bool import_markdown(const std::string& path, ImportedNote& out, std::string& er
     if (!valid_utf8(body)) { err = "not UTF-8 text"; return false; }
     if (body.find('\0') != std::string::npos) { err = "not a text file"; return false; }
 
+    body = take_front_matter_tags(body, out.tags);   // s062
     out.title = import_title(body, path);
     out.body  = localize_images(body, fs::path(path).parent_path().string(), &out.pictures);
     return true;
@@ -215,6 +216,55 @@ int count_files(const ImportItem& item) {
     int n = 0;
     for (const auto& c : item.children) n += count_files(c);
     return n;
+}
+
+}  // namespace jot::core
+
+namespace jot::core {
+
+std::string take_front_matter_tags(const std::string& text, std::vector<std::string>& tags) {
+    if (text.rfind("---\n", 0) != 0) return text;
+    const std::size_t end = text.find("\n---\n", 3);
+    if (end == std::string::npos) return text;
+    auto trim = [](std::string v) {
+        while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.erase(v.begin());
+        while (!v.empty() && (v.back() == ' ' || v.back() == '\t' || v.back() == '\r')) v.pop_back();
+        return v;
+    };
+    auto one = [&](std::string v) {
+        v = trim(v);
+        if (v.size() >= 2 && (v.front() == '"' || v.front() == '\'') && v.back() == v.front())
+            v = v.substr(1, v.size() - 2);
+        while (!v.empty() && v.front() == '#') v.erase(v.begin());
+        v = trim(v);
+        if (!v.empty()) tags.push_back(v);
+    };
+    std::istringstream hs(text.substr(4, end - 3));
+    std::string kept;
+    bool in_tags = false, other = false;
+    for (std::string line; std::getline(hs, line);) {
+        const std::string t = trim(line);
+        if (in_tags) {
+            if (t.rfind("- ", 0) == 0) { one(t.substr(2)); continue; }
+            in_tags = false;
+        }
+        const auto colon = line.find(':');
+        if (colon != std::string::npos && trim(line.substr(0, colon)) == "tags") {
+            std::string v = trim(line.substr(colon + 1));
+            if (v.empty()) { in_tags = true; continue; }
+            if (v.front() == '[') v.erase(v.begin());
+            if (!v.empty() && v.back() == ']') v.pop_back();
+            std::string cur;
+            for (char c : v) { if (c == ',') { one(cur); cur.clear(); } else cur += c; }
+            one(cur);
+            continue;
+        }
+        if (!t.empty()) other = true;
+        kept += line + "\n";
+    }
+    const std::string after = text.substr(end + 5);
+    if (!other) return after;
+    return "---\n" + kept + "---\n" + after;
 }
 
 }  // namespace jot::core

@@ -28,6 +28,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     add_action("dump-nodes",    sigc::mem_fun(*this, &Shell::on_dump_nodes));
     add_action("new-jots",      sigc::mem_fun(*this, &Shell::on_new_jots));
     add_action("open-jots",     sigc::mem_fun(*this, &Shell::on_open_jots));
+    m_act_close_jots = add_action("close-jots", sigc::mem_fun(*this, &Shell::on_close_jots));   // s062b
     add_action("save-all",      sigc::mem_fun(*this, &Shell::on_save_all));
     add_action("save-as",       sigc::mem_fun(*this, &Shell::on_save_as));
     add_action("dump-registry", sigc::mem_fun(*this, &Shell::on_dump_registry));
@@ -267,6 +268,11 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     m_drawer->signal_tag_add().connect([this](std::string n) { on_tag_edit(true, n); });      // s035b
     m_drawer->signal_tag_remove().connect([this](std::string n) { on_tag_edit(false, n); });  // s035b
     m_editor->signal_tag_activated().connect(sigc::mem_fun(*this, &Shell::on_show_tag));   // s035
+    // s062: the strip over the note writes the same way Note details' field does.
+    m_editor->signal_tag_add().connect([this](std::string n) { on_tag_edit(true, n); });
+    m_editor->signal_tag_remove().connect([this](std::string n) { on_tag_edit(false, n); });
+    // s062: leaving a note lifts the #tags typed in its text onto its list.
+    m_editor->signal_leaving().connect([this](core::NodeId id) { lift_typed_tags(id); });
     m_editor->set_zoom(m_prefs.zoom);                                                        // s053b
     m_editor->signal_zoom().connect([this](int pct) {
         m_prefs.zoom = pct;

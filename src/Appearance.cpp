@@ -121,6 +121,11 @@ std::string sheet(bool dark) {
     c += ".jot-tree row:focus-visible { outline-color: alpha(" + accent + ", 0.8); }\n";
     // s058b: the About window's row icons wear the accent.
     c += ".jot-about-row-icon { color: " + accent + "; }\n";
+    // s062: the tag chips over a note.
+    c += ".jot-tagchip { background-color: alpha(" + accent + ", 0.14); }\n";
+    // s062e: the "older build" line.
+    c += ".jot-stale-bar { background-color: alpha(" + accent + ", 0.16); border-radius: 8px; padding: 4px 4px 4px 10px; }\n";
+    c += ".jot-tagchip .jot-tagchip-name { color: mix(" + accent + ", currentColor, 0.25); }\n";
     // s059: the timeline's chips -- pills, the accent when on.
     c += ".jot-tl-chip { border-radius: 999px; padding: 2px 12px; min-height: 0; }\n";
     c += ".jot-tl-chip:checked { background-color: alpha(" + accent + ", 0.20); "

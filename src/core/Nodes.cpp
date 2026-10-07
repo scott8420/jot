@@ -1,6 +1,7 @@
 #include <cctype>
 #include "core/Nodes.hpp"
 #include "core/Undo.hpp"   // s046b: a capture is ONE undo step, whoever calls it
+#include "core/Tags.hpp"   // s061d: a capture's #tags go to the tag line
 
 #include <algorithm>
 #include <cstdio>
@@ -212,6 +213,25 @@ bool MemoryNodes::set_sent(const NodeId& id, std::int64_t when, const std::strin
     if (!n || (n->sent == when && n->sent_to == to)) return false;
     n->sent    = when;
     n->sent_to = to;
+    notify(Change::Flags, id);
+    return true;
+}
+
+// s062. Cleaned and deduped by key here, so every writer gets the same list.
+bool MemoryNodes::set_tags(const NodeId& id, const std::vector<std::string>& tags) {
+    Node* n = mutable_find(id);
+    if (!n) return false;
+    std::vector<std::string> clean, keys;
+    for (const auto& t : tags) {
+        std::string c = clean_tag_name(t);
+        if (c.empty()) continue;
+        const std::string k = tag_key(c);
+        if (std::find(keys.begin(), keys.end(), k) != keys.end()) continue;
+        keys.push_back(k);
+        clean.push_back(std::move(c));
+    }
+    if (n->tags == clean) return false;
+    n->tags = std::move(clean);
     notify(Change::Flags, id);
     return true;
 }
@@ -548,12 +568,19 @@ void capture_split(const std::string& text, std::string& title, std::string& bod
 
 NodeId capture(NodeSource& src, const std::string& text) {
     Gesture step(src, "Capture");   // s046b: create + body + mark, one Ctrl+Z
+    // s061d / s062: #tags anywhere in it go to the note's tag list, so "ring
+    // the vet #pets" is a note called "ring the vet", tagged pets. A capture
+    // that is ONLY tags keeps them as its name -- something has to be.
+    std::vector<std::string> tags;
+    const std::string lifted = lift_tags(text, tags);
+    const bool lift = !tags.empty() && !trim(lifted).empty();
     std::string title, body;
-    capture_split(text, title, body);
+    capture_split(lift ? lifted : text, title, body);
     if (title.empty()) return {};          // nothing typed is not a note
     const NodeId id = src.create("", title);
     if (id.empty()) return id;
     if (!body.empty()) src.set_body(id, body);
+    if (lift) src.set_tags(id, tags);
     src.set_inbox(id, true);
     return id;
 }
@@ -609,15 +636,36 @@ NodeId capture_append(NodeSource& src, const std::string& name, const std::strin
     if (appended) *appended = false;
     const std::string title = trimmed(name);
     if (title.empty() || trimmed(text).empty()) return {};
+    // s062: the line's #tags tag the note; the rest is the line.
+    std::vector<std::string> tags;
+    const std::string line = lift_tags(text, tags);
+    auto tag_it = [&](const NodeId& nid) {
+        if (tags.empty()) return;
+        const Node* n = src.find(nid);
+        std::vector<std::string> all = n ? n->tags : std::vector<std::string>{};
+        for (const auto& t : tags) all = tags_with(all, t, true);
+        src.set_tags(nid, all);
+    };
     NodeId id = find_list_note(src, title);
     if (!id.empty()) {
         const Node* n = src.find(id);
-        if (!n || !src.set_body(id, append_text(n->body, text))) return {};
+        if (!n) return {};
+        if (!trimmed(line).empty()) {
+            // s061d: above an old tag line, which stays last.
+            const std::string grown = grow_above_tags(
+                n->body, [&](const std::string& b) { return append_text(b, line); });
+            if (!src.set_body(id, grown)) return {};
+        }
+        tag_it(id);
         if (appended) *appended = true;
         return id;
     }
     id = src.create("", title);
-    if (!id.empty()) { src.set_body(id, append_text("", text)); src.set_inbox(id, true); }
+    if (!id.empty()) {
+        if (!trimmed(line).empty()) src.set_body(id, append_text("", line));
+        tag_it(id);
+        src.set_inbox(id, true);
+    }
     return id;
 }
 
@@ -647,17 +695,42 @@ NodeId capture_list(NodeSource& src, const std::string& name,
     Gesture step(src, "List");      // s046b
     if (appended) *appended = false;
     const std::string title = trimmed(name);
-    const std::string add = append_tasks("", items);
-    if (title.empty() || add.empty()) return {};
+    // s062: every item's #tags tag the NOTE (a tag in a list line would tag
+    // the whole note anyway); "rye #organic" is the item "rye", the note gets
+    // organic, and an item of only tags is no item.
+    std::vector<std::string> real, tags;
+    for (const auto& it : items) {
+        const std::string left = trimmed(lift_tags(trimmed(it), tags));
+        if (!left.empty()) real.push_back(left);
+    }
+    const std::string add = append_tasks("", real);
+    if (title.empty() || (add.empty() && tags.empty())) return {};
+    auto tag_it = [&](const NodeId& nid) {
+        if (tags.empty()) return;
+        const Node* n = src.find(nid);
+        std::vector<std::string> all = n ? n->tags : std::vector<std::string>{};
+        for (const auto& t : tags) all = tags_with(all, t, true);
+        src.set_tags(nid, all);
+    };
     NodeId id = find_list_note(src, title);
     if (!id.empty()) {
         const Node* n = src.find(id);
-        if (!n || !src.set_body(id, append_tasks(n->body, items))) return {};
+        if (!n) return {};
+        if (!real.empty()) {
+            const std::string grown = grow_above_tags(
+                n->body, [&](const std::string& b) { return append_tasks(b, real); });
+            if (!src.set_body(id, grown)) return {};
+        }
+        tag_it(id);
         if (appended) *appended = true;
         return id;
     }
     id = src.create("", title);
-    if (!id.empty()) { src.set_body(id, add); src.set_inbox(id, true); }
+    if (!id.empty()) {
+        if (!add.empty()) src.set_body(id, add);
+        tag_it(id);
+        src.set_inbox(id, true);
+    }
     return id;
 }
 

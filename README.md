@@ -103,7 +103,52 @@ thought is in the Inbox; the line clears for the next one and says what
 jot said ("Filed to the Inbox." or, with jot closed, "Filed. jot will
 pick it up next time it opens."). **Open jot** sits under it.
 
-The tile files nothing itself: every Enter is `jot --capture "text"`,
+The line takes the command line's three forms, and **What can I type?**
+under it folds out to say so:
+
+| Type | Gets |
+|---|---|
+| `ring the vet` | a note in the Inbox |
+| `Groceries -l milk eggs "rye bread"` | todos in the note Groceries (made if new) |
+| `Groceries -a check the pantry` | a line of text in Groceries |
+| `Groceries -al "for Saturday" milk eggs` | a line, then todos under it, at once |
+| `ring the vet #pets` | a note called "ring the vet", tagged #pets |
+
+`-al` (or `-la`) takes the line first -- one word or a "quoted phrase" --
+then the items. `Groceries -a for Saturday -l milk eggs` does the same, each
+flag owning the words after it, in either order. One Ctrl+Z takes both back.
+`Groceries -al "" milk eggs` -- an empty line -- is just the todos.
+
+`#words` are tags in all three, the same on the command line: they leave the
+text and join the note's tags -- `ring the vet #pets` is a note "ring the
+vet" tagged pets; `Groceries -l milk rye #organic #errands` adds milk and rye,
+and tags Groceries organic and errands.
+
+## Tags
+
+A note's tags sit over its text as chips -- **#errands ×** -- not in the
+writing. Click one for everything tagged with it, × to take it off, **+** to
+add one (Enter adds and stays open for the next; Esc folds it). Note details'
+Tags field edits the same list.
+
+Typing `#word` in the text still tags: when you leave the note the tag moves
+up to the chips, one Ctrl+Z to put it back. `\#word`, `#42` and `C#` are not
+tags and stay where they are.
+
+In the file the tags are front matter, which Obsidian and friends read too:
+
+```
+---
+id: 3f2a…
+tags: [errands, town]
+---
+- [ ] milk
+```
+
+A folder with tags still in its notes' text (from before, or from another
+app) is offered a one-time move when it opens -- one Ctrl+Z undoes it all.
+
+The tile files nothing itself: every Enter is a `jot` command line,
 run with the binary the desktop entry names (`install-desktop.sh`, which
 the script runs first if it has to). `--uninstall` takes it out.
 
@@ -302,6 +347,11 @@ with one source and two consumers.
 ./build/jot_selftest     # headless core -- 290 pass / 0 fail
 ./build/jot
 ```
+
+jot is one instance and keeps running in the background, so after a rebuild
+`./build/jot` reaches the OLD one -- which notices it is older than its
+program file, says "an older build was running -- restarting it", and comes
+back as the new build. An older jot left open shows a Restart line instead.
 
 Deps (Fedora): `gtkmm4.0-devel spdlog-devel cmake gcc-c++`
 Deps (Debian/Ubuntu): `libgtkmm-4.0-dev libspdlog-dev cmake g++`

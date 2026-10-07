@@ -196,6 +196,8 @@ void Shell::build_ui() {
     // tree that comes up rather than rows that appear a frame later. Does
     // nothing at all unless a jots folder is open -- see drain_pending.
     drain_pending();
+    // s062: #tags still in note text -- offer to move them, once the window is up.
+    Glib::signal_timeout().connect_once([this]() { offer_tag_move(); }, 600);
 
     m_tree->rebuild();
 
@@ -203,8 +205,10 @@ void Shell::build_ui() {
     // folder. With no folder the store is a scratch buffer -- you can type
     // immediately, and the question of where it should live is asked when you
     // leave, which is when it becomes a real question rather than a toll gate.
+    // s062b: except after Close Jots Folder -- then it opens as the close left
+    // it, on the "No jots folder open" hint, not on a note nobody asked for.
     auto roots = m_store->children("");
-    if (roots.empty()) {
+    if (roots.empty() && !(m_prefs.jots_closed && !m_project)) {
         const auto id = m_store->create("", "");   // raw: the first note of an empty folder is not a user step
         if (!id.empty()) roots.push_back(id);
     }
@@ -250,6 +254,7 @@ void Shell::build_ui() {
         // prompt can hold the window open and residency can hide it, and a size
         // learned then is still the right size.
         remember_window_geometry();
+        lift_typed_tags(m_editor->current());   // s062: as leaving the note does
         if (m_project) m_project->flush();   // whatever happens next, the disk is current
 
         // WHAT THE X MEANS is decided in core::on_close, not here. Three

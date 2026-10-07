@@ -1,12 +1,15 @@
 #include "App.hpp"
 #include "core/Pending.hpp"
+#include "core/Tags.hpp"
 #include "core/Shortcuts.hpp"
 
 #include <glibmm/miscutils.h>
+#include <glibmm/main.h>
 
 #include <chrono>
 #include <cstdlib>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <vector>
 #include "Shell.hpp"
 #include "Appearance.hpp"
@@ -35,6 +38,19 @@ Glib::RefPtr<App> App::create() {
 App::App()
     : Gtk::Application("io.github.scott8420.Jot",
                        Gio::Application::Flags::HANDLES_COMMAND_LINE) {
+    // s062e: remember which program file this is, to notice a rebuild later.
+    {
+        char buf[4096];
+        const ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
+        if (n > 0) {
+            m_exe.assign(buf, static_cast<std::size_t>(n));
+            struct stat st{};
+            if (::stat(m_exe.c_str(), &st) == 0) {
+                m_exe_ino = static_cast<unsigned long long>(st.st_ino);
+                m_exe_mtime = static_cast<long long>(st.st_mtime);
+            }
+        }
+    }
     // Registered so `--help` lists it -- and registering it is ALSO what makes
     // GLib parse it, which is the part that bit. A registered option is REMOVED
     // from the argv that reaches on_command_line, so reading the flag out of
@@ -48,17 +64,24 @@ App::App()
     // the other but not both.
     add_main_option_entry(Gtk::Application::OptionType::BOOL, "capture", 'c',
                           "Capture a thought. With words after it, file them without "
-                          "opening jot; with nothing, open the capture line.");
+                          "opening jot; with nothing, open the capture line. #words become tags.");
     // s025c. BOOL for the same reason as --capture: GLib takes the flag, and
     // the NAME and items are what is left in argv.
     add_main_option_entry(Gtk::Application::OptionType::BOOL, "list", 'l',
                           "Add tasks to a list: jot --list NAME item [item...]. Grows the "
-                          "note called NAME, or makes it. Quote an item of several words.");
+                          "note called NAME, or makes it. Quote an item of several words; "
+                          "an item that is only #tags tags the note.");
     // s025d (Scott): the name is the first plain word; the flag says what to
     // add. `jot Groceries -a check the pantry first`.
     add_main_option_entry(Gtk::Application::OptionType::BOOL, "append", 'a',
                           "Add a line of text to a note: jot NAME -a words... Grows the note "
-                          "called NAME, or makes it.");
+                          "called NAME, or makes it. Both at once: jot NAME -al \"a line\" "
+                          "item [item...], or jot NAME -a words -l items.");
+    // s061e: written by core::cli_join_append_list (main.cpp), not typed --
+    // hidden from --help, which shows -al instead.
+    add_main_option_entry(Gtk::Application::OptionType::BOOL, "both", '\0',
+                          "A line and todos at once: --both NAME \"line\" item...", "",
+                          Glib::OptionEntry::Flags::HIDDEN);
 }
 
 // The parse, kept away from the plumbing. `capture_flag` comes from the options
@@ -66,8 +89,9 @@ App::App()
 // joined, so an unquoted `jot --capture ring the vet` does what it looks like it
 // does rather than filing the word "ring".
 App::Request App::parse(const std::vector<std::string>& argv, bool capture_flag,
-                        bool list_flag, bool append_flag) {
+                        bool list_flag, bool append_flag, bool both_flag) {
     Request r;
+    r.both = both_flag;
     r.capture = capture_flag;
     r.list = list_flag;
     r.append = append_flag;
@@ -121,8 +145,58 @@ int App::on_command_line(const Glib::RefPtr<Gio::ApplicationCommandLine>& cmd) {
         on = FALSE;
         if (g_variant_dict_lookup(opts, "append", "b", &on)) append_flag = on;
     }
+    bool both_flag = false;
+    if (GVariantDict* opts = g_application_command_line_get_options_dict(cmd->gobj())) {
+        gboolean on = FALSE;
+        if (g_variant_dict_lookup(opts, "both", "b", &on)) both_flag = on;
+    }
 
-    const Request r = parse(argv, capture_flag, list_flag, append_flag);
+    const Request r = parse(argv, capture_flag, list_flag, append_flag, both_flag);
+
+    // ── jot NAME -al "line" item... (s061e) ────────────────────────────────
+    // Arrives as --both NAME "line" items (core/Cli rewrote it). The line goes
+    // in first, then the todos under it. Closed jot: two spool files, the line
+    // first ("a" sorts before "b" in the same second).
+    if (r.both) {
+        if (r.words.size() < 3) {
+            cmd->printerr("usage: jot NAME -al \"a line\" item [item...]\n"
+                          "   or: jot NAME -a words... -l item [item...]\n"
+                          "  e.g. jot Groceries -al \"for Saturday\" milk eggs\n");
+            return 1;
+        }
+        const std::string name = r.words[0];
+        std::string line = r.words[1];
+        for (auto& c : line) if (c == '\n' || c == '\r') c = ' ';
+        const std::vector<std::string> items(r.words.begin() + 2, r.words.end());
+        if (!cmd->is_remote()) {
+            std::string joined;
+            std::size_t real = 0;
+            for (const auto& it : items) {
+                std::string one = it;
+                for (auto& c : one) if (c == '\n' || c == '\r') c = ' ';
+                if (!joined.empty()) joined += '\n';
+                joined += one;
+                std::vector<std::string> t;
+                if (!core::pull_tags(it, t).empty()) ++real;
+            }
+            if (file_pending(line, {}, name, "a") && file_pending(joined, name, {}, "b")) {
+                cmd->print("Filed a line and " + std::to_string(real) +
+                           (real == 1 ? " item" : " items") + " for \"" + name +
+                           "\". jot will add them next time it opens.\n");
+                return 0;
+            }
+            cmd->printerr("jot: could not write to the pending folder; opening jot instead.\n");
+        }
+        ensure_shell(false);
+        if (!m_shell) return 1;
+        const std::string said = m_shell->capture_both(name, line, items);
+        if (said.empty()) {
+            cmd->printerr("jot: nothing to add.\n");
+            return 1;
+        }
+        cmd->print(said + "\n");
+        return 0;
+    }
 
     // ── jot NAME -a words (s025d) ──────────────────────────────────────────
     // Same shape as --list below: never a window, answered in the terminal,
@@ -182,9 +256,14 @@ int App::on_command_line(const Glib::RefPtr<Gio::ApplicationCommandLine>& cmd) {
                 for (auto& c : one) if (c == '\n' || c == '\r') c = ' ';
                 joined += one;
             }
+            std::size_t real = 0;   // s061d: a lone #tag tags the note; not an item
+            for (const auto& it : items) {
+                std::vector<std::string> t;
+                if (!core::pull_tags(it, t).empty()) ++real;
+            }
             if (file_pending(joined, name)) {
-                cmd->print("Filed " + std::to_string(items.size()) +
-                           (items.size() == 1 ? " item" : " items") + " for \"" + name +
+                cmd->print("Filed " + std::to_string(real) +
+                           (real == 1 ? " item" : " items") + " for \"" + name +
                            "\". jot will add them next time it opens.\n");
                 return 0;
             }
@@ -230,6 +309,15 @@ int App::on_command_line(const Glib::RefPtr<Gio::ApplicationCommandLine>& cmd) {
             lg->error("cold capture -- spool write failed, falling back to opening jot");
     }
 
+    // s062e: `./build/jot` (or the launcher) reaching an OLDER build that is
+    // still running: say so in the terminal, and restart into the new one.
+    // A capture is never a reason to restart -- the running jot files it.
+    if (cmd->is_remote() && !r.capture && !r.list && !r.append && !r.both && stale()) {
+        cmd->printerr("jot: an older build was running -- restarting it.\n");
+        Glib::signal_idle().connect_once([this]() { restart_new_build(); });
+        return 0;
+    }
+
     // activate-or-repair, and present ONLY if something asked to be seen.
     ensure_shell(!silent);
     if (!m_shell) return 0;          // activation refused; nothing to capture into
@@ -261,7 +349,7 @@ std::string App::pending_dir() const {
 }
 
 bool App::file_pending(const std::string& text, const std::string& list,
-                       const std::string& append) const {
+                       const std::string& append, const std::string& uniq_suffix) const {
     // The uniquifier only has to separate two captures taken in the same second.
     // A pid does that for separate invocations, which is what a cold capture
     // always is -- this process is about to exit.
@@ -270,7 +358,7 @@ bool App::file_pending(const std::string& text, const std::string& list,
                          .count();
     std::string wrote;
     if (!core::write_pending(pending_dir(), text, static_cast<std::int64_t>(now),
-                             std::to_string(getpid()), &wrote, list, append))
+                             std::to_string(getpid()) + uniq_suffix, &wrote, list, append))
         return false;
     if (auto lg = log::get(log::Area::Io)) lg->info("spooled a capture into {}", wrote);
     return true;
@@ -372,7 +460,14 @@ void App::on_quit() {
 // activate() means "show me jot", and that is what the launcher, the desktop
 // file and a notification click all mean by it. Everything it actually DOES is
 // one layer down, where presenting is a parameter rather than an assumption.
-void App::on_activate() { ensure_shell(/*present=*/true); }
+void App::on_activate() {
+    // s062e: the launcher reaching an older build -- restart into the new one.
+    if (m_shell && stale()) {
+        Glib::signal_idle().connect_once([this]() { restart_new_build(); });
+        return;
+    }
+    ensure_shell(/*present=*/true);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ensure_shell -- there is a Shell, it is attached, and it may or may not be on
@@ -457,6 +552,38 @@ void App::ensure_shell(bool present) {
     // state jot already supports, not a special case.
     if (present) m_shell->present();
     if (auto lg = log::get(log::Area::App)) lg->info("jot activated");
+}
+
+}  // namespace jot
+
+namespace jot {
+
+bool App::stale() const {
+    if (m_exe.empty()) return false;
+    char buf[4096];
+    const ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
+    if (n > 0) {
+        const std::string now(buf, static_cast<std::size_t>(n));
+        if (now.size() > 10 && now.compare(now.size() - 10, 10, " (deleted)") == 0) return true;
+    }
+    struct stat st{};
+    if (::stat(m_exe.c_str(), &st) != 0) return false;   // gone, nothing newer to run (yet)
+    return static_cast<unsigned long long>(st.st_ino) != m_exe_ino ||
+           static_cast<long long>(st.st_mtime) != m_exe_mtime;
+}
+
+bool App::restart_new_build() {
+    if (m_exe.empty() || ::access(m_exe.c_str(), X_OK) != 0) {
+        if (auto lg = log::get(log::Area::App))
+            lg->warn("restart: no program at '{}' to run -- staying", m_exe);
+        return false;
+    }
+    m_restart = m_exe;
+    if (auto lg = log::get(log::Area::App))
+        lg->info("restart: an older build was running -- quitting to run '{}'", m_exe);
+    if (m_shell) m_shell->request_quit();
+    else quit();
+    return true;
 }
 
 }  // namespace jot

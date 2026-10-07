@@ -179,6 +179,7 @@ NodeId packet_again(NodeSource& src, const NodeId& id) {
     src.set_body(nid, body);
     src.set_packet(nid, true);
     if (was.nudge) src.set_nudge(nid, was.nudge);
+    if (!was.tags.empty()) src.set_tags(nid, was.tags);   // s062
     if (was.task.is_task) {
         Task t = was.task;
         t.done = false;

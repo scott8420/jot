@@ -173,6 +173,11 @@ struct Node {
     // s052 (J2): NUDGE me every this many days while something is missing
     // (core/Nudge). 0 = never. Structure, like the mark.
     int          nudge    = 0;
+    // s062: the note's TAGS -- names as written, no hash, one per tag. They
+    // live in the note file's front matter (`tags: [pets, at/town]`), hidden
+    // from the text, and show as chips over the note. A #word typed in the
+    // text is an input gesture: it is lifted here (core::lift_tags).
+    std::vector<std::string> tags;
 };
 
 // s033. One occurrence of a repeating todo, done. The note itself rolls on to
@@ -229,6 +234,9 @@ public:
     virtual bool   set_sent(const NodeId& id, std::int64_t when, const std::string& to) = 0;
     // s052. Days between a packet's nudges; 0 = off. Change::Flags.
     virtual bool   set_nudge(const NodeId& id, int days) = 0;
+    // s062. The note's tag list, replaced whole (deduped by key, cleaned).
+    // Change::Flags. Persisted in the note file's front matter.
+    virtual bool   set_tags(const NodeId& id, const std::vector<std::string>& tags) = 0;
 
     bool set_done(const NodeId& id, bool on);
     bool set_flagged(const NodeId& id, bool on);
@@ -382,6 +390,7 @@ public:
     bool   set_packet(const NodeId& id, bool on) override;
     bool   set_sent(const NodeId& id, std::int64_t when, const std::string& to) override;
     bool   set_nudge(const NodeId& id, int days) override;
+    bool   set_tags(const NodeId& id, const std::vector<std::string>& tags) override;
     using NodeSource::move;   // keep the 2-arg convenience visible through this type
     bool   move(const NodeId& id, const NodeId& new_parent, int index) override;
     bool   remove(const NodeId& id) override;

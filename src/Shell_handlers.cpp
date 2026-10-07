@@ -513,42 +513,44 @@ void Shell::on_tag_edit(bool add, const std::string& name) {  // handler: tag fi
     // s049: several selected -- the tag goes on (or off) every one, ONE step.
     // The note in the editor takes its edit through the editor (its buffer is
     // the body's writer); the others are written through the door.
+    // s062: tags are the note's LIST now (front matter, not the text), so this
+    // is a set_tags on each -- no editor buffer involved.
+    std::vector<core::NodeId> ids;
     if (m_tree->selection_size() > 1) {
-        const auto ids = m_tree->selection();
-        const auto edits = core::tag_edits(m_undo, ids, name, add);
-        if (auto lg = log::get(log::Area::Shell))
-            lg->info("tag {} #{} on {} selected: {} edit(s)", add ? "add" : "remove", name,
-                     ids.size(), edits.size());
-        if (edits.empty()) return;
-        std::vector<core::NodeId> touched;
-        for (const auto& e : edits) touched.push_back(e.first);
-        const std::string label =
-            core::many_label((add ? "Add tag #" : "Remove tag #") + name, edits.size());
-        core::as_step(m_undo, label, touched, false, [&] {
-            for (const auto& [id, ed] : edits) {
-                if (id == m_editor->current()) m_editor->apply_outside_edit(ed);
-                else if (const core::Node* n = m_undo.find(id))
-                    m_undo.set_body(id, core::apply(n->body, ed));
-            }
-        });
-        queue_drawer_refresh();
-        return;
+        ids = core::writable(m_undo, m_tree->selection(), false);
+    } else {
+        const core::NodeId id = m_editor->current();
+        const core::Node* n = id.empty() ? nullptr : m_store->find(id);
+        if (!n || n->protect) return;
+        ids.push_back(id);
     }
-    const core::NodeId id = m_editor->current();
-    if (id.empty() || !m_store->find(id)) return;
-    const std::string body = m_editor->body_text();
-    const core::FmtEdit ed = add ? core::tag_add_edit(body, name) : core::tag_remove_edit(body, name);
+    std::vector<core::NodeId> changing;
+    for (const auto& id : ids)
+        if (const core::Node* n = m_undo.find(id))
+            if (core::tags_with(n->tags, name, add) != n->tags) changing.push_back(id);
     if (auto lg = log::get(log::Area::Shell))
-        lg->info("tag {} #{} on {}: {}", add ? "add" : "remove", name, id,
-                 ed.ok ? "edit" : "nothing to do");
-    if (!ed.ok) return;   // already carried, or not on the line: nothing to change
-    // s046b: the editor writes the body to the real store (its own text undo
-    // has it too); touching the note first makes the same edit a model step,
-    // so Ctrl+Z after the tag field's x -- focus on a button, not in text --
-    // takes the tag back.
-    core::as_step(m_undo, (add ? "Add tag #" : "Remove tag #") + name, {id}, false,
-                  [&] { m_editor->apply_outside_edit(ed); });
+        lg->info("tag {} #{} on {} note(s): {} change(s)", add ? "add" : "remove", name, ids.size(),
+                 changing.size());
+    if (changing.empty()) return;   // already carried, or not on the list
+    const std::string label =
+        core::many_label((add ? "Add tag #" : "Remove tag #") + name, changing.size());
+    core::as_step(m_undo, label, changing, false, [&] {
+        for (const auto& id : changing)
+            if (const core::Node* n = m_undo.find(id))
+                m_undo.set_tags(id, core::tags_with(n->tags, name, add));
+    });
     queue_drawer_refresh();
+}
+
+void Shell::lift_typed_tags(const core::NodeId& id) {  // helper: s062
+    const core::Node* n = id.empty() ? nullptr : m_store->find(id);
+    if (!n || n->protect || n->body.find('#') == std::string::npos) return;
+    if (core::scan(n->body).tags.empty()) return;
+    bool lifted = false;
+    core::as_step(m_undo, "Tags from the text", {id}, false,
+                  [&] { lifted = core::lift_note_tags(m_undo, id); });
+    if (auto lg = log::get(log::Area::Shell))
+        if (lifted) lg->info("tags: lifted the typed #tags of {} onto its list", id);
 }
 
 // s035. A #tag clicked -- in the drawer, Ctrl+click in the note, a plain click
@@ -1676,6 +1678,9 @@ core::NodeId Shell::import_file(const std::string& p, const core::NodeId& parent
         return {};
     }
     m_undo.set_body(id, n.body);
+    // s062: the file's own tags, then any #word in its text, onto the list.
+    if (!n.tags.empty()) m_undo.set_tags(id, n.tags);
+    core::lift_note_tags(m_undo, id);
     if (auto lg = log::get(log::Area::Io))
         lg->info("imported '{}' -> {} '{}' ({} byte(s), {} picture(s) linked)", p, id, n.title,
                  n.body.size(), n.pictures);

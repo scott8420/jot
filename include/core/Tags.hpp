@@ -4,6 +4,7 @@
 #include "core/Tasks.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -50,7 +51,11 @@ std::string tag_key(std::string_view name);
 // beneath it ("home/garden" is under "home"; "homework" is not).
 bool tag_under(std::string_view key, std::string_view filter);
 
-// One node's tags as KEYS, de-duplicated, in the order the text has them.
+// s062: one node's tags as WRITTEN -- its list (Node::tags) first, then any
+// #word still in its text -- de-duplicated by key.
+std::vector<std::string> node_tags(const Node& n);
+
+// One node's tags as KEYS, de-duplicated, the list's order then the text's.
 std::vector<std::string> node_tag_keys(const Node& n);
 
 // One chip in the Tags view.
@@ -132,5 +137,47 @@ FmtEdit tag_add_edit(const std::string& body, std::string_view name);
 // line goes, with the blank lines before it. ok == false when the tag is not
 // on the line (a tag "in text" is removed where you wrote it).
 FmtEdit tag_remove_edit(const std::string& body, std::string_view name);
+
+// ── tags as the note's list (s062) ──────────────────────────────────────────
+// Tags live in Node::tags (the note file's front matter); a #word in the text
+// is how you TYPE one, and lift_tags moves it out.
+
+// `tags` with `name` added (cleaned, at the end, unless already there by key)
+// or removed (by key).
+std::vector<std::string> tags_with(const std::vector<std::string>& tags, std::string_view name,
+                                   bool add);
+
+// `body` with every #tag taken out (and a space beside each); a line left
+// empty by it -- a tag line -- goes. The names are appended to `names`.
+// `\#word` and #1 are not tags, so they stay.
+std::string lift_tags(const std::string& body, std::vector<std::string>& names);
+
+// One note: its text's #tags moved onto its list. false when there were none
+// (or it is protected).
+bool lift_note_tags(NodeSource& src, const NodeId& id);
+
+// The notes whose text still holds #tags -- what a conversion would touch.
+std::vector<NodeId> notes_with_text_tags(const NodeSource& src);
+
+// Every such note lifted; how many changed.
+std::size_t lift_all_tags(NodeSource& src);
+
+// ── tags in a capture (s061d) ───────────────────────────────────────────────
+// A one-line capture is all title, and tags are read from the body -- so
+// "ring the vet #pets" would carry #pets in its NAME and be tagged nothing.
+// These move a capture's #tags to where jot reads them: the tag line.
+
+// `line` with every #tag taken out (spaces closed up, trimmed); the names,
+// without the hash, are appended to `names` in the order written.
+std::string pull_tags(const std::string& line, std::vector<std::string>& names);
+
+// `body` with each name on its tag line (made when there is none); names the
+// note already carries, here or in its text, are skipped.
+std::string add_tags(const std::string& body, const std::vector<std::string>& names);
+
+// `body` grown by `grow` ABOVE its tag line, so the line stays last (where
+// Note details finds it). No tag line: grow(body).
+std::string grow_above_tags(const std::string& body,
+                            const std::function<std::string(const std::string&)>& grow);
 
 }  // namespace jot::core

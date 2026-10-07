@@ -16,6 +16,19 @@ class App : public Gtk::Application {
 public:
     static Glib::RefPtr<App> create();
 
+    // ── s062e: a jot older than its own binary ──────────────────────────────
+    // jot is single-instance and stays resident, so `./build/jot` after a
+    // rebuild only handed over to the OLD process (Scott: "really hard to know
+    // that an older Jot is running"). stale() is true when the program file
+    // this process was started from has been replaced since: /proc/self/exe
+    // reads "... (deleted)", or the path now names a different file.
+    bool stale() const;
+    // Quit (asking what needs asking), then main() execs the new binary in
+    // this same process -- the bus name is released by then, so the new jot
+    // comes up as the one instance. false when there is no new file to run.
+    bool restart_new_build();
+    const std::string& restart_path() const { return m_restart; }
+
 protected:
     App();
     void on_activate() override;
@@ -65,11 +78,13 @@ private:
         bool capture = false;
         bool list = false;
         bool append = false;   // s025d
+        bool both = false;     // s061e: --both NAME "line" items (core/Cli writes it)
         std::string text;
         std::vector<std::string> words;
     };
     static Request parse(const std::vector<std::string>& argv, bool capture_flag,
-                         bool list_flag = false, bool append_flag = false);
+                         bool list_flag = false, bool append_flag = false,
+                         bool both_flag = false);
 
     // ── ensure_shell -- activation, with the presenting made a DECISION ─────
     // on_activate() presented unconditionally, which was invisible until s012:
@@ -92,9 +107,16 @@ private:
     // disagree about the folder.
     std::string pending_dir() const;
     bool        file_pending(const std::string& text, const std::string& list = {},
-                             const std::string& append = {}) const;
+                             const std::string& append = {},
+                             const std::string& uniq_suffix = {}) const;
 
     Shell* m_shell = nullptr;   // owned by the application via add_window
+
+    // s062e: the program file as it was at startup.
+    std::string        m_exe;
+    unsigned long long m_exe_ino = 0;
+    long long          m_exe_mtime = 0;
+    std::string        m_restart;   // set: main() execs this once run() returns
 };
 
 }  // namespace jot

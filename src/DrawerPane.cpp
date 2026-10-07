@@ -2104,25 +2104,20 @@ void DrawerPane::fill_backlinks(const core::Node& n) {
     if (m_backlinks.rows->get_first_child()) m_backlinks.frame->set_visible(true);
 }
 
-// Tags (s035b). Each tag the note carries, as a chip. A tag on the TAG LINE
-// (the note's last line, only tags) has an x -- Note details owns that line.
-// A tag written anywhere else is marked "in text": you remove it where you
-// wrote it. Clicking a chip's name opens the Tags view on it (s035).
+// Tags (s035b; s062). Each tag the note carries, as a chip. A tag on the
+// note's LIST (Node::tags, the front matter) has an x. One still in the text
+// -- typed, not yet lifted -- is marked "in text": it moves to the list when
+// you leave the note. Clicking a chip's name opens the Tags view on it (s035).
 void DrawerPane::fill_tags(const core::Node& n) {
-    const core::Scan sc = core::scan(n.body);
-    const core::TagLine tl = core::find_tag_line(n.body);
-
     std::vector<std::string> keys, names;
     std::vector<bool> on_line;
-    for (const auto& t : sc.tags) {
-        const std::string k = core::tag_key(t.name);
-        if (k.empty() || std::find(keys.begin(), keys.end(), k) != keys.end()) continue;
+    for (const auto& t : core::node_tags(n)) {
+        const std::string k = core::tag_key(t);
         keys.push_back(k);
-        names.push_back(t.name);
-        bool line = false;
-        if (tl.found)
-            for (const auto& ln : tl.names) line = line || core::tag_key(ln) == k;
-        on_line.push_back(line);
+        names.push_back(t);
+        bool listed = false;
+        for (const auto& l : n.tags) listed = listed || core::tag_key(l) == k;
+        on_line.push_back(listed);
     }
     if (m_tag_entry) m_tag_entry->set_sensitive(!n.protect);
     set_count(m_tags, names.size());
@@ -2160,7 +2155,8 @@ void DrawerPane::fill_tags(const core::Node& n) {
             chip->append(*x);
         } else {
             b->set_tooltip_text(on_line[i] ? "Show everything tagged #" + name
-                                           : "Written in the text -- remove it there.\n"
+                                           : "Typed in the text -- it joins the note's tags "
+                                             "when you leave the note.\n"
                                              "Click to show everything tagged #" + name);
             if (!on_line[i]) {
                 auto* where = Gtk::make_managed<widgets::Label>(widgets::unregistered,
@@ -2187,7 +2183,7 @@ void DrawerPane::build_tag_field() {
     m_tag_entry = Gtk::make_managed<widgets::Entry>("drawer.tag_entry");
     m_tag_entry->set_placeholder_text("Add a tag…");
     m_tag_entry->set_tooltip_text("Type a tag and press Enter, or pick one from the list. "
-                                  "It goes on the note's tag line, at the bottom.");
+                                  "It goes on the note's tags, over the text.");
     m_tag_entry->set_hexpand(true);
     m_tag_entry->signal_activate().connect([this]() { commit_tag_entry(); });
     m_tag_entry->signal_changed().connect([this]() { m_tag_entry->remove_css_class("error"); });

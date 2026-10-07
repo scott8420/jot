@@ -109,6 +109,9 @@ public:
     // s025d: `jot NAME -a words` -- one line of text on the note NAME
     // (core::capture_append). Same return shape as capture_list.
     std::string capture_append(const std::string& name, const std::string& text);  // category: helper
+    // s061e: `jot NAME -al "line" items` -- the line, then the todos, one undo.
+    std::string capture_both(const std::string& name, const std::string& line,
+                             const std::vector<std::string>& items);  // category: helper
     void focus_capture_bar();                    // category: helper: put the cursor in the box
 
     // Reveal and select a node from OUTSIDE the window -- what App dispatches a
@@ -181,7 +184,13 @@ private:
     void on_toggle_project();                    // category: handler: s037b the selection is / is not a project, on purpose
     void on_new_project();                       // category: handler: s037b Projects tab + -> a new top-level project, named in the tree                     // category: handler: s037 Ctrl+Shift+R -> the selection reviewed, on to the next
     void on_show_tags();                         // category: handler: s035 Ctrl+Shift+T -> the Tags view
-    void on_tag_edit(bool add, const std::string& name);  // category: handler: s035b Note details adds / removes on the tag line
+    void on_tag_edit(bool add, const std::string& name);
+    // s062: the #tags typed in a note's text, onto its list -- one undo step.
+    // When the editor leaves the note, and on close for the note on show.
+    void lift_typed_tags(const core::NodeId& id);  // category: helper
+    // s062: a folder opened with #tags still in note text (made before s062,
+    // or written by another app) -- offer to move them all, one undo.
+    void offer_tag_move();  // category: helper  // category: handler: s035b Note details adds / removes on the tag line
     void on_clean_up();                          // category: handler: s028 clear processed Inbox marks
     void on_project_state(const Glib::ustring& which);   // category: handler: s031 Active / On hold / Completed / Dropped
     void on_toggle_inbox();                      // category: handler: s028 the selection in / out of the Inbox
@@ -254,7 +263,9 @@ private:
     void rebuild_recents_menu();                 // category: helper: repaint the submenu
     std::string recents_file() const;            // category: helper: the XDG path (UI-side resolution)
     std::string default_jots_location() const;  // category: helper: the folder a NEW jots folder is offered in
-    void update_jots_title();                    // category: helper: repaint the header title + its menu
+    void update_jots_title();
+    void repoint_surfaces();   // category: helper: s062b -- every pane onto m_store after a swap
+    void on_close_jots();      // category: handler: s062b -- Close Jots Folder                    // category: helper: repaint the header title + its menu
     void name_jots(JotsFolderDialog::Mode mode, const std::string& location,
                    const std::string& name,
                    JotsFolderDialog::Done done);  // category: helper: the one naming dialog, three occasions
@@ -566,6 +577,8 @@ private:
     // Location actions: held because none of them is an offer when there is no
     // jots folder open (JOT_STRESS, or a first run still being answered).
     Glib::RefPtr<Gio::SimpleAction> m_act_open_in_files;
+    Glib::RefPtr<Gio::SimpleAction> m_act_close_jots;   // s062b
+    widgets::Box* m_stale_bar = nullptr;                 // s062e: "an older build" line
     Glib::RefPtr<Gio::SimpleAction> m_act_copy_path;
     Glib::RefPtr<Gio::SimpleAction> m_act_relocate;
     Glib::RefPtr<Gio::SimpleAction> m_act_rename;

@@ -124,6 +124,7 @@ EditorPane::EditorPane(std::string_view name)
     m_stack.set_vexpand(true);
     build_format_bar();
     append(m_fmt_bar);
+    build_tag_strip();   // s062: the note's tags, over its text
     // s053b: the zoom. Both text views carry `jot-note-text`, and ONE sheet
     // sets its font-size as a percent -- headings (tag scales), code, drawn
     // bullets and Reading's code bubbles all follow, being relative to it.
@@ -1283,6 +1284,14 @@ void EditorPane::set_editable(bool on) {
 }
 
 void EditorPane::show_node(const core::NodeId& id) {
+    // s062: the note being left -- its typed #tags go to its list. Told on an
+    // IDLE, once this note is fully shown: lifting rewrites the old note,
+    // and a model change arriving mid-show_node would re-enter it.
+    if (!m_id.empty() && m_id != id) {
+        const core::NodeId left = m_id;
+        Glib::signal_idle().connect_once([this, left]() { m_sig_leaving.emit(left); });
+    }
+    if (m_id != id) m_tag_adding = false;
     m_loading = true;
     m_id = id;
 
@@ -1290,11 +1299,11 @@ void EditorPane::show_node(const core::NodeId& id) {
     if (!n) {
         m_id.clear();
         m_body.get_buffer()->set_text("");
-        m_status.set_text("No note selected. Pick one on the left, or press "
-                          "Ctrl+N to start a new one.");
+        m_status.set_text(m_blank_hint);
         m_status.set_visible(true);
         set_editable(false);
         m_loading = false;
+        refresh_tag_strip();
         restyle();          // clears m_scan, so a stale click can't find a box
         return;
     }
@@ -1319,6 +1328,7 @@ void EditorPane::show_node(const core::NodeId& id) {
     }
 
     m_loading = false;
+    refresh_tag_strip();
 
     // Immediately, not queued: switching notes must not show one frame of
     // unstyled source before the idle runs.
@@ -1717,5 +1727,151 @@ void EditorPane::step_zoom(int pct) {
 void EditorPane::zoom_in()    { step_zoom(core::zoom_in(m_zoom)); }
 void EditorPane::zoom_out()   { step_zoom(core::zoom_out(m_zoom)); }
 void EditorPane::zoom_reset() { step_zoom(core::kZoomDefault); }
+
+}  // namespace jot
+
+namespace jot {
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The tag strip (s062). Scott: tags "a hidden part of the note at the top of the
+// markdown like an inline metadata area" -- shown "like the bubbles". They are
+// Node::tags (the file's front matter), so the strip is the only place a note
+// shows them; the text never carries them.
+// ─────────────────────────────────────────────────────────────────────────────
+void EditorPane::set_blank_hint(const std::string& text) {
+    m_blank_hint = text;
+    if (m_id.empty()) m_status.set_text(m_blank_hint);
+}
+
+void EditorPane::build_tag_strip() {
+    static bool css_done = false;
+    if (!css_done) {
+        if (auto display = Gdk::Display::get_default()) {
+            auto css = Gtk::CssProvider::create();
+            css->load_from_data(
+                ".jot-tagstrip { padding: 0 2px; }"
+                // The accent itself is Appearance's (GTK has no name for it).
+                ".jot-tagchip { border-radius: 999px; padding: 0 2px 0 4px; }"
+                ".jot-tagchip button { min-height: 22px; padding: 0 4px; }"
+                ".jot-tagchip .jot-tagchip-name { font-weight: 600; }"
+                ".jot-tagchip .jot-tagchip-x { opacity: 0.55; min-width: 18px; }"
+                ".jot-tagchip .jot-tagchip-x:hover { opacity: 1; }"
+                ".jot-tagstrip-add { min-height: 22px; padding: 0 8px; border-radius: 999px; opacity: 0.6; }"
+                ".jot-tagstrip-add:hover { opacity: 1; }"
+                ".jot-tagstrip-entry { min-height: 22px; border-radius: 999px; }");
+            gtk_style_context_add_provider_for_display(
+                display->gobj(), GTK_STYLE_PROVIDER(css->gobj()),
+                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            css_done = true;
+        }
+    }
+    m_tag_strip = Gtk::make_managed<widgets::Box>("editor.tagstrip", Gtk::Orientation::HORIZONTAL, 4);
+    m_tag_strip->add_css_class("jot-tagstrip");
+    m_tag_strip->set_visible(false);
+    append(*m_tag_strip);
+}
+
+void EditorPane::refresh_tag_strip() {
+    if (!m_tag_strip) return;
+    while (auto* c = m_tag_strip->get_first_child()) m_tag_strip->remove(*c);
+    m_tag_strip_entry = nullptr;
+    const core::Node* n = (m_src && !m_id.empty()) ? m_src->find(m_id) : nullptr;
+    if (!n) { m_tag_strip->set_visible(false); return; }
+    m_tag_strip->set_visible(true);
+
+    for (const auto& name : n->tags) {
+        const std::string key = core::tag_key(name);
+        auto* chip = Gtk::make_managed<widgets::Box>(widgets::unregistered, "editor.tagchip." + key,
+                                                     Gtk::Orientation::HORIZONTAL, 0);
+        chip->add_css_class("jot-tagchip");
+        chip->set_valign(Gtk::Align::CENTER);
+        auto* b = Gtk::make_managed<widgets::Button>(widgets::unregistered, "editor.tag." + key);
+        auto* l = Gtk::make_managed<widgets::Label>(widgets::unregistered, "editor.tag.label." + key);
+        l->set_text("#" + name);
+        l->add_css_class("jot-tagchip-name");
+        b->set_child(*l);
+        b->set_has_frame(false);
+        b->set_can_focus(false);
+        b->set_tooltip_text("Show everything tagged #" + name);
+        b->signal_clicked().connect([this, name]() { m_sig_tag.emit(name); });
+        chip->append(*b);
+        if (!n->protect) {
+            auto* x = Gtk::make_managed<widgets::Button>(widgets::unregistered, "editor.tag_x." + key);
+            x->set_label("\u00d7");
+            x->set_has_frame(false);
+            x->set_can_focus(false);
+            x->add_css_class("jot-tagchip-x");
+            x->set_tooltip_text("Take #" + name + " off this note");
+            // On an idle: the x is destroyed by the repaint its own click causes.
+            x->signal_clicked().connect([this, name]() {
+                Glib::signal_idle().connect_once([this, name]() { m_sig_tag_remove.emit(name); });
+            });
+            chip->append(*x);
+        }
+        m_tag_strip->append(*chip);
+    }
+    if (n->protect) {
+        if (n->tags.empty()) m_tag_strip->set_visible(false);
+        return;
+    }
+
+    // + : a button that becomes a field. Enter adds and stays open for the
+    // next; Esc (or leaving it empty) folds it back.
+    auto* add = Gtk::make_managed<widgets::Button>(widgets::unregistered, "editor.tag_add");
+    add->set_label(n->tags.empty() ? "+ Add a tag" : "+");
+    add->set_has_frame(false);
+    add->add_css_class("jot-tagstrip-add");
+    add->set_valign(Gtk::Align::CENTER);
+    add->set_tooltip_text("Add a tag to this note. Typing #word in the text does it too.");
+    auto* entry = Gtk::make_managed<widgets::Entry>(widgets::unregistered, "editor.tag_entry");
+    entry->set_placeholder_text("tag");
+    entry->add_css_class("jot-tagstrip-entry");
+    entry->set_width_chars(12);
+    entry->set_valign(Gtk::Align::CENTER);
+    entry->set_visible(false);
+    m_tag_strip_entry = entry;
+    add->signal_clicked().connect([this, add, entry]() {
+        m_tag_adding = true;
+        add->set_visible(false);
+        entry->set_visible(true);
+        entry->grab_focus();
+    });
+    // Enter adds and the field stays open for the next (the repaint reopens
+    // it, m_tag_adding); Enter on an empty field folds it.
+    entry->signal_activate().connect([this, add, entry]() {
+        const std::string typed = std::string(entry->get_text());
+        if (typed.find_first_not_of(" \t#") == std::string::npos) {
+            m_tag_adding = false;
+            entry->set_visible(false);
+            add->set_visible(true);
+            m_body.grab_focus();
+            return;
+        }
+        const std::string t = core::clean_tag_name(typed);
+        if (t.empty()) { entry->add_css_class("error"); return; }
+        Glib::signal_idle().connect_once([this, t]() { m_sig_tag_add.emit(t); });
+    });
+    entry->signal_changed().connect([entry]() { entry->remove_css_class("error"); });
+    auto keys = Gtk::EventControllerKey::create();
+    keys->signal_key_pressed().connect(
+        [add, entry, this](guint kv, guint, Gdk::ModifierType) {
+            if (kv != GDK_KEY_Escape) return false;
+            m_tag_adding = false;
+            entry->set_text("");
+            entry->set_visible(false);
+            add->set_visible(true);
+            m_body.grab_focus();
+            return true;
+        },
+        false);
+    entry->add_controller(keys);
+    m_tag_strip->append(*add);
+    m_tag_strip->append(*entry);
+    if (m_tag_adding) {
+        add->set_visible(false);
+        entry->set_visible(true);
+        entry->grab_focus();
+    }
+}
 
 }  // namespace jot

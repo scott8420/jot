@@ -1,3 +1,4 @@
+#include "core/Tags.hpp"
 #include "Shell.hpp"
 #include "TimelinePane.hpp"   // s059
 #include "core/DoneWhen.hpp"
@@ -162,6 +163,13 @@ void Shell::update_jots_title() {  // helper: repaint the header title + its men
     }
 
     if (m_act_open_in_files) m_act_open_in_files->set_enabled(have);
+    if (m_act_close_jots)    m_act_close_jots->set_enabled(m_project != nullptr);   // s062b
+    // s062b: what the empty note says depends on whether a folder is open.
+    if (m_editor)
+        m_editor->set_blank_hint(m_project
+            ? "No note selected. Pick one on the left, or press Ctrl+N to start a new one."
+            : "No jots folder open. Ctrl+O opens one, Ctrl+Shift+O starts a new one \u2014 "
+              "or press Ctrl+N and write: notes are kept here until you save them into a folder.");
     if (m_act_copy_path)     m_act_copy_path->set_enabled(have);
     if (m_act_relocate)      m_act_relocate->set_enabled(have);
     if (m_act_rename)        m_act_rename->set_enabled(have);
@@ -261,27 +269,9 @@ void Shell::save_scratch(const std::string& target) {
     m_store = std::move(jots);
     m_journal.clear();          // s045: steps name ids of the OLD store; none of them carry over
     update_undo_actions();
-    m_store->on_changed(sigc::mem_fun(*this, &Shell::on_model_changed));
-    m_tree->set_source(&m_undo);
-    m_editor->set_source(m_store.get());   // raw: the body's undo is the text view's
-    m_links.rebuild(*m_store);
-    m_drawer->set_source(&m_undo, &m_links);
-    m_drawer->set_jots_dir(m_project ? m_project->dir() : std::string{});
-    m_drawer->set_attach(attach_store());
-    // s035: the three list views and the task index follow the swap too. Until
-    // s035 only tree / editor / drawer were re-pointed here, so Today and the
-    // Inbox kept reading the store that had just been destroyed.
-    m_tasks.rebuild(*m_store);
-    m_today->set_source(&m_undo, &m_tasks);
-    m_inbox->set_source(&m_undo);
-    m_tags->set_source(&m_undo);
-    m_projects->set_source(&m_undo);   // s037
-    end_search();                            // s038: a query over the old folder means nothing here
-    m_search->set_source(&m_undo);
-    if (m_timeline) m_timeline->set_source(&m_undo);   // s059
-    queue_inbox_refresh();
-    queue_desktop_sync();
+    repoint_surfaces();
     note_recent(target);
+    if (m_prefs.jots_closed) { m_prefs.jots_closed = false; core::save_prefs(m_prefs_file, m_prefs); }   // s062b
     update_jots_title();
 
     m_tree->rebuild();
@@ -289,6 +279,7 @@ void Shell::save_scratch(const std::string& target) {
     if (!roots.empty()) { m_tree->select(roots.front()); on_selection_changed(roots.front()); }
     update_note_actions();
     drain_pending();   // the scratch buffer just became a folder; the spool can land
+    Glib::signal_idle().connect_once([this]() { offer_tag_move(); });   // s062
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -485,9 +476,10 @@ void Shell::open_store() {  // helper: construct the NodeSource
     // silently AND do not make it a toll gate either. The store is an in-memory
     // one and TOUCHES NO DISK; the app is a pad you can type into at once, and
     // guard_scratch asks where it should live on the way out.
-    if (m_recents.empty()) {
+    if (m_recents.empty() || m_prefs.jots_closed) {   // s062b: or closed on purpose last time
         if (auto lg = log::get(log::Area::Io))
-            lg->info("no jots folder -- running on a scratch buffer, nothing on disk yet");
+            lg->info("no jots folder{} -- running on a scratch buffer, nothing on disk yet",
+                     m_prefs.jots_closed ? " (closed last time)" : "");
         m_project = nullptr;
         m_store = std::make_unique<core::MemoryNodes>();
         m_journal.clear();   // s045: a new store -- no step carries over
@@ -519,18 +511,9 @@ void Shell::open_store() {  // helper: construct the NodeSource
     // one place that writes the title and this is not it.
 }
 
-// Re-point every surface at a different jots folder. Same call path as first run, so
-// there is only one way a jots folder gets opened.
-void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces at a jots folder
-    if (m_project) m_project->flush();
-    auto jots = std::make_unique<core::Project>();
-    if (!jots->open(dir)) {
-        if (auto lg = log::get(log::Area::Io)) lg->error("jots folder '{}': cannot open", dir);
-        return;
-    }
-    m_project = jots.get();
-    m_store = std::move(jots);
-    m_journal.clear();   // s045: a new store -- no step carries over
+// s062b: every surface onto m_store after a swap -- open, Save As, close. One
+// list, so a pane added later is re-pointed by all three or by none.
+void Shell::repoint_surfaces() {  // helper
     m_store->on_changed(sigc::mem_fun(*this, &Shell::on_model_changed));
     m_tree->set_source(&m_undo);
     m_editor->set_source(m_store.get());   // raw: the body's undo is the text view's
@@ -551,7 +534,23 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     if (m_timeline) m_timeline->set_source(&m_undo);   // s059
     queue_inbox_refresh();
     queue_desktop_sync();
+}
+
+// Re-point every surface at a different jots folder. Same call path as first run, so
+// there is only one way a jots folder gets opened.
+void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces at a jots folder
+    if (m_project) m_project->flush();
+    auto jots = std::make_unique<core::Project>();
+    if (!jots->open(dir)) {
+        if (auto lg = log::get(log::Area::Io)) lg->error("jots folder '{}': cannot open", dir);
+        return;
+    }
+    m_project = jots.get();
+    m_store = std::move(jots);
+    m_journal.clear();   // s045: a new store -- no step carries over
+    repoint_surfaces();
     note_recent(dir);
+    if (m_prefs.jots_closed) { m_prefs.jots_closed = false; core::save_prefs(m_prefs_file, m_prefs); }   // s062b
     update_jots_title();
 
     auto roots = m_store->children("");
@@ -562,6 +561,7 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     if (!roots.empty()) { m_tree->select(roots.front()); on_selection_changed(roots.front()); }
     update_note_actions();
     drain_pending();   // a folder just appeared -- whatever was spooled has a home now
+    Glib::signal_idle().connect_once([this]() { offer_tag_move(); });   // s062
     // s052: a folder just opened may hold packets waiting on something (and
     // dates already due) -- say so now, not at the next minute tick.
     if (m_prefs.notify_due) Glib::signal_idle().connect_once([this]() { check_due_notifications(); });
@@ -1067,9 +1067,18 @@ std::string Shell::capture_list(const std::string& name,
     if (id.empty()) return {};
     const core::Node* n = m_store->find(id);
     const std::string title = n ? n->title : name;
+    // s061d: an item that is only #tags tagged the note -- it is not counted
+    // as an item, and the answer says what it was tagged.
     std::size_t count = 0;
-    for (const auto& it : items)
-        if (it.find_first_not_of(" \t\r\n") != std::string::npos) ++count;
+    std::vector<std::string> tags;
+    for (const auto& it : items) {
+        std::vector<std::string> t;
+        const std::string left = core::pull_tags(it, t);
+        if (!left.empty()) ++count;
+        else tags.insert(tags.end(), t.begin(), t.end());
+    }
+    std::string tagged;
+    for (const auto& t : tags) tagged += (tagged.empty() ? ", tagged #" : " #") + t;
 
     std::string tell = title;
     if (tell.size() > 24) tell = tell.substr(0, 22) + "\u2026";
@@ -1083,8 +1092,8 @@ std::string Shell::capture_list(const std::string& name,
     // Straight quotes: GLib prints in the locale's charset, and a terminal in
     // a C locale turned curly ones into "?" (seen in the sandbox).
     const std::string n_items = std::to_string(count) + (count == 1 ? " item" : " items");
-    return grew ? "Added " + n_items + " to \"" + title + "\"."
-                : "Made \"" + title + "\" with " + n_items + ".";
+    return grew ? "Added " + n_items + " to \"" + title + "\"" + tagged + "."
+                : "Made \"" + title + "\" with " + n_items + tagged + ".";
 }
 
 std::string Shell::capture_append(const std::string& name, const std::string& text) {  // helper: jot -a
@@ -1107,6 +1116,47 @@ std::string Shell::capture_append(const std::string& name, const std::string& te
     if (auto lg = log::get(log::Area::Model))
         lg->info("append: -> '{}' ({}) {}", title, id, grew ? "appended" : "new note");
     return grew ? "Added a line to \"" + title + "\"." : "Made \"" + title + "\" with that line.";
+}
+
+std::string Shell::capture_both(const std::string& name, const std::string& line,
+                                const std::vector<std::string>& items) {  // helper: jot -al
+    if (!m_store) return {};
+    bool grew = false;
+    core::NodeId id, lid;
+    // One undo step for the pair: the line makes the note when it is new, and
+    // the list then finds it and grows it.
+    core::as_step(m_undo, "Append and list", {}, false, [&] {
+        id = core::capture_append(m_undo, name, line, &grew);
+        lid = core::capture_list(m_undo, name, items);
+    });
+    if (id.empty() && lid.empty()) return {};
+    if (id.empty()) id = lid;
+    const core::Node* n = m_store->find(id);
+    const std::string title = n ? n->title : name;
+
+    std::size_t count = 0;
+    std::vector<std::string> tags;
+    for (const auto& it : items) {
+        std::vector<std::string> t;
+        if (!core::pull_tags(it, t).empty()) ++count;
+        else tags.insert(tags.end(), t.begin(), t.end());
+    }
+    std::string tagged;
+    for (const auto& t : tags) tagged += (tagged.empty() ? ", tagged #" : " #") + t;
+
+    std::string tell = title;
+    if (tell.size() > 24) tell = tell.substr(0, 22) + "\u2026";
+    m_capture_tell = true;
+    m_capture.set_placeholder_text("Added to \u201c" + tell + "\u201d");
+    if (m_editor && id == m_editor->current()) m_editor->refresh();
+    if (m_project) m_project->flush();
+
+    if (auto lg = log::get(log::Area::Model))
+        lg->info("append+list: a line and {} item(s) -> '{}' ({}) {}", count, title, id,
+                 grew ? "appended" : "new note");
+    const std::string n_items = std::to_string(count) + (count == 1 ? " item" : " items");
+    return (grew ? "Added a line and " + n_items + " to \"" + title + "\""
+                 : "Made \"" + title + "\" with a line and " + n_items) + tagged + ".";
 }
 
 std::string Shell::pending_dir() const {  // helper: XDG path for the capture spool
@@ -1347,6 +1397,10 @@ void Shell::start_notify_timer() {  // helper: the minute clock behind due notif
 
 void Shell::check_due_notifications() {  // helper: announce what has just come due
     if (!m_store || !m_prefs.notify_due || !m_notify_ok) return;
+    // (s062c held notices while jot had focus, on the theory that GNOME
+    // clears them then. It does not for org.gtk.Notifications -- the banner
+    // Scott saw vanish was GNOME's own "jot is ready", posted when jot is
+    // started from a terminal with no activation token. Taken back out, s062d.)
 
     const std::int64_t now = std::time(nullptr);
     auto r = core::due_announcements(*m_store, m_tasks, now,
@@ -1898,6 +1952,7 @@ void Shell::request_quit() {  // helper: ask what needs asking, then go
 void Shell::finish_quit() {  // helper: past the prompt -- flush, release, go
     m_quitting = true;
     if (get_visible()) remember_window_geometry();   // a hidden window reports nothing useful
+    if (m_editor) lift_typed_tags(m_editor->current());   // s062
     if (m_project) m_project->flush();
     apply_background_hold();                         // m_quitting makes this a release
     if (auto lg = log::get(log::Area::Shell)) lg->info("quitting");
@@ -2045,6 +2100,73 @@ int Shell::retarget_current(const std::string& from, const std::string& to) {  /
     if (k > 0) m_editor->refresh();
     queue_drawer_refresh();
     return k;
+}
+
+}  // namespace jot
+
+namespace jot {
+
+void Shell::offer_tag_move() {  // helper: s062
+    if (!m_project) return;
+    const auto ids = core::notes_with_text_tags(*m_store);
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("tags: {} note(s) carry #tags in their text", ids.size());
+    if (ids.empty()) return;
+    auto alert = Gtk::AlertDialog::create();
+    const std::string n = std::to_string(ids.size());
+    alert->set_message("Move tags out of the text?");
+    alert->set_detail((ids.size() == 1 ? "1 note has" : n + " notes have") +
+                      std::string(" #tags written in its text. jot now keeps a note's tags over "
+                                  "the text, as chips, out of the writing.\n\n"
+                                  "Each #tag moves there; the words around it stay. "
+                                  "One Ctrl+Z puts them all back."));
+    alert->set_buttons({"Not Now", "Move Them"});
+    alert->set_cancel_button(0);
+    alert->set_default_button(1);
+    alert->set_modal(true);
+    alert->choose(*this, [this, alert](const Glib::RefPtr<Gio::AsyncResult>& result) {
+        int button = 0;
+        try { button = alert->choose_finish(result); } catch (const Glib::Error&) { return; }
+        if (button != 1) {
+            if (auto lg = log::get(log::Area::Shell)) lg->info("tags: move declined -- asked again next open");
+            return;
+        }
+        const auto ids = core::notes_with_text_tags(*m_store);
+        std::size_t moved = 0;
+        core::as_step(m_undo, "Move tags out of the text", ids, false,
+                      [&] { moved = core::lift_all_tags(m_undo); });
+        if (m_project) m_project->flush();
+        if (auto lg = log::get(log::Area::Shell)) lg->info("tags: moved out of the text in {} note(s)", moved);
+    });
+}
+
+}  // namespace jot
+
+namespace jot {
+
+// s062b (Scott: "Jot should be able to have no folder open or be allowed to
+// close the project"). Everything written, then back to the state jot is in
+// with no folder: the scratch buffer. The next launch starts there too
+// (Prefs::jots_closed); the folder stays in Open Recent.
+void Shell::on_close_jots() {  // handler: Close Jots Folder
+    if (!m_project) return;   // nothing open -- the scratch buffer is already the state
+    const std::string was = m_project->dir();
+    lift_typed_tags(m_editor->current());   // s062: as leaving the note does
+    m_project->flush();
+    m_project = nullptr;
+    m_store = std::make_unique<core::MemoryNodes>();
+    m_journal.clear();
+    update_undo_actions();
+    repoint_surfaces();
+    m_prefs.jots_closed = true;
+    core::save_prefs(m_prefs_file, m_prefs);
+    update_jots_title();
+    m_tree->rebuild();
+    m_tree->select("");
+    m_editor->show_node("");
+    m_drawer->show_node("");
+    update_note_actions();
+    if (auto lg = log::get(log::Area::Io)) lg->info("jots folder '{}' closed -- no folder open", was);
 }
 
 }  // namespace jot

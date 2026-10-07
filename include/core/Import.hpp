@@ -26,7 +26,15 @@ struct ImportedNote {
     std::string title;
     std::string body;
     int         pictures = 0;   // relative image targets rewritten to file://
+    // s062: `tags:` from the file's front matter (taken out of it; a block
+    // left with nothing else in it goes too). #words in the text are lifted
+    // by the caller, as for any note.
+    std::vector<std::string> tags;
 };
+
+// s062: the tags in `text`'s front matter, taken out. Returns `text` without
+// the tags entry -- and without the whole block when nothing else was in it.
+std::string take_front_matter_tags(const std::string& text, std::vector<std::string>& tags);
 
 // Is this a file the importer takes? .md / .markdown / .txt, any case.
 bool is_markdown_filename(const std::string& name);

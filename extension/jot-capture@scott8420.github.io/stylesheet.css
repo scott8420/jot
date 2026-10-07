@@ -19,3 +19,17 @@
 .jot-capture-status.jot-capture-error {
     color: #ff7b63;
 }
+
+.jot-capture-help-row {
+    padding: 3px 12px;
+}
+
+.jot-capture-help-example {
+    font-family: monospace;
+    font-weight: bold;
+}
+
+.jot-capture-help-meaning {
+    font-size: 0.9em;
+    color: rgba(255, 255, 255, 0.6);
+}

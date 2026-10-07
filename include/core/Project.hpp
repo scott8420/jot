@@ -171,6 +171,7 @@ public:
     bool   set_packet(const NodeId& id, bool on) override;
     bool   set_sent(const NodeId& id, std::int64_t when, const std::string& to) override;
     bool   set_nudge(const NodeId& id, int days) override;
+    bool   set_tags(const NodeId& id, const std::vector<std::string>& tags) override;   // s062
     bool   restore(const Node& n, int index) override;   // s045
     using MemoryNodes::move;
     bool   move(const NodeId& id, const NodeId& new_parent, int index) override;

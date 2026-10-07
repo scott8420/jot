@@ -71,9 +71,10 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Capture", "", "Your own key", "Capture from anywhere on the desktop, jot open or not",
          "Set it in Preferences › Capture › Global capture shortcut."},
         {"Capture", "", "jot --capture \"text\"", "Capture from a terminal or a script",
-         "With jot closed it is kept and filed the next time jot opens."},
+         "With jot closed it is kept and filed the next time jot opens. #words become tags."},
         {"Capture", "", "Jot tile", "Capture from GNOME's quick settings panel",
-         "The › on the Jot tile opens a line: type, Enter, the next one. "
+         "The › on the Jot tile opens a line: a thought, or Groceries -l milk eggs, or "
+         "Groceries -a words -- as on the command line; #words become tags. What can I type? folds out under it. "
          "Install once with ./install-extension.sh."},
 
         // ── Inbox ───────────────────────────────────────────────────────────
@@ -294,9 +295,13 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Tags", "", "Find a tag", "Type over the chips to narrow them; Enter picks the one that matches",
          "ho finds #home and #phone. Esc clears. Ctrl+Shift+T again (or with nothing to pick) lands in it."},
         {"Tags", "", "Note details › Tags", "Add a tag: type it and press Enter, or pick from ▾",
-         "It goes on the note's tag line, the band at the bottom. × takes it off. Ctrl+Z undoes either."},
+         "The same list as the chips over the note. × takes it off. Ctrl+Z undoes either."},
         {"Tags", "", "Click a tag", "Jump to that tag's list",
          "A chip in note details, Ctrl+click a #tag in the note, or a plain click in Reading."},
+        {"Tags", "", "The chips over a note", "A note's tags: click one for its list, × to take it off, + to add",
+         "They are kept out of the text (front matter, in the file)."},
+        {"Tags", "", "#word in the text", "Type a tag where you are writing",
+         "It moves up to the chips when you leave the note. \\#word stays as text."},
         {"Tags", "", "#home/garden", "Nest a tag with a slash",
          "Picking #home shows #home/garden too. #Home and #home are the same tag."},
         {"Tags", "", "Contexts", "Use tags as places or moods: #errands, #calls, #low-energy",
@@ -363,6 +368,10 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Add task lines to the note NAME", "Made if there is no note of that name."},
         {"Command line", "", "jot NAME -a some words", "Add a line of text to the note NAME",
          "The reply says Made or Added, so a mistyped name shows."},
+        {"Command line", "", "jot NAME -al \"a line\" milk eggs",
+         "A line of text, then todos under it, in one go",
+         "Quote the line; \"\" for no line. Or jot NAME -a some words -l milk eggs -- each flag takes the "
+         "words after it. The Jot tile takes both too."},
         {"Command line", "", "jot --capture", "Open jot on the capture line", ""},
         {"Command line", "", "JOT_DEBUG=info:all jot", "A talkative console, for chasing a problem",
          "Quiet (warnings only) without it."},
@@ -371,6 +380,8 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Jots folders", "win.new-jots", "", "Start a new jots folder", ""},
         {"Jots folders", "win.open-jots", "", "Open a jots folder",
          "Main menu › Recent jots for the ones you have used."},
+        {"Jots folders", "win.close-jots", "", "Close the jots folder",
+         "Everything is saved first. jot then has no folder open, and starts that way next time too."},
         {"Jots folders", "win.save-all", "", "Save now",
          "jot saves by itself; this just does it this instant."},
         {"Jots folders", "win.save-as", "", "Copy everything to a new jots folder and switch to it",

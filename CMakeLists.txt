@@ -51,6 +51,8 @@ add_library(jot_core STATIC
     # GTK-free on purpose: the tree, the editor and drag-and-drop can only
     # reach the model through this interface (docs: CANON, fixture-through-seam).
     src/core/Nodes.cpp
+    # s061e: argv before GLib reads it -- jot NAME -al "line" items.
+    src/core/Cli.cpp
     # The markdown scan behind the body pane (s004, D5). GTK-free so the whole
     # "what is this line and which bytes are syntax" question is answered under
     # test, leaving the editor only "apply a tag where the scan says to".

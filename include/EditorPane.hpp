@@ -125,6 +125,19 @@ public:
     // Reading, the same gestures a link takes. The name, without the hash.
     sigc::signal<void(std::string)>& signal_tag_activated() { return m_sig_tag; }
 
+    // ── the tag strip (s062) ────────────────────────────────────────────────
+    // The note's tags (Node::tags -- front matter, not text) as chips over the
+    // note: click a name for the Tags view (signal_tag_activated), x to take
+    // it off, + to add one. The Shell writes; refresh_tag_strip() repaints.
+    sigc::signal<void(std::string)>& signal_tag_add()    { return m_sig_tag_add; }
+    sigc::signal<void(std::string)>& signal_tag_remove() { return m_sig_tag_remove; }
+    void refresh_tag_strip();
+    // s062b: what the empty pane says (no note picked / no folder open).
+    void set_blank_hint(const std::string& text);
+    // The note being LEFT, as show_node moves to another (or to none): the
+    // Shell lifts its typed #tags onto its list then.
+    sigc::signal<void(core::NodeId)>& signal_leaving() { return m_sig_leaving; }
+
     // s053b: the note's text size, a percent (core/Zoom). set_zoom paints it;
     // the verbs step it and emit signal_zoom so the Shell keeps it in prefs.
     void set_zoom(int pct);
@@ -234,6 +247,14 @@ private:
     sigc::signal<void(int)>         m_sig_edit;
     sigc::signal<void(std::string)> m_sig_link;
     sigc::signal<void(std::string)> m_sig_tag;    // s035
+    sigc::signal<void(std::string)> m_sig_tag_add;      // s062
+    sigc::signal<void(std::string)> m_sig_tag_remove;   // s062
+    sigc::signal<void(core::NodeId)> m_sig_leaving;     // s062
+    widgets::Box*   m_tag_strip = nullptr;       // s062: chips over the note
+    widgets::Entry* m_tag_strip_entry = nullptr; // the + field, shown on demand
+    bool            m_tag_adding = false;
+    std::string     m_blank_hint = "No note selected. Pick one on the left, or press Ctrl+N to start a new one.";        // the field is open: keep it so across repaints
+    void build_tag_strip();
     std::string tag_at_read(int rendered_cp) const;   // s035: the tag under a Reading offset, or ""
     std::function<std::string(const std::string&)> m_resolve;
 

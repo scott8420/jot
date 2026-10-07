@@ -77,14 +77,27 @@ std::string tag_pick(const std::vector<TagInfo>& list, std::string_view typed) {
     return hits == 1 ? lone->key : std::string();
 }
 
+// s062: the note's list first (where tags live), then any #word still in the
+// text -- typed and not yet lifted, or a folder not yet converted. Both count,
+// so nothing un-tags itself between the typing and the lift.
+std::vector<std::string> node_tags(const Node& n) {
+    std::vector<std::string> out, keys;
+    auto take = [&](std::string name) {
+        while (!name.empty() && name.back() == '/') name.pop_back();
+        std::string k = tag_key(name);
+        if (k.empty() || std::find(keys.begin(), keys.end(), k) != keys.end()) return;
+        keys.push_back(std::move(k));
+        out.push_back(std::move(name));
+    };
+    for (const auto& t : n.tags) take(t);
+    if (n.body.find('#') != std::string::npos)   // the common case, free
+        for (const auto& t : scan(n.body).tags) take(t.name);
+    return out;
+}
+
 std::vector<std::string> node_tag_keys(const Node& n) {
     std::vector<std::string> out;
-    if (n.body.find('#') == std::string::npos) return out;   // the common case, free
-    for (const auto& t : scan(n.body).tags) {
-        std::string k = tag_key(t.name);
-        if (k.empty()) continue;
-        if (std::find(out.begin(), out.end(), k) == out.end()) out.push_back(std::move(k));
-    }
+    for (const auto& t : node_tags(n)) out.push_back(tag_key(t));
     return out;
 }
 
@@ -96,20 +109,10 @@ std::vector<TagInfo> tag_list(const NodeSource& src, std::int64_t now) {
     std::map<std::string, Acc> acc;   // sorted by key: "home" before "home/garden"
 
     walk(src, [&](const Node& n) {
-        if (n.body.find('#') == std::string::npos) return;
+        if (n.tags.empty() && n.body.find('#') == std::string::npos) return;
         // The spelling as written, keyed by fold, for the display name.
         std::vector<std::pair<std::string, std::string>> tagged;   // key, spelling
-        for (const auto& t : scan(n.body).tags) {
-            std::string k = tag_key(t.name);
-            if (k.empty()) continue;
-            bool dup = false;
-            for (const auto& p : tagged) dup = dup || p.first == k;
-            if (!dup) {
-                std::string spelt = t.name;
-                while (!spelt.empty() && spelt.back() == '/') spelt.pop_back();
-                tagged.emplace_back(std::move(k), std::move(spelt));
-            }
-        }
+        for (auto& spelt : node_tags(n)) tagged.emplace_back(tag_key(spelt), spelt);
         if (tagged.empty()) return;
 
         Avail a = Avail::NotTask;
@@ -299,6 +302,157 @@ FmtEdit tag_remove_edit(const std::string& body, std::string_view name) {
     }
     ed.sel_begin = ed.sel_end = ed.cp_begin + cp_at(ed.text, ed.text.size());
     return ed;
+}
+
+}  // namespace jot::core
+
+// ── tags in a capture (s061d) ───────────────────────────────────────────────
+namespace jot::core {
+
+std::string pull_tags(const std::string& line, std::vector<std::string>& names) {
+    if (line.find('#') == std::string::npos) {
+        const auto a = line.find_first_not_of(" \t");
+        if (a == std::string::npos) return {};
+        return line.substr(a, line.find_last_not_of(" \t") - a + 1);
+    }
+    const Scan sc = scan(line);
+    std::string out;
+    int at = 0;
+    for (const auto& t : sc.tags) {
+        out += line.substr(static_cast<std::size_t>(at), static_cast<std::size_t>(t.begin - at));
+        names.push_back(t.name);
+        at = t.end;
+    }
+    out += line.substr(static_cast<std::size_t>(at));
+    // Close up the gaps the tags left: runs of spaces to one, and none at the ends.
+    std::string closed;
+    for (char c : out) {
+        if ((c == ' ' || c == '\t') && (closed.empty() || closed.back() == ' ')) continue;
+        closed += (c == '\t' ? ' ' : c);
+    }
+    while (!closed.empty() && closed.back() == ' ') closed.pop_back();
+    return closed;
+}
+
+std::string add_tags(const std::string& body, const std::vector<std::string>& names) {
+    std::string out = body;
+    for (const auto& n : names) {
+        const FmtEdit ed = tag_add_edit(out, n);
+        if (ed.ok) out = core::apply(out, ed);
+    }
+    return out;
+}
+
+std::string grow_above_tags(const std::string& body,
+                            const std::function<std::string(const std::string&)>& grow) {
+    const TagLine tl = find_tag_line(body);
+    if (!tl.found) return grow(body);
+    std::string above = body.substr(0, static_cast<std::size_t>(tl.begin));
+    while (!above.empty() && (above.back() == '\n' || above.back() == ' ' ||
+                              above.back() == '\t' || above.back() == '\r'))
+        above.pop_back();
+    if (!above.empty()) above += '\n';
+    std::string grown = grow(above);
+    while (!grown.empty() && grown.back() == '\n') grown.pop_back();
+    // The tag line and whatever followed it (a newline or not), as it was.
+    return grown + "\n\n" + body.substr(static_cast<std::size_t>(tl.begin));
+}
+
+}  // namespace jot::core
+
+// ── tags as the note's list (s062) ──────────────────────────────────────────
+namespace jot::core {
+
+std::vector<std::string> tags_with(const std::vector<std::string>& tags, std::string_view name,
+                                   bool add) {
+    const std::string clean = clean_tag_name(name);
+    const std::string key = tag_key(clean.empty() ? std::string(name) : clean);
+    std::vector<std::string> out;
+    bool had = false;
+    for (const auto& t : tags) {
+        if (tag_key(t) == key) { had = true; if (!add) continue; }
+        out.push_back(t);
+    }
+    if (add && !had && !clean.empty()) out.push_back(clean);
+    return out;
+}
+
+std::string lift_tags(const std::string& body, std::vector<std::string>& names) {
+    if (body.find('#') == std::string::npos) return body;
+    const Scan sc = scan(body);
+    if (sc.tags.empty()) return body;
+
+    // Mark the bytes to drop: each tag, and ONE space beside it (before if
+    // there is one, else after), so "rye #organic" is "rye", "call #mum back"
+    // is "call back".
+    std::vector<bool> drop(body.size(), false);
+    for (const auto& t : sc.tags) {
+        names.push_back(t.name);
+        std::size_t b = static_cast<std::size_t>(t.begin), e = static_cast<std::size_t>(t.end);
+        if (b > 0 && (body[b - 1] == ' ' || body[b - 1] == '\t') && !drop[b - 1]) --b;
+        else if (e < body.size() && (body[e] == ' ' || body[e] == '\t')) ++e;
+        for (std::size_t i = b; i < e; ++i) drop[i] = true;
+    }
+
+    // Rebuild line by line. A line the lift touched loses trailing blanks; a
+    // line it EMPTIED (a tag line) goes altogether, newline and all.
+    std::string out;
+    std::size_t i = 0;
+    while (i <= body.size()) {
+        const std::size_t nl = body.find('\n', i);
+        const std::size_t end = nl == std::string::npos ? body.size() : nl;
+        std::string kept;
+        bool touched = false, had_text = false;
+        for (std::size_t k = i; k < end; ++k) {
+            if (body[k] != ' ' && body[k] != '\t' && body[k] != '\r') had_text = true;
+            if (drop[k]) touched = true; else kept += body[k];
+        }
+        if (touched)
+            while (!kept.empty() && (kept.back() == ' ' || kept.back() == '\t' || kept.back() == '\r'))
+                kept.pop_back();
+        const bool emptied = touched && had_text && kept.find_first_not_of(" \t\r") == std::string::npos;
+        if (!emptied) {
+            out += kept;
+            if (nl != std::string::npos) out += '\n';
+        }
+        if (nl == std::string::npos) break;
+        i = nl + 1;
+    }
+    // A tag line at the bottom leaves the blank line that set it off.
+    const bool ended_nl = !body.empty() && body.back() == '\n';
+    while (!out.empty() && (out.back() == '\n' || out.back() == ' ' || out.back() == '\t' || out.back() == '\r'))
+        out.pop_back();
+    if (ended_nl && !out.empty()) out += '\n';
+    return out;
+}
+
+bool lift_note_tags(NodeSource& src, const NodeId& id) {
+    const Node* n = src.find(id);
+    if (!n || n->protect || n->body.find('#') == std::string::npos) return false;
+    std::vector<std::string> names;
+    const std::string body = lift_tags(n->body, names);
+    if (names.empty()) return false;
+    std::vector<std::string> tags = n->tags;
+    for (const auto& nm : names) tags = tags_with(tags, nm, true);
+    if (body != n->body) src.set_body(id, body);
+    src.set_tags(id, tags);
+    return true;
+}
+
+std::vector<NodeId> notes_with_text_tags(const NodeSource& src) {
+    std::vector<NodeId> out;
+    walk(src, [&](const Node& n) {
+        if (n.protect || n.body.find('#') == std::string::npos) return;
+        if (!scan(n.body).tags.empty()) out.push_back(n.id);
+    });
+    return out;
+}
+
+std::size_t lift_all_tags(NodeSource& src) {
+    std::size_t done = 0;
+    for (const auto& id : notes_with_text_tags(src))
+        if (lift_note_tags(src, id)) ++done;
+    return done;
 }
 
 }  // namespace jot::core
