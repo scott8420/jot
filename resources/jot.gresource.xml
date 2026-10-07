@@ -46,6 +46,11 @@
     <file preprocess="xml-stripblanks" alias="jot-view-flagged-symbolic.svg">icons/scalable/apps/jot-view-flagged-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-view-logbook-symbolic.svg">icons/scalable/apps/jot-view-logbook-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-view-forecast-symbolic.svg">icons/scalable/apps/jot-view-forecast-symbolic.svg</file>
+    <!-- s065: the timeline's zoom and Today, as icons (Scott: "can we have icons for week, month, season?"). -->
+    <file preprocess="xml-stripblanks" alias="jot-zoom-week-symbolic.svg">icons/scalable/apps/jot-zoom-week-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-zoom-month-symbolic.svg">icons/scalable/apps/jot-zoom-month-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-zoom-season-symbolic.svg">icons/scalable/apps/jot-zoom-season-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-today-symbolic.svg">icons/scalable/apps/jot-today-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-view-errands-symbolic.svg">icons/scalable/apps/jot-view-errands-symbolic.svg</file>
   </gresource>
 </gresources>

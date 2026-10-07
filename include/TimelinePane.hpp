@@ -221,9 +221,12 @@ private:
     widgets::Label        m_find_count;
     widgets::Box          m_controls;
     widgets::ToggleButton m_week, m_month, m_season;
-    widgets::ToggleButton m_g_day, m_g_place, m_g_purpose;   // s060
-    widgets::ToggleButton m_chip_projects, m_chip_todos, m_chip_notes, m_chip_someday;
-    widgets::ToggleButton m_chip_links;   // s064
+    // s065: Group and Show are dropdowns now (the row ran out of room).
+    widgets::CheckButton  m_g_day, m_g_place, m_g_purpose;   // s060
+    widgets::CheckButton  m_chip_projects, m_chip_todos, m_chip_notes, m_chip_someday;
+    widgets::CheckButton  m_chip_links;   // s064
+    widgets::MenuButton   m_group_btn, m_show_btn;
+    void sync_group_and_show();   // the Group button's word; the Show button's dot
     widgets::Button       m_today;
     TimelineCanvas        m_canvas;
     bool                  m_syncing = false;

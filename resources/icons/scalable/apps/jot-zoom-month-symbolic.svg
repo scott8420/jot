@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- jot s065: the timeline's Month zoom. A calendar page, its grid of days. -->
+  <path fill="currentColor" fill-rule="evenodd" d="M 2 1.5 L 14 1.5 A 1 1 0 0 1 15 2.5 L 15 14 A 1 1 0 0 1 14 15 L 2 15 A 1 1 0 0 1 1 14 L 1 2.5 A 1 1 0 0 1 2 1.5 Z M 2.5 4.5 L 2.5 13.5 L 13.5 13.5 L 13.5 4.5 Z"/>
+  <rect fill="currentColor" x="3.5" y="5.5" width="2" height="2"/><rect fill="currentColor" x="7" y="5.5" width="2" height="2"/><rect fill="currentColor" x="10.5" y="5.5" width="2" height="2"/>
+  <rect fill="currentColor" x="3.5" y="8.25" width="2" height="2"/><rect fill="currentColor" x="7" y="8.25" width="2" height="2"/><rect fill="currentColor" x="10.5" y="8.25" width="2" height="2"/>
+  <rect fill="currentColor" x="3.5" y="11" width="2" height="1.6"/><rect fill="currentColor" x="7" y="11" width="2" height="1.6"/>
+</svg>

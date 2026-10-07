@@ -1476,9 +1476,9 @@ TimelinePane::TimelinePane(std::string_view name)
       m_find(widgets::unregistered, "shell.timeline.find"),
       m_find_count(widgets::unregistered, "shell.timeline.find_count"),
       m_controls(widgets::unregistered, "shell.timeline.controls", Gtk::Orientation::HORIZONTAL, 6),
-      m_week(widgets::unregistered, "shell.timeline.week", "Week"),
-      m_month(widgets::unregistered, "shell.timeline.month", "Month"),
-      m_season(widgets::unregistered, "shell.timeline.season", "Season"),
+      m_week(widgets::unregistered, "shell.timeline.week"),
+      m_month(widgets::unregistered, "shell.timeline.month"),
+      m_season(widgets::unregistered, "shell.timeline.season"),
       m_g_day(widgets::unregistered, "shell.timeline.group.day", "Day"),
       m_g_place(widgets::unregistered, "shell.timeline.group.place", "Place"),
       m_g_purpose(widgets::unregistered, "shell.timeline.group.purpose", "Purpose"),
@@ -1487,7 +1487,9 @@ TimelinePane::TimelinePane(std::string_view name)
       m_chip_notes(widgets::unregistered, "shell.timeline.chip.notes", "Notes"),
       m_chip_someday(widgets::unregistered, "shell.timeline.chip.someday", "Someday"),
       m_chip_links(widgets::unregistered, "shell.timeline.chip.links", "Links"),
-      m_today(widgets::unregistered, "shell.timeline.today", "Today") {
+      m_group_btn(widgets::unregistered, "shell.timeline.group_btn"),
+      m_show_btn(widgets::unregistered, "shell.timeline.show_btn"),
+      m_today(widgets::unregistered, "shell.timeline.today") {
 
     // ── head: the title and what it adds up to; find on the right ──────────
     auto* words = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.timeline.head.words",
@@ -1510,71 +1512,99 @@ TimelinePane::TimelinePane(std::string_view name)
     m_find_count.set_valign(Gtk::Align::CENTER);
     m_find_count.set_width_chars(9);
     m_find_count.set_xalign(1);
-    m_head.append(m_find_count);
-    m_head.append(m_find);
-    m_head.set_margin_top(12);
-    m_head.set_margin_start(18);
-    m_head.set_margin_end(14);
-    append(m_head);
-
-    // ── controls: zoom, the chips, Today ───────────────────────────────────
+    // ── s065: the controls ride in the head, between the words and find ────
+    // Zoom as three icons (jot-zoom-*), Group and Show as dropdowns, Today an
+    // icon -- the second row is gone and the calendar gains its height.
     auto* zoom = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.timeline.zoom",
                                                  Gtk::Orientation::HORIZONTAL, 0);
     zoom->add_css_class("linked");
+    zoom->set_valign(Gtk::Align::CENTER);
     for (auto* b : {&m_week, &m_month, &m_season}) zoom->append(*b);
     m_month.set_group(m_week);
     m_season.set_group(m_week);
-    m_week.set_tooltip_text("A week across (Ctrl+scroll, + / - to zoom)");
-    m_month.set_tooltip_text("A month or so across");
-    m_season.set_tooltip_text("A season across: a dot each");
-    m_controls.append(*zoom);
+    m_week.set_icon_name("jot-zoom-week-symbolic");
+    m_month.set_icon_name("jot-zoom-month-symbolic");
+    m_season.set_icon_name("jot-zoom-season-symbolic");
+    m_week.set_tooltip_text("Week -- a week across (Ctrl+scroll, + / - to zoom)");
+    m_month.set_tooltip_text("Month -- a month or so across");
+    m_season.set_tooltip_text("Season -- a season across, a dot each");
+    m_head.append(*zoom);
 
-    // s060: Group -- the same cards, in lanes by place or by purpose.
-    auto* group = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.timeline.group",
-                                                  Gtk::Orientation::HORIZONTAL, 0);
-    group->add_css_class("linked");
-    group->set_margin_start(10);
-    for (auto* b : {&m_g_day, &m_g_place, &m_g_purpose}) group->append(*b);
-    m_g_place.set_group(m_g_day);
-    m_g_purpose.set_group(m_g_day);
-    m_g_day.set_active(true);
-    m_g_day.set_tooltip_text("One line of days");
-    m_g_place.set_tooltip_text("A lane for each place (#at/town ...): what one trip can clear");
-    m_g_purpose.set_tooltip_text("A lane for each goal or project: what the work is for");
+    // Group: Day | Place | Purpose, in a dropdown that says which.
+    {
+        auto* col = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.timeline.group.col",
+                                                    Gtk::Orientation::VERTICAL, 2);
+        col->set_margin(6);
+        auto* head = Gtk::make_managed<widgets::Label>(widgets::unregistered, "shell.timeline.group.head");
+        head->set_markup("<b>Group</b>");
+        head->set_xalign(0);
+        head->set_margin_bottom(2);
+        col->append(*head);
+        for (auto* b : {&m_g_day, &m_g_place, &m_g_purpose}) col->append(*b);
+        m_g_place.set_group(m_g_day);
+        m_g_purpose.set_group(m_g_day);
+        m_g_day.set_active(true);
+        m_g_day.set_tooltip_text("One line of days");
+        m_g_place.set_tooltip_text("A lane for each place (#at/town ...): what one trip can clear");
+        m_g_purpose.set_tooltip_text("A lane for each goal or project: what the work is for");
+        auto* pop = Gtk::make_managed<widgets::Popover>(widgets::unregistered, "shell.timeline.group.popover");
+        pop->set_child(*col);
+        m_group_btn.set_popover(*pop);
+        m_group_btn.set_tooltip_text("Group the timeline: by day, by place, by purpose");
+        m_group_btn.set_valign(Gtk::Align::CENTER);
+        m_head.append(m_group_btn);
+    }
     for (auto* b : {&m_g_day, &m_g_place, &m_g_purpose})
         b->signal_toggled().connect([this, b]() {
             if (!b->get_active()) return;
+            sync_group_and_show();
             m_canvas.set_group(b == &m_g_day ? core::TlGroup::Day
                                : b == &m_g_place ? core::TlGroup::Place : core::TlGroup::Purpose);
         });
-    m_controls.append(*group);
 
-    auto* chips = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.timeline.chips",
-                                                  Gtk::Orientation::HORIZONTAL, 4);
-    chips->set_margin_start(10);
-    struct C { widgets::ToggleButton& b; bool on; const char* tip; };
-    for (const C& c : {C{m_chip_projects, true, "Projects on their due day"},
-                       C{m_chip_todos, true, "Todos on their due day (or start, or the day they were ticked)"},
-                       C{m_chip_notes, true, "Notes on the day they were made"},
-                       C{m_chip_someday, false, "Undated work, after the last day"},
-                       C{m_chip_links, true, "A curve between two things on screen that link to each other"}}) {
-        c.b.add_css_class("jot-tl-chip");
-        c.b.set_active(c.on);
-        c.b.set_tooltip_text(c.tip);
-        chips->append(c.b);
+    // Show: what is on the line -- the filter icon, with a dot when it is not
+    // the usual set.
+    {
+        auto* col = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.timeline.show.col",
+                                                    Gtk::Orientation::VERTICAL, 2);
+        col->set_margin(6);
+        auto* head = Gtk::make_managed<widgets::Label>(widgets::unregistered, "shell.timeline.show.head");
+        head->set_markup("<b>Show</b>");
+        head->set_xalign(0);
+        head->set_margin_bottom(2);
+        col->append(*head);
+        struct C { widgets::CheckButton& b; bool on; const char* tip; };
+        for (const C& c : {C{m_chip_projects, true, "Projects on their due day"},
+                           C{m_chip_todos, true, "Todos on their due day (or start, or the day they were ticked)"},
+                           C{m_chip_notes, true, "Notes on the day they were made"},
+                           C{m_chip_someday, false, "Undated work, after the last day"},
+                           C{m_chip_links, true, "A curve between two things on screen that link to each other"}}) {
+            c.b.set_active(c.on);
+            c.b.set_tooltip_text(c.tip);
+            col->append(c.b);
+        }
+        auto* pop = Gtk::make_managed<widgets::Popover>(widgets::unregistered, "shell.timeline.show.popover");
+        pop->set_child(*col);
+        m_show_btn.set_popover(*pop);
+        m_show_btn.set_icon_name("jot-filter-symbolic");
+        m_show_btn.set_tooltip_text("Show: projects, todos, notes, Someday, links");
+        m_show_btn.set_valign(Gtk::Align::CENTER);
+        m_head.append(m_show_btn);
     }
-    m_controls.append(*chips);
-    auto* spacer = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.timeline.spacer",
-                                                   Gtk::Orientation::HORIZONTAL, 0);
-    spacer->set_hexpand(true);
-    m_controls.append(*spacer);
-    m_today.set_tooltip_text("Back to today (Home)");
-    m_controls.append(m_today);
-    m_controls.set_margin_start(18);
-    m_controls.set_margin_end(14);
-    m_controls.set_margin_top(8);
-    m_controls.set_margin_bottom(8);
-    append(m_controls);
+
+    m_today.set_icon_name("jot-today-symbolic");
+    m_today.set_tooltip_text("Back to today (Home, or T)");
+    m_today.set_valign(Gtk::Align::CENTER);
+    m_head.append(m_today);
+
+    m_head.append(m_find_count);
+    m_head.append(m_find);
+    m_head.set_margin_top(12);
+    m_head.set_margin_bottom(10);
+    m_head.set_margin_start(18);
+    m_head.set_margin_end(14);
+    append(m_head);
+    sync_group_and_show();
     append(m_canvas);
 
     sync_zoom_buttons();
@@ -1594,6 +1624,7 @@ TimelinePane::TimelinePane(std::string_view name)
             m_show.notes    = m_chip_notes.get_active();
             m_show.someday  = m_chip_someday.get_active();
             m_show.links    = m_chip_links.get_active();   // s064
+            sync_group_and_show();
             refresh();
         });
     m_today.signal_clicked().connect([this]() { m_canvas.go_today(); });
@@ -1642,6 +1673,17 @@ void TimelinePane::refresh() {
     if (auto lg = log::get(log::Area::Shell))
         lg->info("timeline: {} days, {} clumps, {} threads, {} someday -- {}", days, m_canvas.clump_count(),
                  threads, someday, summary);
+}
+
+// s065: the Group button says the grouping; the Show button wears a dot (the
+// accent) when what is shown is not the usual set.
+void TimelinePane::sync_group_and_show() {
+    m_group_btn.set_label(m_g_place.get_active() ? "Place" : m_g_purpose.get_active() ? "Purpose" : "Day");
+    const bool usual = m_chip_projects.get_active() && m_chip_todos.get_active() &&
+                       m_chip_notes.get_active() && !m_chip_someday.get_active() &&
+                       m_chip_links.get_active();
+    if (usual) m_show_btn.remove_css_class("jot-tl-filtered");
+    else       m_show_btn.add_css_class("jot-tl-filtered");
 }
 
 // s063: a line dropped on a day. core decides what moves (due, defer, a new

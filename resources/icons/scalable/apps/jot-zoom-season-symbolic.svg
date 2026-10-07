@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- jot s065: the timeline's Season zoom. Three months side by side. -->
+  <path fill="currentColor" fill-rule="evenodd" d="M 0.5 3.5 L 4.8 3.5 L 4.8 12.5 L 0.5 12.5 Z M 1.5 6 L 1.5 11.5 L 3.8 11.5 L 3.8 6 Z"/>
+  <path fill="currentColor" fill-rule="evenodd" d="M 5.85 3.5 L 10.15 3.5 L 10.15 12.5 L 5.85 12.5 Z M 6.85 6 L 6.85 11.5 L 9.15 11.5 L 9.15 6 Z"/>
+  <path fill="currentColor" fill-rule="evenodd" d="M 11.2 3.5 L 15.5 3.5 L 15.5 12.5 L 11.2 12.5 Z M 12.2 6 L 12.2 11.5 L 14.5 11.5 L 14.5 6 Z"/>
+</svg>

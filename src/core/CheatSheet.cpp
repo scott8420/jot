@@ -267,9 +267,10 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Today", "win.timeline", "", "The timeline: everything along the days",
          "A running calendar on top, each day's projects, todos and notes hanging under it -- "
          "crowded days stack down. Click picks, double-click opens, right-click opens a clump "
-         "(a project's steps). Week / Month / Season; drag or scroll to move, Ctrl+scroll zooms; "
-         "drag the box in the corner map. Group: Day / Place (a lane per #at/ place) / Purpose "
-         "(a lane per goal or project). Its find takes Find's words, #tag, is:, due: -- "
+         "(a project's steps). Week / Month / Season (the three icons); drag or scroll to move, "
+         "Ctrl+scroll zooms; drag the box in the corner map. Group ▾: Day / Place (a lane per "
+         "#at/ place) / Purpose (a lane per goal or project). Show (the funnel): projects, todos, "
+         "notes, Someday, links. Its find takes Find's words, #tag, is:, due: -- "
          "Enter / Shift+Enter step through. Someday brings in undated work. Links draws a curve "
          "between two things that link to each other (point at one to light its links). Also "
          "the fourth button beside Source / Live / Reading."},

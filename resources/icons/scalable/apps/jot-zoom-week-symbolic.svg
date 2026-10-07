@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- jot s065: the timeline's Week zoom. One row of seven days. Redraw freely under this name. -->
+  <rect fill="currentColor" x="0.5" y="5" width="1.6" height="6" rx="0.5"/>
+  <rect fill="currentColor" x="2.7" y="5" width="1.6" height="6" rx="0.5"/>
+  <rect fill="currentColor" x="4.9" y="5" width="1.6" height="6" rx="0.5"/>
+  <rect fill="currentColor" x="7.1" y="5" width="1.6" height="6" rx="0.5"/>
+  <rect fill="currentColor" x="9.3" y="5" width="1.6" height="6" rx="0.5"/>
+  <rect fill="currentColor" x="11.5" y="5" width="1.6" height="6" rx="0.5" opacity="0.55"/>
+  <rect fill="currentColor" x="13.7" y="5" width="1.6" height="6" rx="0.5" opacity="0.55"/>
+</svg>
