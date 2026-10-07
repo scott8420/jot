@@ -9,6 +9,7 @@
 #include "core/Tasks.hpp"
 
 #include <algorithm>
+#include <ctime>
 #include <cmath>
 #include <functional>
 #include <map>
@@ -437,6 +438,54 @@ const char* tl_tone_word(TlTone t) {
     case TlTone::Note:      return "note";
     }
     return "?";
+}
+
+}  // namespace jot::core
+
+// ── s063: drag to another day ───────────────────────────────────────────────
+namespace jot::core {
+
+namespace {
+// `day`'s date at `like`'s clock time; DST-safe (mktime decides the offset).
+std::int64_t same_clock(std::int64_t day, std::int64_t like) {
+    std::time_t d = static_cast<std::time_t>(day), l = static_cast<std::time_t>(like);
+    std::tm td{}, tl{};
+    localtime_r(&d, &td);
+    localtime_r(&l, &tl);
+    td.tm_hour = tl.tm_hour;
+    td.tm_min  = tl.tm_min;
+    td.tm_sec  = tl.tm_sec;
+    td.tm_isdst = -1;
+    return static_cast<std::int64_t>(std::mktime(&td));
+}
+}  // namespace
+
+TlMove timeline_move(const NodeSource& src, const NodeId& id, TlWhy why, bool riding,
+                     std::int64_t day) {
+    TlMove m;
+    const Node* n = src.find(id);
+    if (!n || n->protect || day <= 0) return m;
+    std::int64_t old = 0;
+    if (riding || why == TlWhy::Someday) {
+        m.when = day_end(day);
+    } else if (why == TlWhy::Due) {
+        old = n->task.due;
+        m.when = old ? same_clock(day, old) : day_end(day);
+    } else if (why == TlWhy::Starts) {
+        m.defer = true;
+        old = n->task.defer;
+        m.when = old ? same_clock(day, old) : day_start(day);
+    } else {
+        return m;   // Done, Made: history, not plans
+    }
+    if (old && day_start(old) == day_start(m.when)) return m;   // the day it already has
+    m.ok = true;
+    return m;
+}
+
+bool apply_timeline_move(NodeSource& src, const NodeId& id, const TlMove& m) {
+    if (!m.ok) return false;
+    return m.defer ? src.set_defer(id, m.when) : src.set_due(id, m.when);
 }
 
 }  // namespace jot::core

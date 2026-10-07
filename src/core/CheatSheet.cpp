@@ -272,6 +272,10 @@ const std::vector<CheatLine>& cheat_sheet() {
          "(a lane per goal or project). Its find takes Find's words, #tag, is:, due: -- "
          "Enter / Shift+Enter step through. Someday brings in undated work. Also the fourth "
          "button beside Source / Live / Reading."},
+        {"Today", "", "Drag a line to a day", "On the timeline: re-date a todo or project by dragging it",
+         "Its due moves (the time of day kept), or its start if it only starts there; a Someday "
+         "one gets a due. The day lights up in the strip. Esc puts it back; Ctrl+Z undoes. "
+         "Notes and done work stay on their day."},
         // ── Forecast (s039) ─────────────────────────────────────────────────
         {"Today", "", "Today tab › Forecast", "The days ahead: what is due, and what starts, day by day",
          "A strip of today and the next six days with a count on each, then Later. Pick a day. "

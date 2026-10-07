@@ -2,6 +2,7 @@
 #include "Appearance.hpp"
 #include "Log.hpp"
 #include "core/Tasks.hpp"
+#include "core/Undo.hpp"
 
 #include <gdkmm/rgba.h>
 #include <glibmm/markup.h>
@@ -560,6 +561,7 @@ void TimelineCanvas::on_drag_begin(double x, double y) {
     m_drag_ox = m_ox;
     m_drag_oy = m_oy;
     m_drag = Drag::None;
+    m_move_id.clear();
     if (thumb_shown()) {
         const auto t = thumb_rect(get_width(), get_height());
         if (x >= t.x && x < t.x + t.w && y >= t.y && y < t.y + t.h) {
@@ -569,6 +571,42 @@ void TimelineCanvas::on_drag_begin(double x, double y) {
             return;
         }
     }
+    // s063: pressed on a line that can move -- a drag takes IT, not the canvas.
+    // Notes (on the day made) and done work (on the day ticked) are history.
+    if (const Row* r = row_at(x, y); r && !r->more && !r->id.empty() &&
+        (r->step || r->why == core::TlWhy::Due || r->why == core::TlWhy::Starts ||
+         r->why == core::TlWhy::Someday)) {
+        grab_focus();   // so Esc mid-drag reaches the canvas, not the find field
+        m_move_id = r->id;
+        m_move_why = r->why;
+        m_move_step = r->step;
+        m_move_title = r->title;
+    }
+}
+
+std::int64_t TimelineCanvas::day_at_x(double x) const {
+    if (!m_tl.first) return 0;
+    const double cx = x + m_ox;
+    if (m_someday_x > 0 && cx >= m_someday_x) return 0;
+    const int i = static_cast<int>(std::floor((cx - kLeft) / px_per_day()));
+    const int ndays = core::day_index(m_tl.first, m_tl.last) + 1;
+    if (i < 0 || i >= ndays) return 0;
+    return core::day_at(m_tl.first, i);
+}
+
+void TimelineCanvas::end_move(bool drop) {
+    const core::NodeId id = m_move_id;
+    const core::TlWhy why = m_move_why;
+    const bool step = m_move_step;
+    const std::int64_t day = m_drop_day;
+    m_drag = Drag::Cancelled;
+    m_move_id.clear();
+    m_drop_day = 0;
+    set_cursor("");
+    queue_draw();
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("timeline: drag {} -- {}", drop && day ? "dropped" : "let go", drop && day ? fmt(day, "%a %e %b") : "no day");
+    if (drop && day && !id.empty()) m_sig_move.emit(id, why, step, day);
 }
 
 void TimelineCanvas::on_drag_update(double dx, double dy) {
@@ -579,9 +617,22 @@ void TimelineCanvas::on_drag_update(double dx, double dy) {
         queue_draw();
         return;
     }
+    if (m_drag == Drag::Cancelled) return;   // Esc mid-drag: the rest of it is ignored
     if (m_drag == Drag::None && std::abs(dx) + std::abs(dy) > 4) {
-        m_drag = Drag::Pan;
+        m_drag = m_move_id.empty() ? Drag::Pan : Drag::Move;
         set_cursor("grabbing");
+    }
+    if (m_drag == Drag::Move) {
+        m_px = m_drag_x + dx;
+        m_py = m_drag_y + dy;
+        // Near an edge, the timeline runs under the hand.
+        const double w = get_width();
+        if (m_px < 40) m_ox -= 16;
+        else if (m_px > w - 40) m_ox += 16;
+        clamp_offsets();
+        m_drop_day = day_at_x(m_px);
+        queue_draw();
+        return;
     }
     if (m_drag == Drag::Pan) {
         m_ox = m_drag_ox - dx;
@@ -592,8 +643,10 @@ void TimelineCanvas::on_drag_update(double dx, double dy) {
 }
 
 void TimelineCanvas::on_drag_end(double, double) {
+    if (m_drag == Drag::Move) { end_move(true); m_drag = Drag::None; return; }
     if (m_drag == Drag::Pan) set_cursor("");
     m_drag = Drag::None;
+    m_move_id.clear();
 }
 
 
@@ -649,7 +702,9 @@ bool TimelineCanvas::on_key(guint key, guint, Gdk::ModifierType mods) {
     case GDK_KEY_minus:
     case GDK_KEY_KP_Subtract:
         set_zoom(m_zoom == Zoom::Week ? Zoom::Month : Zoom::Season); return true;
-    case GDK_KEY_Escape:    m_sig_close.emit(); return true;
+    case GDK_KEY_Escape:
+        if (m_drag == Drag::Move) { end_move(false); return true; }   // s063: put it back
+        m_sig_close.emit(); return true;
     default: return false;
     }
     clamp_offsets();
@@ -692,6 +747,7 @@ void TimelineCanvas::on_draw(const Cairo::RefPtr<Cairo::Context>& cr, int w, int
     draw_strip(cr, w);
     draw_threads(cr, w);
     if (thumb_shown()) draw_thumb(cr, w, h);
+    if (m_drag == Drag::Move) draw_move(cr, w, h);   // s063
     // A slim scroll mark at the right while the body runs past the window.
     if (m_ch > view_h() + 1) {
         GdkRGBA fg;
@@ -703,6 +759,50 @@ void TimelineCanvas::on_draw(const Cairo::RefPtr<Cairo::Context>& cr, int w, int
         rounded(cr, w - 7, by, 4, bh, 2);
         cr->fill();
     }
+}
+
+// s063: the line in hand -- the day under the pointer lit in the strip, a
+// guide down from it, and the line itself (with where it would go) by the
+// pointer.
+void TimelineCanvas::draw_move(const Cairo::RefPtr<Cairo::Context>& cr, int w, int h) {
+    GdkRGBA fgc;
+    gtk_widget_get_color(GTK_WIDGET(gobj()), &fgc);
+    const Gdk::RGBA fg(fgc.red, fgc.green, fgc.blue, 1.0);
+    const Gdk::RGBA accent = rgba(appearance::accent_in_force());
+    const double ppd = px_per_day();
+    if (m_drop_day) {
+        const double cx = day_x(m_drop_day) - m_ox;
+        // the day, lit
+        source(cr, accent, 0.30);
+        rounded(cr, cx - std::max(14.0, ppd / 2 - 1), kMonthRow + 2, std::max(28.0, ppd - 2), kDayRow - 4, 8);
+        cr->fill();
+        // the guide down to the hand
+        source(cr, accent, 0.75);
+        cr->set_line_width(1.5);
+        std::vector<double> dash{4.0, 3.0};
+        cr->set_dash(dash, 0);
+        cr->move_to(cx + 0.5, strip_h());
+        cr->line_to(cx + 0.5, std::min<double>(h, m_py));
+        cr->stroke();
+        cr->unset_dash();
+    }
+    // the line itself, and where it would go
+    const std::string where = m_drop_day ? fmt(m_drop_day, "%a %e %b") : std::string("not a day");
+    auto lay = create_pango_layout(m_move_title + "  \u2192  " + where);
+    int lw = 0, lh = 0;
+    lay->get_pixel_size(lw, lh);
+    double bx = m_px + 14, by = m_py - lh / 2.0 - 6;
+    if (bx + lw + 20 > w) bx = m_px - lw - 34;
+    by = std::max(strip_h() + 2, by);
+    source(cr, fg, 0.10);
+    rounded(cr, bx + 1, by + 2, lw + 20, lh + 12, 9);
+    cr->fill();
+    source(cr, m_drop_day ? accent : fg, m_drop_day ? 0.95 : 0.55);
+    rounded(cr, bx, by, lw + 20, lh + 12, 9);
+    cr->fill();
+    cr->set_source_rgba(1, 1, 1, 1);
+    cr->move_to(bx + 10, by + 6);
+    lay->show_in_cairo_context(cr);
 }
 
 void TimelineCanvas::draw_body(const Cairo::RefPtr<Cairo::Context>& cr, int w, int h) {
@@ -1417,6 +1517,7 @@ TimelinePane::TimelinePane(std::string_view name)
                                               : TimelineCanvas::Zoom::Season);
         });
     m_canvas.signal_zoomed().connect([this](TimelineCanvas::Zoom) { sync_zoom_buttons(); });
+    m_canvas.signal_move().connect(sigc::mem_fun(*this, &TimelinePane::on_move));   // s063
     for (auto* b : {&m_chip_projects, &m_chip_todos, &m_chip_notes, &m_chip_someday})
         b->signal_toggled().connect([this]() {
             m_show.projects = m_chip_projects.get_active();
@@ -1471,6 +1572,26 @@ void TimelinePane::refresh() {
     if (auto lg = log::get(log::Area::Shell))
         lg->info("timeline: {} days, {} clumps, {} threads, {} someday -- {}", days, m_canvas.clump_count(),
                  threads, someday, summary);
+}
+
+// s063: a line dropped on a day. core decides what moves (due, defer, a new
+// due); one Ctrl+Z, labelled with the day.
+void TimelinePane::on_move(const core::NodeId& id, core::TlWhy why, bool riding, std::int64_t day) {
+    if (!m_src) return;
+    const core::TlMove mv = core::timeline_move(*m_src, id, why, riding, day);
+    const core::Node* n = m_src->find(id);
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("timeline: move '{}' to {} -- {}", n ? n->title : id, fmt(day, "%a %e %b"),
+                 !mv.ok ? "nothing to change" : mv.defer ? "its start" : "its due");
+    if (!mv.ok) return;
+    const std::string label = "Move to " + fmt(day, "%a %e %b");
+    if (auto* u = dynamic_cast<core::UndoSource*>(m_src))
+        core::as_step(*u, label, {id}, false, [&] { core::apply_timeline_move(*u, id, mv); });
+    else
+        core::apply_timeline_move(*m_src, id, mv);
+    refresh();
+    m_canvas.set_current(id);
+    m_canvas.signal_pick().emit(id);   // Note details follows it, as a click would
 }
 
 void TimelinePane::opened() {

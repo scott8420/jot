@@ -5871,6 +5871,44 @@ int main() {
                   core::capture(m, "   ").empty() && m.count() == 2);
         }
 
+        // s063: drag a timeline line to another day
+        {
+            core::MemoryNodes m;
+            const std::int64_t base = core::day_start(1'791'000'000);   // a local midnight
+            const std::int64_t d1 = base + 86400 * 3;                     // three days on (DST aside, a day start)
+            const std::int64_t target = core::day_start(d1 + 3600 * 3);
+            const auto a = m.create("", "renew licence");
+            m.make_task(a, true);
+            m.set_due(a, base + 17 * 3600);                               // due 17:00
+            auto mv = core::timeline_move(m, a, core::TlWhy::Due, false, target);
+            check("move: a due keeps its time of day on the new day",
+                  mv.ok && !mv.defer && mv.when == core::day_start(mv.when) + 17 * 3600 &&
+                      core::day_start(mv.when) == target);
+            check("move: written as the due, one write", core::apply_timeline_move(m, a, mv) &&
+                                                         m.find(a)->task.due == mv.when);
+            check("move: the day it already has is no move",
+                  !core::timeline_move(m, a, core::TlWhy::Due, false, target).ok);
+            const auto b = m.create("", "paint the fence");
+            m.make_task(b, true);
+            m.set_defer(b, base + 9 * 3600);
+            mv = core::timeline_move(m, b, core::TlWhy::Starts, false, target);
+            check("move: a start moves the defer, its time kept",
+                  mv.ok && mv.defer && mv.when == target + 9 * 3600);
+            const auto c = m.create("", "learn the ukulele");
+            m.make_task(c, true);
+            mv = core::timeline_move(m, c, core::TlWhy::Someday, false, target);
+            check("move: Someday gets a due -- the end of that day",
+                  mv.ok && !mv.defer && mv.when == core::day_end(target));
+            mv = core::timeline_move(m, c, core::TlWhy::Due, true, target);
+            check("move: a riding step gets its own due", mv.ok && mv.when == core::day_end(target));
+            check("move: done work and notes stay put",
+                  !core::timeline_move(m, a, core::TlWhy::Done, false, target).ok &&
+                      !core::timeline_move(m, a, core::TlWhy::Made, false, target).ok);
+            m.set_protect(a, true);
+            check("move: a protected note does not move",
+                  !core::timeline_move(m, a, core::TlWhy::Due, false, target + 86400).ok);
+        }
+
         // s061e: -al / -a ... -l ... -> --both NAME "line" items
         {
             using V = std::vector<std::string>;

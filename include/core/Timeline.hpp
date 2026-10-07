@@ -110,6 +110,23 @@ std::int64_t day_at(std::int64_t first, int n);
 //
 // Lanes come in order of their soonest open dated thing (late first), the
 // catch-all lane last. A lane's line: "4 things · ~1h 10m · 1 late".
+// ── s063: drag a line to another day ────────────────────────────────────────
+// What dropping an item on `day` (00:00 local) writes. A thing on its DUE moves
+// its due; one that STARTS there moves its defer; a Someday thing or an undated
+// step riding in its project's card gets a due on that day. The time of day is
+// kept (a due "by 17:00" stays 17:00); a new due is the end of the day, as the
+// Due field writes one. Done work and notes (on the day they were finished or
+// made) do not move: ok == false, and so is a drop on the day it already has.
+struct TlMove {
+    bool         ok    = false;
+    bool         defer = false;   // the defer moves, not the due
+    std::int64_t when  = 0;
+};
+TlMove timeline_move(const NodeSource& src, const NodeId& id, TlWhy why, bool riding,
+                     std::int64_t day);
+// Writes it: set_defer or set_due. false when there was nothing to write.
+bool apply_timeline_move(NodeSource& src, const NodeId& id, const TlMove& m);
+
 enum class TlGroup { Day, Place, Purpose };
 
 struct TlLane {

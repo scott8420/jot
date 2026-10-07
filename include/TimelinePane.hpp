@@ -68,6 +68,9 @@ public:
     sigc::signal<void(core::NodeId)>& signal_open() { return m_sig_open; }
     sigc::signal<void()>&              signal_close() { return m_sig_close; }
     sigc::signal<void(Zoom)>&          signal_zoomed() { return m_sig_zoomed; }
+    // s063: a line dragged to another day -- (id, why it was where it was,
+    // riding in a project's card, the day it was dropped on).
+    sigc::signal<void(core::NodeId, core::TlWhy, bool, std::int64_t)>& signal_move() { return m_sig_move; }
 
     // For the log and the selftest-by-eye: what is laid out.
     std::size_t clump_count() const { return m_clumps.size(); }
@@ -164,15 +167,26 @@ private:
     const Row* m_hover = nullptr;
 
     Gtk::EventControllerScroll* m_scroll = nullptr;   // owned by the widget; asked for modifiers and units
-    enum class Drag { None, Pan, Nav };
+    enum class Drag { None, Pan, Nav, Move, Cancelled };   // s063: Move -- a line to another day
     Drag   m_drag = Drag::None;
     double m_drag_x = 0, m_drag_y = 0, m_drag_ox = 0, m_drag_oy = 0;
+    // s063: the line in hand.
+    core::NodeId m_move_id;
+    core::TlWhy  m_move_why = core::TlWhy::Due;
+    bool         m_move_step = false;
+    std::string  m_move_title;
+    double       m_px = 0, m_py = 0;       // the pointer, widget coordinates
+    std::int64_t m_drop_day = 0;           // the day under it (0 = none)
+    std::int64_t day_at_x(double x) const; // widget x -> a day of the span, or 0
+    void draw_move(const Cairo::RefPtr<Cairo::Context>& cr, int w, int h);
+    void end_move(bool drop);
 
     std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 
     sigc::signal<void(core::NodeId)> m_sig_pick, m_sig_open;
     sigc::signal<void()>              m_sig_close;
     sigc::signal<void(Zoom)>          m_sig_zoomed;
+    sigc::signal<void(core::NodeId, core::TlWhy, bool, std::int64_t)> m_sig_move;   // s063
 };
 
 class TimelinePane : public widgets::Box {
@@ -194,6 +208,7 @@ private:
     void step(int dir);
     void say_count();
     void sync_zoom_buttons();
+    void on_move(const core::NodeId& id, core::TlWhy why, bool riding, std::int64_t day);   // s063
 
     core::NodeSource* m_src = nullptr;
     core::TlShow      m_show;
