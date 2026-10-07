@@ -232,6 +232,7 @@ private:
     void fill_links(const core::Node& n);
     void fill_packet(const core::Node& n);   // s044
     void fill_done_when(const core::Node& n);   // s054: the count + rows when it is not a packet
+    void fill_deadline(const core::Node& n);    // s055
     void fill_backlinks(const core::Node& n);
     void fill_tags(const core::Node& n);
     void fill_structure(const core::Node& n);
@@ -354,6 +355,9 @@ private:
     widgets::Label       m_dw_label;
     widgets::DropDown    m_dw_pick;
     widgets::Label       m_dw_hint;
+    // s055 (J3): the second strategy -- a deadline, and what it reads.
+    widgets::CheckButton m_dl_check;
+    widgets::Label       m_dl_says;
     // s051: Gather for sending -- the line it adds up to, the two ways out,
     // and the stamp once it has gone.
     widgets::Box         m_gather_row;

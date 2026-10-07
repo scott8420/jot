@@ -292,6 +292,7 @@ std::string task_label(const Task& a, const Task& b) {
     if (!(a.review == b.review))  return "Review interval";
     if (a.reviewed != b.reviewed) return "Mark reviewed";
     if (a.done_when != b.done_when) return "Done when";
+    if (a.deadline != b.deadline) return b.deadline ? "Deadline" : "Not a deadline";
     return "Edit todo";
 }
 

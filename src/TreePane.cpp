@@ -1,4 +1,5 @@
 #include "TreePane.hpp"
+#include "core/Deadline.hpp"
 #include "core/DoneWhen.hpp"
 #include "Log.hpp"
 #include "Menus.hpp"
@@ -506,7 +507,9 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         } else if (m_src && core::is_project(*m_src, n.id)) {
             label->add_css_class("jot-tree-project");
             const core::StepCount sc = core::step_count(*m_src, n.id);
-            if (sc.total > 0) {
+            // s055: a deadline's ⏳ chip says the steps left (its tooltip), and
+            // two chips crowd the title out of a narrow pane.
+            if (sc.total > 0 && !n.task.deadline) {
                 auto* count = Gtk::make_managed<widgets::Label>(widgets::unregistered,
                                                                 "tree.steps." + n.id);
                 count->set_text(std::to_string(sc.done) + " of " + std::to_string(sc.total));
@@ -556,16 +559,39 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
 
     // s048: the due chip, last on the row as on every card -- "2d late",
     // "Today 17:00", "Tue". Coloured only for late / today (the chip rule).
+    // s055: a DEADLINE's date wears an hourglass -- one chip, not two (the
+    // pane is narrow, and the mark is about that date): "⏳ Dec 15", quiet on
+    // track, orange when running short, red when late. The tooltip has the
+    // whole runway. A note project with no todo chip gets the mark alone.
+    core::DeadlineState dl;
+    std::string dl_tip;
+    const std::int64_t now_dl = static_cast<std::int64_t>(std::time(nullptr));
+    if (m_src && n.task.deadline) {
+        dl = core::deadline_state(*m_src, n.id, now_dl);
+        if (!core::deadline_mark(dl).empty())
+            dl_tip = "\nDeadline: " + core::runway_text(dl) + "\n" + core::pace_text(dl, now_dl);
+    }
     if (n.task.is_task && !look.due.empty() && !n.task.done) {
         auto* due = Gtk::make_managed<widgets::Label>(widgets::unregistered, "tree.due." + n.id);
-        due->set_text(core::compact_due(look.due));   // the pane is narrow
+        due->set_text((dl_tip.empty() ? std::string{} : std::string("\u23f3 ")) +
+                      core::compact_due(look.due));   // the pane is narrow
         due->add_css_class("jot-chip");
         due->add_css_class("jot-due");
         due->add_css_class(std::string("st-") + core::row_state_word(look.state));
+        if (!dl_tip.empty()) due->add_css_class(std::string("jot-pace-") + core::pace_word(dl.pace));
         due->set_valign(Gtk::Align::CENTER);
         due->set_tooltip_text("Due " + core::format_date(core::effective_due(*m_src, n.id)) +
-                              (look.due_inherited ? " (from a parent)" : ""));
+                              (look.due_inherited ? " (from a parent)" : "") + dl_tip);
         box->append(*due);
+    } else if (!dl_tip.empty()) {
+        auto* hg = Gtk::make_managed<widgets::Label>(widgets::unregistered, "tree.deadline." + n.id);
+        hg->set_text(core::deadline_mark(dl));
+        hg->add_css_class("jot-chip");
+        hg->add_css_class("jot-due");
+        hg->add_css_class(std::string("jot-pace-") + core::pace_word(dl.pace));
+        hg->set_valign(Gtk::Align::CENTER);
+        hg->set_tooltip_text(dl_tip.substr(1));
+        box->append(*hg);
     }
 
     // s031. The project's word, as a mark you can see without opening it --

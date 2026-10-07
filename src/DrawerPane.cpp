@@ -1,5 +1,7 @@
 #include "DrawerPane.hpp"
+#include "core/Deadline.hpp"
 #include "core/DoneWhen.hpp"
+#include <ctime>
 #include "core/Undo.hpp"
 #include "core/Packet.hpp"
 #include "core/Gather.hpp"
@@ -174,6 +176,8 @@ DrawerPane::DrawerPane(std::string_view name)
           return v;
       }()),
       m_dw_hint("drawer.dw_hint"),
+      m_dl_check("drawer.deadline_check"),
+      m_dl_says("drawer.deadline_says"),
       m_nudge_row("drawer.nudge_row", Gtk::Orientation::HORIZONTAL, 6),
       m_nudge_label("drawer.nudge_label"),
       m_nudge_pick("drawer.nudge_pick", [] {
@@ -325,6 +329,25 @@ DrawerPane::DrawerPane(std::string_view name)
     m_packet_check.set_margin_top(4);
     m_packet_sec.body->prepend(m_dw_hint);
     m_packet_sec.body->prepend(m_dw_row);
+
+    // s055 (J3): a deadline -- the second strategy, under the packet. Its two
+    // lines (the runway, then what it means) sit right under its checkbox.
+    m_dl_check.set_label("A deadline (work back from the due date)");
+    m_dl_check.set_tooltip_text(
+        "jot counts what is left -- steps and their estimates -- against the days left. "
+        "Each step gets a day (or each hour of work a day) plus one spare; when the days "
+        "left come down to that, the next step is put on Today under Running short.");
+    m_dl_check.signal_toggled().connect([this]() {
+        if (m_loading || !m_src || m_id.empty()) return;
+        m_src->set_deadline(m_id, m_dl_check.get_active());
+    });
+    m_dl_says.set_xalign(0.0f);
+    m_dl_says.set_wrap(true);
+    m_dl_says.add_css_class("caption");
+    m_dl_says.set_margin_start(26);   // under the checkbox's words, not its box
+    m_dl_says.set_visible(false);
+    m_packet_sec.body->insert_child_after(m_dl_check, m_packet_check);
+    m_packet_sec.body->insert_child_after(m_dl_says, m_dl_check);
 
     // s051: Gather for sending, under the items. One control with two ways
     // out (a folder, or one zip) -- the same act, so they sit joined.
@@ -1729,6 +1752,7 @@ void DrawerPane::fill_packet(const core::Node& n) {
     m_dw_pick.set_sensitive(!n.packet && !n.protect);
     m_loading = false;
     m_dw_hint.set_text(core::done_when_hint(rule, n.packet));
+    fill_deadline(n);   // s055
     if (!n.packet) {
         m_gather_row.set_visible(false);
         m_sent_row.set_visible(false);
@@ -1794,6 +1818,34 @@ void DrawerPane::fill_packet(const core::Node& n) {
         row->set_tooltip_text(it.in() ? "In" : "Missing \u2014 drop its file onto its line, or tick it");
         row->add_css_class(it.in() ? "jot-packet-in" : "jot-packet-missing");
         m_packet_sec.rows->append(*row);
+    }
+}
+
+// s055 (J3): the deadline. Two lines under its checkbox -- the runway ("3 steps
+// · ~4h · 9 days out") and what that means ("On track -- start by Thu 8 Oct",
+// "Running short -- “Book the van” is on Today"), coloured by the pace.
+void DrawerPane::fill_deadline(const core::Node& n) {
+    m_loading = true;
+    m_dl_check.set_active(n.task.deadline);
+    m_dl_check.set_sensitive(!n.protect);
+    m_loading = false;
+    for (const char* w : {"ontrack", "short", "late", "ready", "nodate", "finished"})
+        m_dl_says.remove_css_class(std::string("jot-pace-") + w);
+    if (!n.task.deadline || !m_src) { m_dl_says.set_visible(false); return; }
+    const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    const core::DeadlineState dl = core::deadline_state(*m_src, n.id, now);
+    const std::string runway = core::runway_text(dl);
+    m_dl_says.set_text(runway.empty() ? core::pace_text(dl, now)
+                                      : runway + "\n" + core::pace_text(dl, now));
+    m_dl_says.add_css_class(std::string("jot-pace-") + core::pace_word(dl.pace));
+    m_dl_says.set_visible(true);
+    // Logged when what it says changes, not on every refresh (keystrokes).
+    static std::string said;
+    const std::string now_says = n.id + std::string(core::pace_word(dl.pace)) + runway;
+    if (now_says != said) {
+        said = now_says;
+        if (auto lg = log::get(log::Area::Drawer))
+            lg->info("deadline: '{}' {} -- {}", n.title, core::pace_word(dl.pace), runway);
     }
 }
 

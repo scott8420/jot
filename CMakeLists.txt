@@ -120,6 +120,7 @@ add_library(jot_core STATIC
     # s044 (J2): a packet -- required items, each in when a file sits on its line.
     src/core/Packet.cpp
     src/core/DoneWhen.cpp
+    src/core/Deadline.cpp    # s055 (J3): work back from the date
     src/core/Gather.cpp
     src/core/Nudge.cpp
     src/core/Zoom.cpp

@@ -47,6 +47,7 @@
 #include "core/Nudge.hpp"
 #include "core/Zoom.hpp"
 #include "core/DoneWhen.hpp"
+#include "core/Deadline.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1779,6 +1780,175 @@ int main() {
                   v.find(x) && v.find(x)->task.done_when == core::DoneWhen::Items && v.find(y) &&
                       v.find(y)->task.done_when == core::DoneWhen::Steps && v.find(z) &&
                       v.find(z)->task.done_when == core::DoneWhen::Tick);
+        }
+        fs::remove_all(jd, ec);
+    }
+
+    // ── s055: deadline ─────────────────────────────────────────────────────
+    {
+        std::cout << "\n-- deadline (s055) --\n";
+        namespace fs = std::filesystem;
+        // Stand at a fixed local noon so the day counts do not depend on today.
+        std::tm t0{};
+        t0.tm_year = 2026 - 1900; t0.tm_mon = 9; t0.tm_mday = 7; t0.tm_hour = 12; t0.tm_isdst = -1;
+        const std::int64_t now = static_cast<std::int64_t>(std::mktime(&t0));
+        const auto day = [&](int n) {   // 17:00 on the day n days from `now`
+            std::tm t = t0;
+            t.tm_mday += n; t.tm_hour = 17; t.tm_isdst = -1;
+            return static_cast<std::int64_t>(std::mktime(&t));
+        };
+
+        core::MemoryNodes m;
+        const auto mv = m.create("", "Move house");
+        m.make_task(mv, true);
+        const auto pack  = m.create(mv, "pack");
+        const auto van   = m.create(mv, "book the van");
+        const auto keys  = m.create(mv, "hand back keys");
+        const auto clean = m.create(mv, "clean");
+        m.create(mv, "a plain note under it");
+        for (const auto& k : {pack, van, keys, clean}) m.make_task(k, true);
+        m.set_done(pack, true);
+        m.set_estimate(van, 30);
+        m.set_estimate(clean, 90);
+        m.set_due(mv, day(9));
+        m.set_deadline(mv, true);
+
+        auto s = core::deadline_state(m, mv, now);
+        check("deadline: what is left -- the todos under it not done, their estimates, the unsized",
+              s.steps == 3 && s.minutes == 120 && s.unsized == 1, std::to_string(s.steps));
+        check("deadline: need = a day a step (or an hour), plus one spare", s.need == 4,
+              std::to_string(s.need));
+        check("deadline: 9 days out, needs 4 -- on track",
+              s.pace == core::Pace::OnTrack && s.days_left == 9, core::pace_word(s.pace));
+        check("deadline: the runway's words",
+              core::runway_text(s) == "3 steps  \u00b7  ~2h (1 not sized)  \u00b7  9 days out",
+              core::runway_text(s));
+        const std::string on = core::pace_text(s, now);
+        check("deadline: on track says when to start by and how much a day",
+              on.rfind("On track \u2014 start by ", 0) == 0 &&
+                  on.find("about 15m a day") != std::string::npos, on);
+        m.set_due(mv, day(70));
+        check("deadline: more than two weeks out -- the pace is per week",
+              core::pace_text(core::deadline_state(m, mv, now), now).ends_with("about 15m a week"),
+              core::pace_text(core::deadline_state(m, mv, now), now));
+        m.set_due(mv, day(9));
+        check("deadline: start by is the due day less what it needs",
+              s.start_by == core::day_start(day(5)));
+        check("deadline: on track pulls nothing", core::deadline_pulls(m, now).empty());
+        check("deadline: the tree's mark -- 9d", core::deadline_mark(s) == "\u23f3 9d", core::deadline_mark(s));
+
+        m.set_due(mv, day(4));
+        s = core::deadline_state(m, mv, now);
+        const auto pulls = core::deadline_pulls(m, now);
+        check("deadline: 4 days left, needs 4 -- running short", s.pace == core::Pace::Short,
+              core::pace_word(s.pace));
+        check("deadline: the next step that can start is pulled forward",
+              pulls.size() == 1 && pulls[0].deadline == mv && pulls[0].step == van);
+        check("deadline: short says which step is on Today",
+              core::pace_text(s, now) == "Running short \u2014 \u201cbook the van\u201d is on Today",
+              core::pace_text(s, now));
+
+        m.set_status(mv, core::Status::Sequential);
+        m.set_defer(van, day(2));
+        s = core::deadline_state(m, mv, now);
+        check("deadline: nothing can start (the first step is deferred, in sequence) -- no pull",
+              s.pace == core::Pace::Short && s.next.empty() && core::deadline_pulls(m, now).empty() &&
+                  core::pace_text(s, now) == "Running short \u2014 nothing can start yet",
+              core::pace_text(s, now));
+        m.set_defer(van, 0);
+        m.set_status(mv, core::Status::None);
+
+        m.set_due(mv, day(-1));
+        s = core::deadline_state(m, mv, now);
+        check("deadline: past the due -- late, still pulls",
+              s.pace == core::Pace::Late && s.days_left == -1 && core::deadline_pulls(m, now).size() == 1 &&
+                  core::runway_text(s).ends_with("1 day late"),
+              core::runway_text(s));
+
+        for (const auto& k : {van, keys, clean}) m.set_done(k, true);
+        s = core::deadline_state(m, mv, now);
+        check("deadline: every step done -- ready, the work itself is next, no pull",
+              s.pace == core::Pace::Ready && s.next == mv && core::deadline_pulls(m, now).empty() &&
+                  core::pace_text(s, now) == "Everything is done \u2014 tick it.");
+        m.set_done(mv, true);
+        s = core::deadline_state(m, mv, now);
+        check("deadline: ticked -- finished, nothing to say",
+              s.pace == core::Pace::Finished && core::runway_text(s).empty());
+
+        // one todo, no steps: it is its own step, sized by its own estimate
+        const auto rep = m.create("", "Write the report");
+        m.make_task(rep, true);
+        m.set_estimate(rep, 180);
+        m.set_due(rep, day(3));
+        m.set_deadline(rep, true);
+        s = core::deadline_state(m, rep, now);
+        check("deadline: a lone todo is its own step; 3h needs 4 days -- short, pulls itself",
+              s.steps == 1 && s.need == 4 && s.pace == core::Pace::Short && s.next == rep &&
+                  core::deadline_pulls(m, now).size() == 1);
+
+        // a packet: the missing items are the steps
+        const auto tax = m.create("", "Taxes");
+        m.make_task(tax, true);
+        m.set_body(tax, "- [x] W-2\n- [ ] 1099-INT\n- [ ] HSA\n");
+        m.set_packet(tax, true);
+        m.set_due(tax, day(10));
+        m.set_deadline(tax, true);
+        s = core::deadline_state(m, tax, now);
+        check("deadline: a packet's missing items are its steps",
+              s.steps == 2 && s.unsized == 2 && s.need == 3 && s.pace == core::Pace::OnTrack);
+
+        const auto nod = m.create("", "Someday");
+        m.make_task(nod, true);
+        m.set_deadline(nod, true);
+        s = core::deadline_state(m, nod, now);
+        check("deadline: no due date -- says to give it one",
+              s.pace == core::Pace::NoDate &&
+                  core::pace_text(s, now) == "Give it a due date and jot works back from it.");
+
+        const auto plain = m.create("", "Not marked");
+        m.make_task(plain, true);
+        m.set_due(plain, day(1));
+        check("deadline: an unmarked todo is never pulled",
+              core::deadline_pulls(m, now).size() == 1);   // only the report
+
+        const auto look = core::row_look(m, *m.find(rep), now);
+        check("look: a deadline's card carries the runway and the pace",
+              look.runway == "1 step  \u00b7  ~3h  \u00b7  3 days out" && look.pace == "short", look.runway);
+        check("look: no runway on a todo that is not a deadline",
+              core::row_look(m, *m.find(plain), now).runway.empty());
+
+        m.make_task(rep, false);
+        check("deadline: kept when the note stops being a todo", m.find(rep)->task.deadline);
+        check("deadline: Undo names the change",
+              core::task_label(core::Task{}, [] { core::Task t; t.deadline = true; return t; }()) == "Deadline" &&
+                  core::task_label([] { core::Task t; t.deadline = true; return t; }(), core::Task{}) ==
+                      "Not a deadline");
+
+        // through the one door: one step, one undo
+        core::Journal j;
+        core::UndoSource u(j, [&] { return &m; });
+        check("deadline: set through the door -- one step, undone whole",
+              u.set_deadline(plain, true) && m.find(plain)->task.deadline && j.undo_label() == "Deadline");
+        j.undo(m);
+        check("deadline: undone", !m.find(plain)->task.deadline);
+
+        const fs::path jd = fs::temp_directory_path() / "jot_selftest_deadline.jots";
+        std::error_code ec;
+        fs::remove_all(jd, ec);
+        core::NodeId x, y;
+        {
+            core::Project v;
+            v.open(jd.string());
+            x = v.create("", "Deadline");
+            y = v.create("", "plain");
+            v.set_deadline(x, true);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(jd.string());
+            check("deadline/jots: the mark survives a reopen, only where it was set",
+                  v.find(x) && v.find(x)->task.deadline && v.find(y) && !v.find(y)->task.deadline);
         }
         fs::remove_all(jd, ec);
     }

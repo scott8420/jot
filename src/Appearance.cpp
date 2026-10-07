@@ -130,6 +130,13 @@ std::string sheet(bool dark) {
     c += ".jot-just-done .jot-tree-title { animation: jot-done-fade 500ms ease-out; }\n";
     c += ".jot-count { color: alpha(currentColor, 0.7); font-weight: 600; }\n";
     c += std::string(".jot-count.jot-count-met { color: ") + p.done + "; }\n";   // s054: ready to tick
+    // s055: a deadline's mark and its pace line -- quiet on track, the
+    // today colour when running short, the late colour when late.
+    c += std::string(".jot-pace-short { color: ") + p.today + "; }\n";
+    c += std::string(".jot-pace-late { color: ") + p.overdue + "; }\n";
+    c += std::string(".jot-pace-ready { color: ") + p.done + "; }\n";
+    c += std::string(".jot-due.jot-pace-short { background-color: alpha(") + p.today + ", 0.16); }\n";
+    c += std::string(".jot-due.jot-pace-late { background-color: alpha(") + p.overdue + ", 0.16); }\n";
     c += std::string(".jot-flag { color: ") + p.flagged + "; }\n";
     // s044: a packet's items -- in is green and quiet, missing is the text.
     c += std::string(".jot-packet-in { color: ") + p.done + "; }\n";

@@ -45,6 +45,11 @@ struct RowLook {
     std::string project;        // the parent's title, "" at top level
     std::string done_when;      // s054: "2 of 3 in" / "1 of 4 steps" while unfinished; "" otherwise
     bool        done_met = true;   // s054: false = its done-when is not met yet
+    // s055: a deadline's runway -- "3 steps  ·  ~4h  ·  9 days out" -- and its
+    // pace word (core::pace_word: "ontrack", "short", "late", "ready").
+    // Both "" when the node is not a deadline or is finished.
+    std::string runway;
+    std::string pace;
 };
 
 RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now);

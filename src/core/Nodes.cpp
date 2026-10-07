@@ -335,6 +335,9 @@ const std::vector<LogRecord>& NodeSource::history() const {
 bool NodeSource::set_done_when(const NodeId& id, DoneWhen w) {
     return edit_task(*this, id, [&](Task& t) { t.done_when = w; });
 }
+bool NodeSource::set_deadline(const NodeId& id, bool on) {
+    return edit_task(*this, id, [&](Task& t) { t.deadline = on; });
+}
 bool NodeSource::set_status(const NodeId& id, Status s) {
     return edit_task(*this, id, [&](Task& t) { t.status = s; });
 }
@@ -360,6 +363,7 @@ bool NodeSource::make_task(const NodeId& id, bool on) {
         const std::int64_t looked  = t.reviewed;
         const ProjectMark  mark    = t.mark;       // s037b
         const DoneWhen     dw      = t.done_when;  // s054: the work's, too
+        const bool         dl      = t.deadline;   // s055: likewise
         const Task         was     = t;
         t = Task{};
         t.status   = keep;
@@ -368,6 +372,7 @@ bool NodeSource::make_task(const NodeId& id, bool on) {
         t.reviewed = looked;
         t.mark     = mark;
         t.done_when = dw;
+        t.deadline  = dl;
         // s037b: a project said on purpose keeps its dates and flag -- they
         // are the project's, and it is still a project.
         if (mark == ProjectMark::On) {

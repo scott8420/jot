@@ -1,4 +1,5 @@
 #include "core/RowLook.hpp"
+#include "core/Deadline.hpp"
 #include "core/DoneWhen.hpp"
 #include "core/Repeat.hpp"
 #include "core/Tasks.hpp"
@@ -83,6 +84,11 @@ RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now) {
         const DoneState ds = done_state(src, n.id);
         r.done_when = done_count(ds);
         r.done_met  = ds.met();
+    }
+    if (n.task.deadline) {                                // s055
+        const DeadlineState dl = deadline_state(src, n.id, now);
+        r.runway = runway_text(dl);
+        if (!r.runway.empty()) r.pace = pace_word(dl.pace);
     }
     if (!n.parent_id.empty())
         if (const Node* p = src.find(n.parent_id))

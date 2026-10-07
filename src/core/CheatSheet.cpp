@@ -211,6 +211,13 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Every item is in: each checkbox line in its text, ticked or with a file on it. "
          "Every step is done: each todo directly under it. Cards and the tree show the count "
          "(\u201c2 of 3 in\u201d); ticking it before then asks \u201ctick anyway?\u201d -- Cancel leaves it."},
+        // ── Deadline (s055) ─────────────────────────────────────────────────
+        {"Projects", "", "Note details \u203a Done when \u203a A deadline",
+         "Work back from a due date",
+         "jot counts what is left (steps, estimates) against the days left: \u201c3 steps \u00b7 ~2h "
+         "\u00b7 9 days out\u201d, then \u201cOn track -- start by Mon 12 Oct\u201d. Each step gets a day "
+         "(or each hour of work a day) plus one spare; when the days left come down to that, the "
+         "next step goes on Today under \u201cRunning short\u201d. The tree shows \u23f3."},
         // ── Packets (s044) ──────────────────────────────────────────────────
         {"Projects", "", "Note details › Done when › A packet",
          "Make a note a packet: a set of things the work needs, sent once",

@@ -731,7 +731,13 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
             // three rows down and possibly under a collapsed parent. So the
             // whole report is re-derived rather than the one row repainted.
             refresh_tasks(false, id);
+            // s055: and when it is a STEP of the note on show -- the drawer's
+            // done-when count and a deadline's runway are read from the
+            // children, so ticking one in Today must reach them.
             if (id == m_editor->current()) queue_drawer_refresh();   // idle: see Removed
+            else if (const core::Node* t = m_store->find(id);
+                     t && !t->parent_id.empty() && t->parent_id == m_editor->current())
+                queue_drawer_refresh();
             break;
         case C::Moved:
             // A move changes DOCUMENT ORDER, and document order is what decides

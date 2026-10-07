@@ -1,6 +1,7 @@
 #include "TodayPane.hpp"
 #include "TaskCard.hpp"
 #include "core/RowLook.hpp"
+#include "core/Deadline.hpp"
 #include "Log.hpp"
 
 #include <gtkmm/cssprovider.h>
@@ -323,6 +324,48 @@ void TodayPane::add_group(const core::NodeId& parent,
     m_column.append(*group);
 }
 
+// s055: "Running short · Move house" over "3 steps · ~2h · 2 days out", then
+// the one step to do now. The head is the deadline (click the card's body for
+// the step; the deadline is one row up from it in the tree).
+void TodayPane::add_pull_group(const core::NodeId& deadline, const core::NodeId& step,
+                               std::int64_t now) {
+    const core::Node* d = m_src->find(deadline);
+    const core::Node* s = m_src->find(step);
+    if (!d || !s) return;
+    const core::DeadlineState dl = core::deadline_state(*m_src, deadline, now);
+    auto* group = Gtk::make_managed<widgets::Box>(widgets::unregistered,
+                                                  "today.pull." + deadline,
+                                                  Gtk::Orientation::VERTICAL, 4);
+    auto* head = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                   "today.pull_head." + deadline);
+    head->set_text(std::string(dl.pace == core::Pace::Late ? "Late" : "Running short") +
+                   "  \u00b7  " + titled(d));
+    head->set_xalign(0.0f);
+    head->set_ellipsize(Pango::EllipsizeMode::END);
+    head->add_css_class("heading");
+    head->add_css_class(std::string("jot-pace-") + core::pace_word(dl.pace));
+    group->append(*head);
+    auto* sub = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                  "today.pull_why." + deadline);
+    sub->set_text("\u23f3 " + core::runway_text(dl));
+    sub->set_xalign(0.0f);
+    sub->set_wrap(true);
+    sub->add_css_class("dim-label");
+    sub->add_css_class("caption");
+    group->append(*sub);
+
+    CardOpts o;
+    o.prefix       = "today";
+    o.show_project = false;   // the head names it
+    o.note         = step == deadline ? std::string("Due ") + core::short_due(dl.due, now)
+                                      : std::string("Next step");
+    group->append(*task_card(*m_src, *s, now, o, [this](const core::NodeId& id) { m_sig_goto.emit(id); }));
+    m_column.append(*group);
+    if (auto lg = log::get(log::Area::Drawer))
+        lg->info("deadline: pulled '{}' forward for '{}' ({}, {})", s->title, d->title,
+                 core::pace_word(dl.pace), core::runway_text(dl));
+}
+
 void TodayPane::refresh() {
     while (auto* c = m_column.get_first_child()) m_column.remove(*c);
     m_column.append(m_head);
@@ -352,22 +395,39 @@ void TodayPane::refresh() {
     if (!overdue.empty()) add_group("", overdue, "Overdue  \u00b7  " +
                                     std::to_string(overdue.size()));
 
+    // s055 (J3): RUNNING SHORT -- a deadline whose days left are down to what
+    // its work needs has its next step pulled forward, here, under Overdue and
+    // above the rest. Today only: Available already lists the step, and
+    // Flagged is the user's own word. Overdue wins (a late step is shown
+    // there); a step pulled here is not shown again further down.
+    std::vector<core::NodeId> pulled;
+    if (m_view == View::Today) {
+        for (const auto& p : core::deadline_pulls(*m_src, now)) {
+            if (std::find(overdue.begin(), overdue.end(), p.step) != overdue.end()) continue;
+            if (std::find(pulled.begin(), pulled.end(), p.step) != pulled.end()) continue;
+            pulled.push_back(p.step);
+            add_pull_group(p.deadline, p.step, now);
+        }
+    }
+
     const auto rows = m_tasks->query(*m_src, f, now);
     std::vector<core::NodeId> rest;
     for (const auto& id : rows)
-        if (std::find(overdue.begin(), overdue.end(), id) == overdue.end())
+        if (std::find(overdue.begin(), overdue.end(), id) == overdue.end() &&
+            std::find(pulled.begin(), pulled.end(), id) == pulled.end())
             rest.push_back(id);
 
     for (const auto& g : core::group_by_parent(*m_src, rest))
         add_group(g.parent, g.tasks, {});
 
     std::vector<core::NodeId> all = overdue;
+    all.insert(all.end(), pulled.begin(), pulled.end());
     all.insert(all.end(), rest.begin(), rest.end());
     set_head(m_view == View::Available ? "Available"
              : m_view == View::Flagged ? "Flagged" : "Today",
              core::summary_text(core::summarize(*m_src, all, now)));
 
-    if (overdue.empty() && rest.empty()) {
+    if (overdue.empty() && pulled.empty() && rest.empty()) {
         // An empty Today is a REPORT, not a failure, and it must not read like
         // one. The three views have different empty meanings and each says its
         // own, because "Nothing here" on a list you know has todos in it looks
@@ -395,8 +455,8 @@ void TodayPane::refresh() {
     }
 
     if (auto lg = log::get(log::Area::Drawer))
-        lg->debug("today: view={} overdue={} rows={} of {} todo(s)",
-                  static_cast<int>(m_view), overdue.size(), rest.size(),
+        lg->debug("today: view={} overdue={} pulled={} rows={} of {} todo(s)",
+                  static_cast<int>(m_view), overdue.size(), pulled.size(), rest.size(),
                   m_tasks->count());
 }
 

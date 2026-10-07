@@ -133,6 +133,9 @@ struct Task {
     // s054 (J3). What finished means (see DoneWhen). A container field: kept
     // when the node stops being a todo.
     DoneWhen     done_when = DoneWhen::Tick;
+    // s055 (J3). A DEADLINE: work back from the due date (core/Deadline). A
+    // container field like done_when: kept when the node stops being a todo.
+    bool         deadline = false;
 
     bool operator==(const Task&) const = default;
 };
@@ -227,6 +230,7 @@ public:
     bool set_repeat(const NodeId& id, const Repeat& r);   // s033
     bool set_estimate(const NodeId& id, int minutes);     // s040; 0 clears
     bool set_done_when(const NodeId& id, DoneWhen w);      // s054
+    bool set_deadline(const NodeId& id, bool on);          // s055
     // Make this node a todo / stop it being one. Un-making CLEARS the fields
     // rather than leaving them set-but-ignored: a due date that survives
     // un-tasking is a date that comes back from the dead when you re-task.
