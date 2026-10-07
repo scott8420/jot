@@ -97,6 +97,33 @@ int day_index(std::int64_t first, std::int64_t day);
 // The 00:00 `n` days after `first`.
 std::int64_t day_at(std::int64_t first, int n);
 
+// ── s060: clusters along the line ──────────────────────────────────────────
+// The same timeline, regrouped into LANES (Scott's bubbles: "a relationship
+// of tasks or notes"). Each lane runs the whole span; a day's card sits in
+// the lane its things belong to.
+//
+//   Day      one lane, no name -- the plain timeline (s059)
+//   Place    one lane per #at/ place (s056's runs: #at/town/bank is Town);
+//            a thing with two places is in both; "No place" last
+//   Purpose  what the work is FOR: the goal it feeds (s058), else the
+//            project it is in (or is), else a goal it is; "Loose ends" last
+//
+// Lanes come in order of their soonest open dated thing (late first), the
+// catch-all lane last. A lane's line: "4 things · ~1h 10m · 1 late".
+enum class TlGroup { Day, Place, Purpose };
+
+struct TlLane {
+    std::string           key;       // "" = the catch-all (or the one Day lane)
+    std::string           title;     // "Town", "Taxes 2027", "No place"; "" for Day
+    std::string           line;
+    std::vector<TlDay>    days;
+    std::vector<TlItem>   someday;
+};
+
+std::vector<TlLane> timeline_lanes(const NodeSource& src, const Timeline& t, TlGroup g,
+                                   std::int64_t now);
+const char* tl_group_word(TlGroup g);   // "day" "place" "purpose"
+
 // The head line: "34 on the line · 5 late · 9 in the next 7 days".
 std::string timeline_summary(const Timeline& t, std::int64_t now);
 

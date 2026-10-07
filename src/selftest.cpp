@@ -2291,6 +2291,38 @@ int main() {
         check("timeline: the thumbnail's box, and back",
               box.x == 50 && box.y == 20 && box.w == 100 && box.h == 50 && vx == 250 && vy == 125);
         check("timeline: DST-safe day steps", core::day_index(core::day_at(now, 0), core::day_at(now, 200)) == 200);
+
+        // s060: lanes -- by place and by purpose.
+        m.set_body(late, "#at/town\n");
+        m.set_body(seeds, "#at/garden-centre and #at/town/bank\n");
+        const auto tl5 = core::build_timeline(m, {}, now);
+        const auto byplace = core::timeline_lanes(m, tl5, core::TlGroup::Place, now);
+        auto lane_has = [&](const core::TlLane& l, const core::NodeId& id) {
+            for (const auto& d : l.days) for (const auto& it : d.items) if (it.id == id) return true;
+            return false;
+        };
+        check("lanes: one per place, soonest first, No place last",
+              byplace.size() == 3 && byplace[0].title == "Town" && byplace[1].title == "Garden centre" &&
+                  byplace[2].title == "No place" && byplace[2].key.empty(),
+              byplace.empty() ? "" : byplace[0].title + "/" + byplace.back().title);
+        check("lanes: a thing with two places is in both; a sub-place rolls up",
+              lane_has(byplace[0], seeds) && lane_has(byplace[1], seeds) && lane_has(byplace[0], late) &&
+                  !lane_has(byplace[2], seeds));
+        check("lanes: the lane's line", byplace[0].line == "2 things · 1 late", byplace[0].line);
+        const auto bywhat = core::timeline_lanes(m, tl5, core::TlGroup::Purpose, now);
+        auto find_lane = [&](const std::string& title) -> const core::TlLane* {
+            for (const auto& l : bywhat) if (l.title == title) return &l;
+            return nullptr;
+        };
+        check("lanes: by purpose -- a project and its own-dated step together",
+              find_lane("Move house") && lane_has(*find_lane("Move house"), move) &&
+                  lane_has(*find_lane("Move house"), keys));
+        check("lanes: by purpose -- a goal and what feeds it together, loose ends last",
+              find_lane("Taxes") && lane_has(*find_lane("Taxes"), scan) && lane_has(*find_lane("Taxes"), goal) &&
+                  bywhat.back().title == "Loose ends" && lane_has(bywhat.back(), late));
+        check("lanes: Day is the plain timeline, one nameless lane",
+              core::timeline_lanes(m, tl5, core::TlGroup::Day, now).size() == 1 &&
+                  core::timeline_lanes(m, tl5, core::TlGroup::Day, now)[0].title.empty());
     }
 
     // ── s058: feeders ──────────────────────────────────────────────────────

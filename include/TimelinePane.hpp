@@ -51,6 +51,8 @@ public:
 
     void set_model(const core::NodeSource* src, core::Timeline t, std::int64_t now);
     void set_zoom(Zoom z);
+    void set_group(core::TlGroup g);           // s060: Day | Place | Purpose
+    core::TlGroup group() const { return m_group; }
     Zoom zoom() const { return m_zoom; }
     void set_matches(std::vector<core::NodeId> ids);   // find: these stay bright
     int  step_match(int dir);                          // Enter / Shift+Enter: the index now current, -1 none
@@ -90,8 +92,16 @@ private:
         double       anchor = 0;       // the x its leader drops from (content coords)
         double       x = 0, y = 0, w = 0, h = 0;
         bool         compact = false;  // Season: dots, no words
+        int          lane = 0;         // s060: which lane it hangs in
         bool         open = false;
         std::vector<Row> rows;         // full: one per line; compact: one per dot
+    };
+
+    // s060: a lane -- the whole span's width, one place or purpose.
+    struct Lane {
+        std::string key, title, line;
+        double y = 0, h = 0;           // content
+        double body_top = 0;           // where its cards start
     };
 
     // Layout (content coordinates: x from the first day, y from the body's top).
@@ -136,6 +146,8 @@ private:
     std::int64_t   m_today = 0;
     Zoom           m_zoom = Zoom::Month;
     std::vector<Clump> m_clumps;
+    std::vector<Lane>  m_lanes;                // s060
+    core::TlGroup      m_group = core::TlGroup::Day;
     std::set<std::string> m_open;             // clumps opened by a right-click (or a find)
     std::string m_pin_key;                    // the clump last opened or closed stays where it was ...
     double      m_pin_y = -1;                 // ... at this top (content); cleared by a zoom
@@ -193,6 +205,7 @@ private:
     widgets::Label        m_find_count;
     widgets::Box          m_controls;
     widgets::ToggleButton m_week, m_month, m_season;
+    widgets::ToggleButton m_g_day, m_g_place, m_g_purpose;   // s060
     widgets::ToggleButton m_chip_projects, m_chip_todos, m_chip_notes, m_chip_someday;
     widgets::Button       m_today;
     TimelineCanvas        m_canvas;

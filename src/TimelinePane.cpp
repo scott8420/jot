@@ -30,6 +30,7 @@ constexpr double kBodyTop  = 18;    // the first clump's distance under the stri
 constexpr double kHead     = 24;    // a clump's day line
 constexpr double kRow      = 21;
 constexpr double kPadB     = 8;
+constexpr double kLaneHead = 40;   // s060: a lane's name and its line
 constexpr std::size_t kClosedRows = 5;   // a closed clump shows this many, then "+N more"
 constexpr double kDot      = 13;    // compact (Season) dot pitch
 constexpr std::size_t kCompactDots = 12;
@@ -232,6 +233,21 @@ void TimelineCanvas::set_zoom(Zoom z) {
     m_sig_zoomed.emit(z);
 }
 
+void TimelineCanvas::set_group(core::TlGroup g) {
+    if (g == m_group) return;
+    m_group = g;
+    m_pin_key.clear();
+    m_oy = 0;
+    layout();
+    queue_draw();
+    if (auto lg = log::get(log::Area::Shell)) {
+        std::string names;
+        for (const auto& l : m_lanes) names += (names.empty() ? "" : " | ") + l.title + ": " + l.line;
+        lg->info("timeline: grouped by {} -- {} lane(s){}{}", core::tl_group_word(g), m_lanes.size(),
+                 names.empty() ? "" : " -- ", names);
+    }
+}
+
 void TimelineCanvas::layout() {
     m_hover = nullptr;
     m_clumps.clear();
@@ -292,68 +308,102 @@ void TimelineCanvas::layout() {
         }
     };
 
-    for (const auto& d : m_tl.days) {
-        Clump c;
-        c.key = "d" + std::to_string(d.day);
-        c.day = d.day;
-        c.head = day_head(d.day, m_today);
-        c.anchor = day_x(d.day);
-        build(c, d.items);
-        c.x = std::max(4.0, c.anchor - c.w / 2);
-        m_clumps.push_back(std::move(c));
-    }
-
-    double width = days_w;
-    if (!m_tl.someday.empty()) {
-        // Someday: after the last day, one clump per parent -- what it is
-        // filed under is the only shape undated work has.
-        m_someday_x = days_w + 40;
-        std::vector<std::string> order;
-        std::map<std::string, std::vector<core::TlItem>> groups;
-        for (const auto& it : m_tl.someday) {
+    // s060: the work in LANES -- one nameless lane for Day, else one per
+    // place or purpose (core::timeline_lanes). Each lane stacks its own cards.
+    const auto lanes = m_src ? core::timeline_lanes(*m_src, m_tl, m_group, m_now)
+                             : std::vector<core::TlLane>{};
+    // Someday: after the last day, one card per parent -- what it is filed
+    // under is the only shape undated work has. One region for every lane.
+    auto someday_groups = [&](const std::vector<core::TlItem>& items,
+                              std::vector<std::string>& order,
+                              std::map<std::string, std::vector<core::TlItem>>& groups) {
+        for (const auto& it : items) {
             const core::Node* n = m_src ? m_src->find(it.id) : nullptr;
             const std::string parent = n ? n->parent_id : std::string();
             if (!groups.count(parent)) order.push_back(parent);
             groups[parent].push_back(it);
         }
-        const double cw = clump_width();
-        const int cols = std::max(1, std::min<int>(3, static_cast<int>(order.size())));
-        int k = 0;
-        for (const auto& parent : order) {
-            Clump c;
-            c.key = "s" + parent;
-            const core::Node* p = m_src && !parent.empty() ? m_src->find(parent) : nullptr;
-            c.head = p ? (p->title.empty() ? std::string("Untitled") : p->title) : std::string("Top level");
-            build(c, groups[parent]);
-            if (c.compact) {  // Someday keeps its words: there is no day to lean on
-                c.open = true;
-                c.rows.clear();
-                m_open.insert(c.key);
-                build(c, groups[parent]);
-            }
-            c.anchor = m_someday_x + (k % cols) * (cw + 16) + cw / 2;
-            c.x = c.anchor - c.w / 2;
-            ++k;
-            m_clumps.push_back(std::move(c));
-        }
+    };
+    int cols = 0;
+    for (const auto& l : lanes) {
+        std::vector<std::string> order;
+        std::map<std::string, std::vector<core::TlItem>> groups;
+        someday_groups(l.someday, order, groups);
+        cols = std::max(cols, std::min(3, static_cast<int>(order.size())));
+    }
+    const double cw = clump_width();
+    double width = days_w;
+    if (cols > 0) {
+        m_someday_x = days_w + 40;
         width = m_someday_x + cols * (cw + 16) + 28;
     }
 
-    std::vector<core::TlSpan> spans;
-    spans.reserve(m_clumps.size());
-    std::vector<double> pins(m_clumps.size(), -1);
-    for (std::size_t i = 0; i < m_clumps.size(); ++i) {
-        spans.push_back({m_clumps[i].x, m_clumps[i].x + m_clumps[i].w, m_clumps[i].h});
-        if (!m_pin_key.empty() && m_clumps[i].key == m_pin_key) pins[i] = m_pin_y - kBodyTop;
-    }
-    const auto tops = core::stack_down(spans, 10, 12, pins);
-    double bottom = 0;
-    for (std::size_t i = 0; i < m_clumps.size(); ++i) {
-        m_clumps[i].y = kBodyTop + tops[i];
-        bottom = std::max(bottom, m_clumps[i].y + m_clumps[i].h);
+    m_lanes.clear();
+    double y = 0;
+    for (std::size_t li = 0; li < lanes.size(); ++li) {
+        const auto& lane = lanes[li];
+        Lane L;
+        L.key = lane.key;
+        L.title = lane.title;
+        L.line = lane.line;
+        L.y = y;
+        const bool named = !lane.title.empty();
+        L.body_top = y + (named ? kLaneHead : 0) + (named ? 8 : kBodyTop);
+        const std::size_t first = m_clumps.size();
+        for (const auto& d : lane.days) {
+            Clump c;
+            c.key = lane.key + "|d" + std::to_string(d.day);
+            c.lane = static_cast<int>(li);
+            c.day = d.day;
+            c.head = day_head(d.day, m_today);
+            c.anchor = day_x(d.day);
+            build(c, d.items);
+            c.x = std::max(4.0, c.anchor - c.w / 2);
+            m_clumps.push_back(std::move(c));
+        }
+        if (!lane.someday.empty()) {
+            std::vector<std::string> order;
+            std::map<std::string, std::vector<core::TlItem>> groups;
+            someday_groups(lane.someday, order, groups);
+            const int lc = std::max(1, std::min(3, static_cast<int>(order.size())));
+            int k = 0;
+            for (const auto& parent : order) {
+                Clump c;
+                c.key = lane.key + "|s" + parent;
+                c.lane = static_cast<int>(li);
+                const core::Node* p = m_src && !parent.empty() ? m_src->find(parent) : nullptr;
+                c.head = p ? (p->title.empty() ? std::string("Untitled") : p->title) : std::string("Top level");
+                build(c, groups[parent]);
+                if (c.compact) {  // Someday keeps its words: there is no day to lean on
+                    c.open = true;
+                    c.rows.clear();
+                    m_open.insert(c.key);
+                    build(c, groups[parent]);
+                }
+                c.anchor = m_someday_x + (k % lc) * (cw + 16) + cw / 2;
+                c.x = c.anchor - c.w / 2;
+                ++k;
+                m_clumps.push_back(std::move(c));
+            }
+        }
+        std::vector<core::TlSpan> spans;
+        std::vector<double> pins;
+        for (std::size_t i = first; i < m_clumps.size(); ++i) {
+            spans.push_back({m_clumps[i].x, m_clumps[i].x + m_clumps[i].w, m_clumps[i].h});
+            pins.push_back(!m_pin_key.empty() && m_clumps[i].key == m_pin_key ? m_pin_y : -1);
+        }
+        const auto tops = core::stack_down(spans, 10, 12, pins);
+        double bottom = L.body_top;
+        for (std::size_t i = first; i < m_clumps.size(); ++i) {
+            m_clumps[i].y = L.body_top + tops[i - first];
+            bottom = std::max(bottom, m_clumps[i].y + m_clumps[i].h);
+        }
+        L.h = (bottom - y) + (named ? 22 : 0);
+        y += L.h;
+        m_lanes.push_back(std::move(L));
     }
     m_cw = width;
-    m_ch = bottom + 90;
+    m_ch = y + 90;
 
     m_match_days.clear();
     if (!m_match_set.empty())
@@ -417,7 +467,14 @@ void TimelineCanvas::reveal(const core::NodeId& id) {
     }
     const double vw = view_w(), vh = view_h();
     if (c->x < m_ox + 16 || c->x + c->w > m_ox + vw - 16) m_ox = c->anchor - vw / 2;
-    if (c->y < m_oy + 8 || c->y + std::min(c->h, vh * 0.6) > m_oy + vh) m_oy = c->y - kBodyTop;
+    if (c->y < m_oy + 8 || c->y + std::min(c->h, vh * 0.6) > m_oy + vh) {
+        m_oy = c->y - kBodyTop;
+        // In a named lane, keep its name in view when the card is near it.
+        if (c->lane >= 0 && c->lane < static_cast<int>(m_lanes.size())) {
+            const Lane& L = m_lanes[static_cast<std::size_t>(c->lane)];
+            if (!L.title.empty() && c->y - L.y < vh / 2) m_oy = L.y;
+        }
+    }
     clamp_offsets();
     queue_draw();
 }
@@ -489,7 +546,8 @@ void TimelineCanvas::on_right(int, double x, double y) {
     // It stays where it is, under the hand that opened it; the clumps it now
     // touches make room below.
     m_pin_key = key;
-    m_pin_y = was_y;
+    m_pin_y = was_y - (c->lane >= 0 && c->lane < static_cast<int>(m_lanes.size())
+                           ? m_lanes[static_cast<std::size_t>(c->lane)].body_top : kBodyTop);
     layout();
     if (auto lg = log::get(log::Area::Shell))
         lg->debug("timeline: view at {:.0f},{:.0f} of {:.0f}x{:.0f}", m_ox, m_oy, m_cw, m_ch);
@@ -659,6 +717,15 @@ void TimelineCanvas::draw_body(const Cairo::RefPtr<Cairo::Context>& cr, int w, i
     cr->rectangle(0, top, w, h - top);
     cr->clip();
 
+    // s060: lanes -- every other one a shade off, a hairline between.
+    for (std::size_t i = 0; i < m_lanes.size(); ++i) {
+        const Lane& L = m_lanes[i];
+        if (L.title.empty()) continue;
+        const double ly = L.y - m_oy + top;
+        if (ly > h || ly + L.h < top) continue;
+        if (i % 2) { source(cr, fg, 0.022); cr->rectangle(0, ly, w, L.h); cr->fill(); }
+        if (i) { source(cr, fg, 0.12); cr->rectangle(0, std::round(ly), w, 1); cr->fill(); }
+    }
     // Weekends, faintly -- a week's rhythm without a grid.
     if (m_zoom != Zoom::Season) {
         const int first = std::max(0, static_cast<int>((m_ox - kLeft) / ppd) - 1);
@@ -698,16 +765,56 @@ void TimelineCanvas::draw_body(const Cairo::RefPtr<Cairo::Context>& cr, int w, i
         if (finding)
             for (const auto& r : c.rows)
                 for (const auto& id : r.carries) lit = lit || m_match_set.count(id);
+        double from = top;
+        bool named = false;
+        if (c.lane >= 0 && c.lane < static_cast<int>(m_lanes.size())) {
+            const Lane& L = m_lanes[static_cast<std::size_t>(c.lane)];
+            named = !L.title.empty();
+            if (named) from = std::max(top, L.body_top - 6 - m_oy + top);
+        }
         source(cr, fg, lit ? 0.22 : 0.07);
-        cr->move_to(x, top);
+        cr->move_to(x, from);
         cr->line_to(x, c.y - m_oy + top);
         cr->stroke();
+        if (named && from > top) {   // the day, marked where the lane begins
+            cr->begin_new_path();
+            source(cr, fg, lit ? 0.45 : 0.15);
+            cr->arc(x, from, 2.2, 0, 2 * M_PI);
+            cr->fill();
+        }
     }
     // The clumps.
     for (const auto& c : m_clumps) {
         const double sx = c.x - m_ox, sy = c.y - m_oy + top;
         if (sx > w || sx + c.w < 0 || sy > h || sy + c.h < top - 4) continue;
         draw_clump(cr, c, sx, sy);
+    }
+    // s060: each lane's name and its line, held at the left as you scroll.
+    for (const auto& L : m_lanes) {
+        if (L.title.empty()) continue;
+        const double ly = L.y - m_oy + top;
+        if (ly > h || ly + L.h < top) continue;
+        auto font = get_pango_context()->get_font_description();
+        auto name = create_pango_layout(L.title);
+        name->set_font_description(scaled(font, 1.1, Pango::Weight::BOLD));
+        auto line = create_pango_layout(L.line);
+        line->set_font_description(scaled(font, 0.85));
+        int nw = 0, nh = 0, lw = 0, lh = 0;
+        name->get_pixel_size(nw, nh);
+        line->get_pixel_size(lw, lh);
+        const double ny = std::max(ly + 8, top + 4);
+        if (ny + nh > ly + L.h - 4) continue;   // its lane has scrolled away under the strip
+        // A pill behind it, so a name held over the cards still reads.
+        if (appearance::is_dark()) cr->set_source_rgba(0.17, 0.17, 0.18, 0.92);
+        else cr->set_source_rgba(0.98, 0.98, 0.98, 0.92);
+        rounded(cr, 8, ny - 3, nw + lw + 26, nh + 6, (nh + 6) / 2.0);
+        cr->fill();
+        source(cr, fg, 0.9);
+        cr->move_to(16, ny);
+        name->show_in_cairo_context(cr);
+        source(cr, fg, 0.55);
+        cr->move_to(16 + nw + 10, ny + (nh - lh) / 2.0);
+        line->show_in_cairo_context(cr);
     }
     // Empty: say how.
     if (m_clumps.empty()) {
@@ -1205,6 +1312,9 @@ TimelinePane::TimelinePane(std::string_view name)
       m_week(widgets::unregistered, "shell.timeline.week", "Week"),
       m_month(widgets::unregistered, "shell.timeline.month", "Month"),
       m_season(widgets::unregistered, "shell.timeline.season", "Season"),
+      m_g_day(widgets::unregistered, "shell.timeline.group.day", "Day"),
+      m_g_place(widgets::unregistered, "shell.timeline.group.place", "Place"),
+      m_g_purpose(widgets::unregistered, "shell.timeline.group.purpose", "Purpose"),
       m_chip_projects(widgets::unregistered, "shell.timeline.chip.projects", "Projects"),
       m_chip_todos(widgets::unregistered, "shell.timeline.chip.todos", "Todos"),
       m_chip_notes(widgets::unregistered, "shell.timeline.chip.notes", "Notes"),
@@ -1250,6 +1360,26 @@ TimelinePane::TimelinePane(std::string_view name)
     m_month.set_tooltip_text("A month or so across");
     m_season.set_tooltip_text("A season across: a dot each");
     m_controls.append(*zoom);
+
+    // s060: Group -- the same cards, in lanes by place or by purpose.
+    auto* group = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.timeline.group",
+                                                  Gtk::Orientation::HORIZONTAL, 0);
+    group->add_css_class("linked");
+    group->set_margin_start(10);
+    for (auto* b : {&m_g_day, &m_g_place, &m_g_purpose}) group->append(*b);
+    m_g_place.set_group(m_g_day);
+    m_g_purpose.set_group(m_g_day);
+    m_g_day.set_active(true);
+    m_g_day.set_tooltip_text("One line of days");
+    m_g_place.set_tooltip_text("A lane for each place (#at/town ...): what one trip can clear");
+    m_g_purpose.set_tooltip_text("A lane for each goal or project: what the work is for");
+    for (auto* b : {&m_g_day, &m_g_place, &m_g_purpose})
+        b->signal_toggled().connect([this, b]() {
+            if (!b->get_active()) return;
+            m_canvas.set_group(b == &m_g_day ? core::TlGroup::Day
+                               : b == &m_g_place ? core::TlGroup::Place : core::TlGroup::Purpose);
+        });
+    m_controls.append(*group);
 
     auto* chips = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.timeline.chips",
                                                   Gtk::Orientation::HORIZONTAL, 4);

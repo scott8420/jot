@@ -1,9 +1,11 @@
 #include "core/Timeline.hpp"
+#include "core/Errands.hpp"
 #include "core/Feeders.hpp"
 #include "core/Repeat.hpp"
 #include "core/Review.hpp"
 #include "core/Routine.hpp"
 #include "core/Search.hpp"
+#include "core/Tags.hpp"
 #include "core/Tasks.hpp"
 
 #include <algorithm>
@@ -213,6 +215,121 @@ Timeline build_timeline(const NodeSource& src, const TlShow& show, std::int64_t 
         for (const auto& r : src.children("")) goals(r);
     }
     return t;
+}
+
+const char* tl_group_word(TlGroup g) {
+    switch (g) {
+    case TlGroup::Day:     return "day";
+    case TlGroup::Place:   return "place";
+    case TlGroup::Purpose: return "purpose";
+    }
+    return "?";
+}
+
+namespace {
+
+// What a node's work is FOR: the goal it feeds; else, walking up from it,
+// the first that is a project or a goal (has feeders). "" = loose.
+NodeId purpose_of(const NodeSource& src, const NodeId& id) {
+    const Node* n = src.find(id);
+    if (!n) return {};
+    if (!n->task.feeds.empty() && src.find(n->task.feeds)) return n->task.feeds;
+    for (NodeId at = id; !at.empty();) {
+        const Node* x = src.find(at);
+        if (!x) break;
+        if (is_project(src, at) || !feeders_of(src, at).empty()) return at;
+        at = x->parent_id;
+    }
+    return {};
+}
+
+std::string lane_line(const TlLane& l) {
+    int things = 0, minutes = 0, late = 0;
+    auto add = [&](const TlItem& it) {
+        ++things;
+        if (it.tone != TlTone::Done) minutes += it.estimate;
+        if (it.tone == TlTone::Late) ++late;
+    };
+    for (const auto& d : l.days) for (const auto& it : d.items) add(it);
+    for (const auto& it : l.someday) add(it);
+    std::string s = std::to_string(things) + (things == 1 ? " thing" : " things");
+    if (minutes) s += " \u00b7 ~" + format_estimate(minutes);
+    if (late) s += " \u00b7 " + std::to_string(late) + " late";
+    return s;
+}
+
+}  // namespace
+
+std::vector<TlLane> timeline_lanes(const NodeSource& src, const Timeline& t, TlGroup g,
+                                   std::int64_t now) {
+    std::vector<TlLane> out;
+    if (g == TlGroup::Day) {
+        TlLane l;
+        l.days = t.days;
+        l.someday = t.someday;
+        l.line = lane_line(l);
+        out.push_back(std::move(l));
+        return out;
+    }
+    // The names as written, for places (#at/Town reads "Town").
+    std::map<std::string, std::string> spelled;
+    if (g == TlGroup::Place)
+        for (const auto& tg : tag_list(src, now))
+            if (is_place_key(tg.key)) spelled.emplace(tg.key, tg.name);
+
+    auto keys_of = [&](const TlItem& it) {
+        std::vector<std::string> ks;
+        if (g == TlGroup::Place) {
+            if (const Node* n = src.find(it.id)) ks = node_places(*n);
+        } else {
+            const NodeId p = purpose_of(src, it.id);
+            if (!p.empty()) ks.push_back(p);
+        }
+        if (ks.empty()) ks.push_back("");
+        return ks;
+    };
+    std::map<std::string, std::size_t> at;   // lane key -> index in out
+    auto lane = [&](const std::string& key) -> TlLane& {
+        if (auto f = at.find(key); f != at.end()) return out[f->second];
+        TlLane l;
+        l.key = key;
+        if (key.empty()) l.title = g == TlGroup::Place ? "No place" : "Loose ends";
+        else if (g == TlGroup::Place) {
+            const auto sp = spelled.find(key);
+            l.title = place_title(sp != spelled.end() ? sp->second : key);
+        } else if (const Node* n = src.find(key)) {
+            l.title = n->title.empty() ? std::string("Untitled") : n->title;
+        }
+        at[key] = out.size();
+        out.push_back(std::move(l));
+        return out.back();
+    };
+    for (const auto& d : t.days)
+        for (const auto& it : d.items)
+            for (const auto& k : keys_of(it)) {
+                TlLane& l = lane(k);
+                if (l.days.empty() || l.days.back().day != d.day) l.days.push_back({d.day, {}});
+                l.days.back().items.push_back(it);
+            }
+    for (const auto& it : t.someday)
+        for (const auto& k : keys_of(it)) lane(k).someday.push_back(it);
+
+    // Soonest open dated thing first (late counts as soonest); the
+    // catch-all last; lanes with nothing open after the rest, by name.
+    auto rank = [&](const TlLane& l) -> std::int64_t {
+        for (const auto& d : l.days)
+            for (const auto& it : d.items)
+                if (it.tone != TlTone::Done && it.kind != TlKind::Note) return d.day;
+        return INT64_MAX;
+    };
+    std::stable_sort(out.begin(), out.end(), [&](const TlLane& a, const TlLane& b) {
+        if (a.key.empty() != b.key.empty()) return b.key.empty();
+        const auto ra = rank(a), rb = rank(b);
+        if (ra != rb) return ra < rb;
+        return a.title < b.title;
+    });
+    for (auto& l : out) l.line = lane_line(l);
+    return out;
 }
 
 std::string timeline_summary(const Timeline& t, std::int64_t now) {

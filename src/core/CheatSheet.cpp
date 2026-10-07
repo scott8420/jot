@@ -264,7 +264,8 @@ const std::vector<CheatLine>& cheat_sheet() {
          "A running calendar on top, each day's projects, todos and notes hanging under it -- "
          "crowded days stack down. Click picks, double-click opens, right-click opens a clump "
          "(a project's steps). Week / Month / Season; drag or scroll to move, Ctrl+scroll zooms; "
-         "drag the box in the corner map. Its find takes Find's words, #tag, is:, due: -- "
+         "drag the box in the corner map. Group: Day / Place (a lane per #at/ place) / Purpose "
+         "(a lane per goal or project). Its find takes Find's words, #tag, is:, due: -- "
          "Enter / Shift+Enter step through. Someday brings in undated work. Also the fourth "
          "button beside Source / Live / Reading."},
         // ── Forecast (s039) ─────────────────────────────────────────────────

@@ -55,6 +55,19 @@ bool is_place_key(std::string_view key) {
     return key.size() > kAt.size() && key.substr(0, kAt.size()) == kAt;
 }
 
+std::vector<std::string> node_places(const Node& n) {
+    std::vector<std::string> out;
+    for (const auto& key : node_tag_keys(n)) {
+        if (!is_place_key(key)) continue;
+        const auto rest  = std::string_view(key).substr(kAt.size());
+        const std::string place = std::string(kAt) + std::string(rest.substr(0, rest.find('/')));
+        if (std::find(out.begin(), out.end(), place) == out.end()) out.push_back(place);
+    }
+    return out;
+}
+
+std::string place_title(std::string_view key) { return place_name(key); }
+
 std::vector<ErrandRun> errand_runs(const NodeSource& src, std::int64_t now) {
     // The names as written, from the same list the Tags tab shows.
     std::map<std::string, std::string> spelled;

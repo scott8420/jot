@@ -56,6 +56,12 @@ struct ErrandRun {
 // Every place with an open errand. Order: the run with the soonest due first
 // (a late one before all), then the undated by name, then places with nothing
 // doable yet.
+// s060: the places a node is tagged with, as run keys ("at/town" for both
+// #at/town and #at/town/bank), each once, in the order written; and a run
+// key's name as the Errands view says it ("Town", "Hardware store").
+std::vector<std::string> node_places(const Node& n);
+std::string              place_title(std::string_view key);
+
 std::vector<ErrandRun> errand_runs(const NodeSource& src, std::int64_t now);
 
 // "4 errands  ·  ~1h 20m (1 not sized)  ·  1 late  ·  2 due this week"
