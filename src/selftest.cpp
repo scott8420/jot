@@ -5871,6 +5871,43 @@ int main() {
                   core::capture(m, "   ").empty() && m.count() == 2);
         }
 
+        // s064: lines = links
+        {
+            core::MemoryNodes m;
+            const std::int64_t now = 1'791'400'000;
+            const std::int64_t today = core::day_start(now);
+            auto todo = [&](const char* t, int days) {
+                const auto id = m.create("", t);
+                m.make_task(id, true);
+                m.set_due(id, core::day_end(today + days * 86400));
+                return id;
+            };
+            const auto a = todo("book the van", 2);
+            const auto b = todo("pack the books", 5);
+            const auto c = todo("hand back keys", 9);
+            const auto off = m.create("", "a note far away");   // not a todo, made "now" -- on the timeline
+            m.set_body(a, "see [packing](jot:" + b + ") and [keys](jot:" + c + ")");
+            m.set_body(b, "back to [the van](jot:" + a + ") and [myself](jot:" + b + ")");
+            m.set_body(c, "[gone](jot:no-such-note) and [web](https://example.com)");
+            core::TlShow show;
+            auto t = core::build_timeline(m, show, now);
+            check("links: a pair once, either way; never itself; only things on the timeline",
+                  t.links.size() == 2, std::to_string(t.links.size()));
+            bool ab = false, ac = false;
+            for (const auto& L : t.links) {
+                ab = ab || ((L.a == a && L.b == b) || (L.a == b && L.b == a));
+                ac = ac || ((L.a == a && L.b == c) || (L.a == c && L.b == a));
+            }
+            check("links: the two pairs are van-books and van-keys", ab && ac);
+            show.todos = false;
+            check("links: a pair goes when one end leaves the timeline",
+                  core::build_timeline(m, show, now).links.empty());
+            show.todos = true;
+            show.links = false;
+            check("links: off when the chip is off", core::build_timeline(m, show, now).links.empty());
+            (void)off;
+        }
+
         // s063: drag a timeline line to another day
         {
             core::MemoryNodes m;

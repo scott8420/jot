@@ -78,12 +78,20 @@ struct TlShow {
     bool todos    = true;
     bool notes    = true;
     bool someday  = false;
+    bool links    = true;     // s064: curves between things that link to each other
+};
+
+// s064: two things on the timeline, one with a jot: link to the other (either
+// way -- one curve per pair). Feeders and their goal are a thread already.
+struct TlLink {
+    NodeId a, b;
 };
 
 struct Timeline {
     std::vector<TlDay>    days;       // only days with something on them, in order
     std::vector<TlItem>   someday;    // empty unless asked for
     std::vector<TlThread> threads;
+    std::vector<TlLink>   links;      // s064: pairs, both on the timeline
     std::int64_t first = 0;           // the span: two weeks before today at least ...
     std::int64_t last  = 0;           // ... eight weeks after it at least, and every item
     std::size_t  dated = 0;           // items on days
@@ -91,6 +99,10 @@ struct Timeline {
 };
 
 Timeline build_timeline(const NodeSource& src, const TlShow& show, std::int64_t now);
+
+// s064: the pairs among `t`'s items (their riding steps included) where one's
+// text links to the other -- each pair once, never a thing to itself.
+std::vector<TlLink> timeline_links(const NodeSource& src, const Timeline& t);
 
 // Days from `first` to `day`, both 00:00 local -- DST-safe (rounds).
 int day_index(std::int64_t first, std::int64_t day);

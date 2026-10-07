@@ -179,6 +179,7 @@ private:
     std::int64_t m_drop_day = 0;           // the day under it (0 = none)
     std::int64_t day_at_x(double x) const; // widget x -> a day of the span, or 0
     void draw_move(const Cairo::RefPtr<Cairo::Context>& cr, int w, int h);
+    void draw_links(const Cairo::RefPtr<Cairo::Context>& cr, int w, int h);   // s064
     void end_move(bool drop);
 
     std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
@@ -222,6 +223,7 @@ private:
     widgets::ToggleButton m_week, m_month, m_season;
     widgets::ToggleButton m_g_day, m_g_place, m_g_purpose;   // s060
     widgets::ToggleButton m_chip_projects, m_chip_todos, m_chip_notes, m_chip_someday;
+    widgets::ToggleButton m_chip_links;   // s064
     widgets::Button       m_today;
     TimelineCanvas        m_canvas;
     bool                  m_syncing = false;

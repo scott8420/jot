@@ -805,6 +805,72 @@ void TimelineCanvas::draw_move(const Cairo::RefPtr<Cairo::Context>& cr, int w, i
     lay->show_in_cairo_context(cr);
 }
 
+// s064: lines = links. Each linked pair, a curve from the edge of one line to
+// the edge of the other; both ends dotted. A closed card's step lends its
+// carrier's line. Lit (and thicker) while the pointer is on either end.
+void TimelineCanvas::draw_links(const Cairo::RefPtr<Cairo::Context>& cr, int, int) {
+    if (m_tl.links.empty()) return;
+    struct End { double lx, rx, y; int clump; };
+    std::unordered_map<core::NodeId, End> at;
+    const double top = strip_h();
+    for (std::size_t ci = 0; ci < m_clumps.size(); ++ci) {
+        const Clump& c = m_clumps[ci];
+        for (std::size_t i = 0; i < c.rows.size(); ++i) {
+            const Row& r = c.rows[i];
+            if (r.more) continue;
+            End e;
+            e.clump = static_cast<int>(ci);
+            if (c.compact) {
+                const double dx = c.x + 10 + (i % 2) * 14, dy = c.y + 22 + (i / 2) * kDot;
+                e.lx = dx - 5; e.rx = dx + 5; e.y = dy;
+            } else {
+                e.lx = c.x + 2; e.rx = c.x + c.w - 2;
+                e.y = c.y + kHead + i * kRow + kRow / 2;
+            }
+            e.lx -= m_ox; e.rx -= m_ox; e.y += top - m_oy;
+            if (!r.id.empty()) at.emplace(r.id, e);                  // its own line first ...
+            for (const auto& id : r.carries) at.emplace(id, e);     // ... then what it carries
+        }
+    }
+    const Gdk::RGBA accent = rgba(appearance::accent_in_force());
+    const core::NodeId hover = m_hover ? m_hover->id : core::NodeId{};
+    cr->save();
+    cr->rectangle(0, top, get_width(), get_height() - top);
+    cr->clip();
+    for (const auto& L : m_tl.links) {
+        auto ia = at.find(L.a), ib = at.find(L.b);
+        if (ia == at.end() || ib == at.end()) continue;
+        End a = ia->second, b = ib->second;
+        const bool lit = !hover.empty() && (hover == L.a || hover == L.b);
+        double x0, y0, x1, y1, c0x, c1x;
+        if (a.lx > b.lx) std::swap(a, b);   // a is the one further left
+        if (a.clump == b.clump || b.lx < a.rx + 24) {
+            // the same card, or one above the other: out to the right and back
+            // the same card, or overlapping columns: out past the wider right
+            // edge and back, so the curve never crosses a card it joins
+            x0 = a.rx; y0 = a.y; x1 = b.rx; y1 = b.y;
+            const double edge = std::max(x0, x1);
+            const double bulge = 22 + std::min(60.0, std::abs(y1 - y0) * 0.25);
+            c0x = edge + bulge; c1x = edge + bulge;
+        } else {                               // side by side: edge to edge
+            x0 = a.rx; y0 = a.y; x1 = b.lx; y1 = b.y;
+            const double dx = std::max(30.0, (x1 - x0) * 0.45);
+            c0x = x0 + dx; c1x = x1 - dx;
+        }
+        source(cr, accent, lit ? 0.95 : 0.45);
+        cr->set_line_width(lit ? 2.2 : 1.4);
+        cr->move_to(x0, y0);
+        cr->curve_to(c0x, y0, c1x, y1, x1, y1);
+        cr->stroke();
+        for (auto [ex, ey] : {std::pair{x0, y0}, std::pair{x1, y1}}) {
+            cr->begin_new_path();
+            cr->arc(ex, ey, lit ? 3.2 : 2.4, 0, 2 * M_PI);
+            cr->fill();
+        }
+    }
+    cr->restore();
+}
+
 void TimelineCanvas::draw_body(const Cairo::RefPtr<Cairo::Context>& cr, int w, int h) {
     GdkRGBA fgc;
     gtk_widget_get_color(GTK_WIDGET(gobj()), &fgc);
@@ -889,6 +955,7 @@ void TimelineCanvas::draw_body(const Cairo::RefPtr<Cairo::Context>& cr, int w, i
         if (sx > w || sx + c.w < 0 || sy > h || sy + c.h < top - 4) continue;
         draw_clump(cr, c, sx, sy);
     }
+    draw_links(cr, w, h);   // s064: over the cards, edge to edge
     // s060: each lane's name and its line, held at the left as you scroll.
     for (const auto& L : m_lanes) {
         if (L.title.empty()) continue;
@@ -1419,6 +1486,7 @@ TimelinePane::TimelinePane(std::string_view name)
       m_chip_todos(widgets::unregistered, "shell.timeline.chip.todos", "Todos"),
       m_chip_notes(widgets::unregistered, "shell.timeline.chip.notes", "Notes"),
       m_chip_someday(widgets::unregistered, "shell.timeline.chip.someday", "Someday"),
+      m_chip_links(widgets::unregistered, "shell.timeline.chip.links", "Links"),
       m_today(widgets::unregistered, "shell.timeline.today", "Today") {
 
     // ── head: the title and what it adds up to; find on the right ──────────
@@ -1488,7 +1556,8 @@ TimelinePane::TimelinePane(std::string_view name)
     for (const C& c : {C{m_chip_projects, true, "Projects on their due day"},
                        C{m_chip_todos, true, "Todos on their due day (or start, or the day they were ticked)"},
                        C{m_chip_notes, true, "Notes on the day they were made"},
-                       C{m_chip_someday, false, "Undated work, after the last day"}}) {
+                       C{m_chip_someday, false, "Undated work, after the last day"},
+                       C{m_chip_links, true, "A curve between two things on screen that link to each other"}}) {
         c.b.add_css_class("jot-tl-chip");
         c.b.set_active(c.on);
         c.b.set_tooltip_text(c.tip);
@@ -1518,12 +1587,13 @@ TimelinePane::TimelinePane(std::string_view name)
         });
     m_canvas.signal_zoomed().connect([this](TimelineCanvas::Zoom) { sync_zoom_buttons(); });
     m_canvas.signal_move().connect(sigc::mem_fun(*this, &TimelinePane::on_move));   // s063
-    for (auto* b : {&m_chip_projects, &m_chip_todos, &m_chip_notes, &m_chip_someday})
+    for (auto* b : {&m_chip_projects, &m_chip_todos, &m_chip_notes, &m_chip_someday, &m_chip_links})
         b->signal_toggled().connect([this]() {
             m_show.projects = m_chip_projects.get_active();
             m_show.todos    = m_chip_todos.get_active();
             m_show.notes    = m_chip_notes.get_active();
             m_show.someday  = m_chip_someday.get_active();
+            m_show.links    = m_chip_links.get_active();   // s064
             refresh();
         });
     m_today.signal_clicked().connect([this]() { m_canvas.go_today(); });

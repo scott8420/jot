@@ -270,8 +270,9 @@ const std::vector<CheatLine>& cheat_sheet() {
          "(a project's steps). Week / Month / Season; drag or scroll to move, Ctrl+scroll zooms; "
          "drag the box in the corner map. Group: Day / Place (a lane per #at/ place) / Purpose "
          "(a lane per goal or project). Its find takes Find's words, #tag, is:, due: -- "
-         "Enter / Shift+Enter step through. Someday brings in undated work. Also the fourth "
-         "button beside Source / Live / Reading."},
+         "Enter / Shift+Enter step through. Someday brings in undated work. Links draws a curve "
+         "between two things that link to each other (point at one to light its links). Also "
+         "the fourth button beside Source / Live / Reading."},
         {"Today", "", "Drag a line to a day", "On the timeline: re-date a todo or project by dragging it",
          "Its due moves (the time of day kept), or its start if it only starts there; a Someday "
          "one gets a due. The day lights up in the strip. Esc puts it back; Ctrl+Z undoes. "

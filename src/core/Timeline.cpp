@@ -6,9 +6,11 @@
 #include "core/Routine.hpp"
 #include "core/Search.hpp"
 #include "core/Tags.hpp"
+#include "core/Markdown.hpp"
 #include "core/Tasks.hpp"
 
 #include <algorithm>
+#include <set>
 #include <ctime>
 #include <cmath>
 #include <functional>
@@ -215,6 +217,7 @@ Timeline build_timeline(const NodeSource& src, const TlShow& show, std::int64_t 
         };
         for (const auto& r : src.children("")) goals(r);
     }
+    if (show.links) t.links = timeline_links(src, t);   // s064
     return t;
 }
 
@@ -486,6 +489,36 @@ TlMove timeline_move(const NodeSource& src, const NodeId& id, TlWhy why, bool ri
 bool apply_timeline_move(NodeSource& src, const NodeId& id, const TlMove& m) {
     if (!m.ok) return false;
     return m.defer ? src.set_defer(id, m.when) : src.set_due(id, m.when);
+}
+
+}  // namespace jot::core
+
+// ── s064: lines = links ─────────────────────────────────────────────────────
+namespace jot::core {
+
+std::vector<TlLink> timeline_links(const NodeSource& src, const Timeline& t) {
+    std::vector<NodeId> on;
+    std::unordered_set<NodeId> seen;
+    auto take = [&](const TlItem& it) {
+        if (seen.insert(it.id).second) on.push_back(it.id);
+        for (const auto& s : it.steps) if (seen.insert(s).second) on.push_back(s);
+    };
+    for (const auto& d : t.days) for (const auto& it : d.items) take(it);
+    for (const auto& it : t.someday) take(it);
+
+    std::vector<TlLink> out;
+    std::set<std::pair<NodeId, NodeId>> pairs;
+    for (const auto& id : on) {
+        const Node* n = src.find(id);
+        if (!n || n->body.find(kJotScheme) == std::string::npos) continue;
+        for (const auto& l : scan(n->body).links) {
+            const NodeId to = link_node_id(l.target);
+            if (to.empty() || to == id || !seen.count(to)) continue;
+            auto key = id < to ? std::make_pair(id, to) : std::make_pair(to, id);
+            if (pairs.insert(key).second) out.push_back({key.first, key.second});
+        }
+    }
+    return out;
 }
 
 }  // namespace jot::core
