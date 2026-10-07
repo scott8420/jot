@@ -122,6 +122,7 @@ std::string sheet(bool dark) {
     // s058b: the About window's row icons wear the accent.
     c += ".jot-about-row-icon { color: " + accent + "; }\n";
     // s062: the tag chips over a note.
+    c += ".jot-glance-errands { color: " + accent + "; }\n";   // s066
     c += ".jot-tagchip { background-color: alpha(" + accent + ", 0.14); }\n";
     // s065: the timeline's Show button when it is not showing the usual set.
     c += ".jot-tl-filtered { color: " + accent + "; }\n";
@@ -164,6 +165,21 @@ std::string sheet(bool dark) {
     c += std::string(".jot-due.jot-pace-short { background-color: alpha(") + p.today + ", 0.16); }\n";
     c += std::string(".jot-due.jot-pace-late { background-color: alpha(") + p.overdue + ", 0.16); }\n";
     c += std::string(".jot-flag { color: ") + p.flagged + "; }\n";
+    // s066: the Glance -- each section's head and dot in its state's colour.
+    c += std::string(".jot-glance-late { color: ") + p.overdue + "; }\n";
+    c += std::string(".jot-glance-due { color: ") + p.today + "; }\n";
+    c += std::string(".jot-glance-short { color: ") + p.today + "; }\n";
+    c += std::string(".jot-glance-starts { color: ") + p.available + "; }\n";
+    c += std::string(".jot-glance-flagged { color: ") + p.flagged + "; }\n";
+    c += ".jot-glance-head { font-size: 9pt; font-weight: 700; letter-spacing: 1px; }\n";
+    c += ".jot-glance-day { font-size: 18pt; font-weight: 700; }\n";
+    c += ".jot-glance-place { font-weight: 700; }\n";
+    c += ".jot-glance-dot { font-size: 9pt; margin-top: 2px; }\n";
+    c += ".jot-glance-row { border-radius: 8px; padding: 5px 8px; }\n";
+    // s066b: the .ics chip -- a file you can pick up.
+    c += ".jot-glance-chip { border-radius: 8px; padding: 4px 10px; "
+         "background-color: alpha(currentColor, 0.07); box-shadow: inset 0 0 0 1px alpha(currentColor, 0.15); }\n";
+    c += ".jot-glance-chip:hover { background-color: alpha(currentColor, 0.12); }\n";
     // s044: a packet's items -- in is green and quiet, missing is the text.
     c += std::string(".jot-packet-in { color: ") + p.done + "; }\n";
     c += ".jot-packet-missing { font-weight: 600; }\n";

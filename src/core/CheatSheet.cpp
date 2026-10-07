@@ -278,6 +278,14 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Its due moves (the time of day kept), or its start if it only starts there; a Someday "
          "one gets a due. The day lights up in the strip. Esc puts it back; Ctrl+Z undoes. "
          "Notes and done work stay on their day."},
+        // ── Glance of Today (s066) ──────────────────────────────────────────
+        {"Today", "win.glance", "", "The Glance of Today: the day on one card, to take away",
+         "Late, due today, running short, starting today, flagged, then errands by place -- each "
+         "thing once. Copy (Keep, Notes, a message), Email (to the address at the foot; Gmail "
+         "works as the browser's mail), Save .ics (Google Calendar \u203a Import, or attach it to "
+         "a mail and the iPhone offers Add to Calendar). Drag the .ics chip at the foot onto a mail "
+         "you are writing to attach it. Click a line to show its note. Also View "
+         "\u203a Glance of Today."},
         // ── Forecast (s039) ─────────────────────────────────────────────────
         {"Today", "", "Today tab › Forecast", "The days ahead: what is due, and what starts, day by day",
          "A strip of today and the next six days with a count on each, then Later. Pick a day. "

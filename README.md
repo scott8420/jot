@@ -222,6 +222,27 @@ the views and the command line. Type to narrow it -- "inbox", "due",
 read from the same registry jot binds them from, so it cannot show a key
 jot does not answer to.
 
+## Glance of Today
+
+**Ctrl+Shift+G** (or View › Glance of Today) opens the day on one card:
+what is late, due today, running short on a deadline, starting today,
+flagged, then errands by place -- each thing once. Click a line to show its
+note. Three ways to take it with you, in the title bar:
+
+- **Copy** -- the Glance as text (and formatted, for editors that take it).
+  Paste it into Google Keep, Apple Notes on iCloud.com, or a message.
+- **Email** -- a new mail with the Glance in it, to the address in the foot
+  (remembered). With Gmail in the browser, set the browser as the mail
+  handler.
+- **Save .ics** -- a calendar file: one all-day event "jot — Wed 7 Oct" with
+  the list in its notes, plus a slot for each thing due at an hour today.
+  Import it in Google Calendar (Settings › Import), or attach it to a mail
+  and the iPhone's Mail offers to add it to Calendar.
+- **The .ics chip** at the foot is the same file, ready to drag: after
+  Email, drag it onto the mail you are writing (Gmail in the browser too)
+  to attach it. Click it to see the file in Files. On the iPhone, open the
+  mail in Mail and tap the attachment -- **Add All**.
+
 ## Dated todos on the desktop
 
 Tick **Show dated todos on the desktop** at the bottom of the Today

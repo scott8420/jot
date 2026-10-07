@@ -1,5 +1,6 @@
 #include "core/Tags.hpp"
 #include "Shell.hpp"
+#include "GlanceWindow.hpp"   // s066
 #include "TimelinePane.hpp"   // s059
 #include "core/DoneWhen.hpp"
 #include "core/Nudge.hpp"
@@ -532,6 +533,7 @@ void Shell::repoint_surfaces() {  // helper
     end_search();                            // s038: a query over the old folder means nothing here
     m_search->set_source(&m_undo);
     if (m_timeline) m_timeline->set_source(&m_undo);   // s059
+    if (m_glance) m_glance->set_source(&m_undo, &m_tasks);   // s066
     queue_inbox_refresh();
     queue_desktop_sync();
 }
@@ -1276,6 +1278,7 @@ void Shell::refresh_tasks(bool rebuild_index, const core::NodeId& id) {
     if (rebuild_index)   m_tasks.rebuild(*m_store);
     else if (!id.empty()) m_tasks.update(*m_store, id);
     if (m_today) m_today->refresh();
+    if (m_glance) m_glance->refresh();   // s066: only while it shows
     queue_desktop_sync();
 }
 

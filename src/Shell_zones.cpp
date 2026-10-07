@@ -552,6 +552,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     mode->append("Reading view", "win.toggle-reading");   // s021
     mode->append("Live preview", "win.toggle-live");      // s022
     mode->append("Timeline", "win.timeline");             // s059
+    mode->append("Glance of Today", "win.glance");        // s066
     view->append_section(mode);
     view->append_section(menus::zoom_menu());             // s053b
 

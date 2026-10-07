@@ -34,6 +34,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     add_action("dump-registry", sigc::mem_fun(*this, &Shell::on_dump_registry));
     add_action("test-notify",   sigc::mem_fun(*this, &Shell::on_test_notify));
     add_action("about",         sigc::mem_fun(*this, &Shell::on_about));
+    add_action("glance",        sigc::mem_fun(*this, &Shell::on_glance));        // s066
     add_action("cheat-sheet",   sigc::mem_fun(*this, &Shell::on_cheat_sheet));   // s030
     add_action("shortcuts",     sigc::mem_fun(*this, &Shell::on_shortcuts));
     add_action("preferences",   sigc::mem_fun(*this, &Shell::on_preferences));

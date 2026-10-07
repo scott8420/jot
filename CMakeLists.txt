@@ -126,6 +126,7 @@ add_library(jot_core STATIC
     src/core/Errands.cpp     # s056 (J3): the errand run -- todos by place
     src/core/Routine.cpp     # s057 (J3): a repeating todo's record
     src/core/Feeders.cpp     # s058 (J4): the small repeating steps that feed a goal
+    src/core/Glance.cpp      # s066: the day on one card -- text, html, ics, mailto
     src/core/Timeline.cpp    # s059 (J5): the running calendar -- what lands on which day, stacked down
     src/core/Gather.cpp
     src/core/Nudge.cpp
@@ -247,6 +248,7 @@ add_executable(jot
     src/Desktop.cpp
     src/JotsFolderDialog.cpp
     src/ShortcutsDialog.cpp
+    src/GlanceWindow.cpp     # s066: the Glance of Today -- Copy, Email, Save .ics
     src/CheatSheetWindow.cpp
     # s014: the preferences window, and the GSettings half of the capture hotkey
     # (core/Hotkey.cpp decides what to write; this performs it).

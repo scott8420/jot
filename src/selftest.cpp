@@ -53,6 +53,7 @@
 #include "core/Routine.hpp"
 #include "core/Feeders.hpp"
 #include "core/Timeline.hpp"
+#include "core/Glance.hpp"
 #include "core/Repeat.hpp"
 
 #include <algorithm>
@@ -5869,6 +5870,105 @@ int main() {
                   m.find(existing) && m.find(existing)->title == "a note I am reading");
             check("capture: an empty capture creates nothing",
                   core::capture(m, "   ").empty() && m.count() == 2);
+        }
+
+        // s066: the Glance of Today
+        {
+            core::MemoryNodes m;
+            core::TaskIndex ti;
+            const std::int64_t today = core::day_start(1'791'400'000);
+            const std::int64_t now = today + 10 * 3600;   // 10:00
+            auto todo = [&](const core::NodeId& parent, const char* t) {
+                const auto id = m.create(parent, t);
+                m.make_task(id, true);
+                return id;
+            };
+            const auto car = m.create("", "Car");
+            const auto lic = todo(car, "renew licence");
+            m.set_due(lic, core::day_start(today - 2 * 86400 + 3 * 3600) + 17 * 3600);   // two days ago, 17:00
+            const auto vet = todo("", "ring the vet");
+            m.set_due(vet, today + 16 * 3600);                                         // today 16:00
+            m.set_estimate(vet, 30);
+            const auto bills = todo("", "pay the bills");
+            m.set_due(bills, core::day_end(now));                                      // today, no hour
+            m.set_tags(bills, {"at/town"});
+            const auto fence = todo("", "paint the fence");
+            m.set_defer(fence, today + 9 * 3600);                                      // starts today 09:00
+            const auto flag = todo("", "call mum");
+            m.set_flagged(flag, true);
+            const auto stamps = todo("", "buy stamps");
+            m.set_tags(stamps, {"at/town"});
+            const auto done = todo("", "old thing");
+            m.set_due(done, today + 12 * 3600);
+            m.set_done(done, true);
+            ti.rebuild(m);
+            const auto g = core::glance(m, ti, now);
+            auto sec = [&](core::GlanceKind k) -> const core::GlanceSection* {
+                for (const auto& s : g.sections) if (s.kind == k) return &s;
+                return nullptr;
+            };
+            const auto* late = sec(core::GlanceKind::Late);
+            check("glance: late, with how late and its project",
+                  late && late->items.size() == 1 && late->items[0].id == lic &&
+                      late->items[0].detail == "2 days late · Car",
+                  late ? late->items[0].detail : "none");
+            const auto* due = sec(core::GlanceKind::DueToday);
+            check("glance: due today -- an hour says by, end of day says nothing; places said",
+                  due && due->items.size() == 2 && due->items[0].detail == "by 16:00 · ~30m" &&
+                      due->items[1].id == bills && due->items[1].detail == "at Town",
+                  due ? due->items[0].detail + " | " + due->items[1].detail : "none");
+            const auto* st = sec(core::GlanceKind::Starts);
+            check("glance: starts today, from its hour",
+                  st && st->items.size() == 1 && st->items[0].detail == "from 09:00");
+            const auto* fl = sec(core::GlanceKind::Flagged);
+            check("glance: flagged", fl && fl->items.size() == 1 && fl->items[0].id == flag);
+            const auto* er = sec(core::GlanceKind::Errands);
+            check("glance: errands by place, each thing once (pay the bills is under Due today)",
+                  er && er->head == "Town" && er->items.size() == 1 && er->items[0].id == stamps,
+                  er ? std::to_string(er->items.size()) : "none");
+            bool has_done = false;
+            for (const auto& s : g.sections) for (const auto& it : s.items) has_done = has_done || it.id == done;
+            check("glance: done work is not on it", !has_done);
+            check("glance: the title and the line under it",
+                  g.title.rfind("jot — ", 0) == 0 && g.summary == "6 things · ~30m · 1 late",
+                  g.summary);
+            const std::string txt = core::glance_text(g);
+            check("glance: text -- heads in capitals, a bullet a thing, places under ERRANDS",
+                  txt.find("\nLATE\n• renew licence — 2 days late · Car\n") != std::string::npos &&
+                      txt.find("\nERRANDS\nTown:\n• buy stamps\n") != std::string::npos, txt);
+            check("glance: html escapes", core::glance_html(g).find("<li><b>ring the vet</b>") != std::string::npos);
+            const std::string ics = core::glance_ics(g, now);
+            std::size_t events = 0;
+            for (auto p = ics.find("BEGIN:VEVENT"); p != std::string::npos; p = ics.find("BEGIN:VEVENT", p + 1)) ++events;
+            check("glance: ics -- the day's card plus one timed event (ring the vet, 15:30-16:00)",
+                  events == 2 && ics.find("DTSTART;VALUE=DATE:") != std::string::npos &&
+                      ics.find("SUMMARY:ring the vet\r\n") != std::string::npos &&
+                      ics.find("T153000\r\n") != std::string::npos && ics.find("T160000\r\n") != std::string::npos,
+                  std::to_string(events));
+            bool short_lines = true;
+            for (std::size_t a = 0, b; (b = ics.find("\r\n", a)) != std::string::npos; a = b + 2)
+                short_lines = short_lines && b - a <= 75;
+            check("glance: ics lines fold at 75 octets, CRLF", short_lines);
+            check("glance: ics escapes , ; \\ and newlines",
+                  core::ics_escape("a,b;c\\d\ne") == "a\\,b\\;c\\\\d\\ne");
+            const std::string long_utf8 = "DESCRIPTION:" + std::string(62, 'x') + "——";   // octet 75 falls inside the first dash
+            const std::string folded = core::ics_fold(long_utf8);
+            check("glance: a fold never splits a UTF-8 character",
+                  folded.find("\r\n") == 74 && folded.find("\r\n —") == 74,
+                  folded);
+            const std::string esc = core::ics_fold("DESCRIPTION:" + std::string(62, 'x') + "\\n" + std::string(20, 'y'));
+            check("glance: a fold never splits an escape (\\n stays whole)",
+                  esc.find("\\\r\n") == std::string::npos && esc.find("\r\n \\n") != std::string::npos, esc);
+            const std::string mail = core::glance_mailto(g, "me@example.com");
+            check("glance: mailto -- address kept, subject and body encoded, CRLF",
+                  mail.rfind("mailto:me@example.com?subject=jot%20%E2%80%94%20", 0) == 0 &&
+                      mail.find("&body=") != std::string::npos && mail.find("%0D%0A") != std::string::npos, mail);
+            core::MemoryNodes empty;
+            core::TaskIndex none;
+            none.rebuild(empty);
+            check("glance: an empty day says so", core::glance(empty, none, now).summary == "Nothing on today.");
+            check("glance: the file's name", core::glance_ics_name(g).rfind("jot-glance-", 0) == 0 &&
+                                                core::glance_ics_name(g).ends_with(".ics"));
         }
 
         // s064: lines = links

@@ -2,6 +2,7 @@
 #include "Appearance.hpp"
 #include "AboutWindow.hpp"      // complete type for ~unique_ptr<AboutWindow> in ~Shell()
 #include "TimelinePane.hpp"     // complete type for ~unique_ptr<TimelinePane>
+#include "GlanceWindow.hpp"      // s066
 #include "CheatSheetWindow.hpp"  // s030 -- same singleton shape, same dtor requirement
 #include "ShortcutsDialog.hpp"  // ditto -- same singleton shape, same dtor requirement
 #include "PreferencesWindow.hpp" // ditto (s014)
@@ -240,6 +241,7 @@ void Shell::build_ui() {
     // must stay honest whether or not you have asked to be interrupted.
     Glib::signal_timeout().connect_seconds([this]() {
         if (m_today) m_today->refresh();
+        if (m_glance) m_glance->refresh();   // s066: late at 17:01, without a click
         return true;
     }, 60);
     // Closing is the moment the filing question becomes real. With a folder

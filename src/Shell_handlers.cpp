@@ -8,6 +8,7 @@
 #include "Appearance.hpp"
 #include "AboutWindow.hpp"
 #include "CheatSheetWindow.hpp"
+#include "GlanceWindow.hpp"
 #include "ShortcutsDialog.hpp"
 #include "PreferencesWindow.hpp"
 #include "DrawerPane.hpp"
@@ -1006,6 +1007,26 @@ void Shell::on_recent_clear() {  // handler: empty the recents list
 }
 
 // ── windows ─────────────────────────────────────────────────────────────────
+
+// s066: the Glance of Today. Built once, re-presented; it reads the same
+// store and index Today does, and core/Glance decides every line.
+void Shell::on_glance() {  // handler: open the Glance of Today
+    if (!m_glance) {
+        m_glance = std::make_unique<GlanceWindow>();
+        m_glance->set_mail_to(m_prefs.glance_to);
+        m_glance->set_save_dir(m_prefs.glance_dir);
+        m_glance->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));
+        m_glance->signal_prefs().connect([this](std::string to, std::string dir) {
+            if (to == m_prefs.glance_to && dir == m_prefs.glance_dir) return;
+            m_prefs.glance_to = std::move(to);
+            m_prefs.glance_dir = std::move(dir);
+            core::save_prefs(m_prefs_file, m_prefs);
+        });
+    }
+    const bool have = static_cast<bool>(m_store);
+    m_glance->set_source(have ? &m_undo : nullptr, have ? &m_tasks : nullptr);
+    m_glance->show(*this);
+}
 
 void Shell::on_cheat_sheet() {  // handler: open the cheat sheet (s030)
     // Same lifetime stone as the shortcuts window. The content is not written

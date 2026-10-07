@@ -107,6 +107,10 @@ struct Prefs {
     // s057b: where Open... last looked -- the folder the chosen jots folder
     // sits in, so the next Open starts there. "" = never used.
     std::string open_from;
+    // s066: the Glance of Today -- who Email addresses it to ("" = the mail
+    // app asks) and where Save .ics last put the file ("" = Downloads).
+    std::string glance_to;
+    std::string glance_dir;
 
     // ── the second fingerprint, and why it is a LIST ───────────────────────
     // m_desktop_sig remembers what the desktop was last SENT -- one string,
