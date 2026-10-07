@@ -92,6 +92,7 @@ Gtk::Widget* task_card(core::NodeSource& src, const core::Node& n, std::int64_t 
     add(opts.note.empty() ? state_word(look.state) : opts.note);
     if (!look.done_when.empty()) add("\u2611 " + look.done_when);   // s054: done-when's count
     if (!look.runway.empty())    add("\u23f3 " + look.runway);      // s055: the deadline's runway
+    if (!look.feeds.empty())     add("feeds " + look.feeds);         // s058
     if (!look.estimate.empty()) add("⏱ " + look.estimate);
     if (!look.repeat.empty())                                        // s057: and its record
         add("↻ " + look.repeat + (look.routine.empty() ? std::string{} : "  ·  " + look.routine));

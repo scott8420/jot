@@ -611,6 +611,23 @@ void Shell::on_move_to() {  // handler: Move to... on the selection
     else open_move(m_tree->selected());
 }
 
+// s058 (J4): Feeds › Choose… -- the Move picker in its Feed purpose. The
+// choice is one write through the undo door ("Feeds").
+void Shell::open_feeds(const core::NodeId& id) {
+    const core::Node* n = (id.empty() || !m_store) ? nullptr : m_store->find(id);
+    if (!n || n->protect) return;
+    m_move_dialog.reset();
+    m_move_dialog = std::make_unique<MoveDialog>(
+        *this, *m_store, id, std::vector<core::NodeId>{},
+        [this, id](const core::NodeId& goal) {
+            const bool ok = !goal.empty() && m_undo.set_feeds(id, goal);
+            if (auto lg = log::get(log::Area::Shell))
+                lg->info("feeds: {} -> {} {}", id, goal, ok ? "set" : "no change");
+        },
+        MoveDialog::Purpose::Feed);
+    m_move_dialog->present();
+}
+
 void Shell::open_move(const core::NodeId& id, std::vector<core::NodeId> many) {  // handler: the picker, for any note
     const core::Node* n = (id.empty() || !m_store) ? nullptr : m_store->find(id);
     if (!n || n->protect) return;
@@ -753,7 +770,11 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
             // children, so ticking one in Today must reach them.
             if (id == m_editor->current()) queue_drawer_refresh();   // idle: see Removed
             else if (const core::Node* t = m_store->find(id);
-                     t && !t->parent_id.empty() && t->parent_id == m_editor->current())
+                     t && ((!t->parent_id.empty() && t->parent_id == m_editor->current()) ||
+                           // s058: a FEEDER of the note on show, wherever it sits --
+                           // or one that just stopped feeding it.
+                           (!t->task.feeds.empty() && t->task.feeds == m_editor->current()) ||
+                           m_drawer->shows_fed()))
                 queue_drawer_refresh();
             break;
         case C::Moved:

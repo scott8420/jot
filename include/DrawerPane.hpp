@@ -144,6 +144,10 @@ public:
     // "Copy link to this note" was pressed. The Shell owns the clipboard,
     // because a clipboard is a window-level thing.
     sigc::signal<void(core::NodeId)>& signal_copy_link() { return m_sig_copy_link; }
+    // s058: Feeds › Choose… -- the Shell opens the picker for the note on show.
+    sigc::signal<void()>& signal_pick_feeds() { return m_sig_pick_feeds; }
+    // s058: showing a "Fed by" list -- a feeder's change anywhere can alter it.
+    bool shows_fed() const { return m_fed_rows.get_visible(); }
     // s035: a tag chip clicked -- the tag's name as written, without the hash.
     sigc::signal<void(std::string)>& signal_tag() { return m_sig_tag; }
     // s035b: the tag field. A NAME already cleaned (core::clean_tag_name);
@@ -234,6 +238,7 @@ private:
     void fill_done_when(const core::Node& n);   // s054: the count + rows when it is not a packet
     void fill_deadline(const core::Node& n);    // s055
     void fill_routine(const core::Node& n);     // s057
+    void fill_feeds(const core::Node& n);       // s058: both directions
     void fill_backlinks(const core::Node& n);
     void fill_tags(const core::Node& n);
     void fill_structure(const core::Node& n);
@@ -311,6 +316,12 @@ private:
     widgets::Entry       m_repeat;
     widgets::CheckButton m_repeat_done;     // count from when it is done, not from the due date
     widgets::Box         m_routine;         // s057: the record -- dots, the line, slipped
+    // s058 (J4): what this feeds (on the feeder) ...
+    widgets::Box         m_feeds_row;
+    widgets::Label       m_feeds_label;
+    widgets::Button      m_feeds_goal;
+    widgets::Button      m_feeds_clear;
+    widgets::Button      m_feeds_pick;
     widgets::Box         m_est_row;         // s040: how long it takes
     widgets::Label       m_est_label;
     widgets::Entry       m_est;
@@ -360,6 +371,9 @@ private:
     // s055 (J3): the second strategy -- a deadline, and what it reads.
     widgets::CheckButton m_dl_check;
     widgets::Label       m_dl_says;
+    // s058 (J4): ... and what feeds this (on the goal), under the deadline.
+    widgets::Label       m_fed_says;
+    widgets::Box         m_fed_rows;
     // s051: Gather for sending -- the line it adds up to, the two ways out,
     // and the stamp once it has gone.
     widgets::Box         m_gather_row;
@@ -410,6 +424,7 @@ private:
     void fill_tag_picks();
     void commit_tag_entry();
     sigc::signal<void(core::NodeId)> m_sig_copy_link;
+    sigc::signal<void()>             m_sig_pick_feeds;   // s058
     sigc::signal<void(std::string, bool)> m_sig_section;
     sigc::signal<void(std::string, std::string)> m_sig_enclosure;
 };

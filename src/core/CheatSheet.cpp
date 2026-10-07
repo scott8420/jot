@@ -222,6 +222,10 @@ const std::vector<CheatLine>& cheat_sheet() {
          "\u00b7 9 days out\u201d, then \u201cOn track -- start by Mon 12 Oct\u201d. Each step gets a day "
          "(or each hour of work a day) plus one spare; when the days left come down to that, the "
          "next step goes on Today under \u201cRunning short\u201d. The tree shows \u23f3."},
+        {"Projects", "", "Note details \u203a Todo \u203a Feeds: Choose\u2026", "Say what a small step feeds",
+         "\u201cscan receipts\u201d feeds \u201cTaxes 2027\u201d: pick the goal (deadlines first). The goal's "
+         "Done when then says \u201cFed by 2 feeders \u00b7 ~6h before the due \u00b7 ~15m a week\u201d, a row "
+         "each -- red when one has slipped. \u00d7 stops it feeding; Ctrl+Z undoes either."},
         // ── Packets (s044) ──────────────────────────────────────────────────
         {"Projects", "", "Note details › Done when › A packet",
          "Make a note a packet: a set of things the work needs, sent once",

@@ -1,4 +1,5 @@
 #include "MoveDialog.hpp"
+#include "core/Feeders.hpp"
 #include "Log.hpp"
 #include "Registry.hpp"
 
@@ -18,11 +19,12 @@ namespace jot {
 
 MoveDialog::MoveDialog(Gtk::Window& parent, const core::NodeSource& src,
                        const core::NodeId& moving, std::vector<core::NodeId> recent,
-                       Done done)
+                       Done done, Purpose purpose)
     : m_src(src),
       m_moving(moving),
       m_recent(std::move(recent)),
       m_done(std::move(done)),
+      m_purpose(purpose),
       m_heading("move.heading"),
       m_search("move.search"),
       m_scroll("move.scroll"),
@@ -32,7 +34,8 @@ MoveDialog::MoveDialog(Gtk::Window& parent, const core::NodeSource& src,
     set_name("shell.move");
     registry::add("shell.move", this);
 
-    set_title("Move to");
+    const bool feeding = purpose == Purpose::Feed;   // s058
+    set_title(feeding ? "Feeds" : "Move to");
     set_modal(true);
     set_transient_for(parent);
     set_default_size(420, 480);
@@ -48,8 +51,8 @@ MoveDialog::MoveDialog(Gtk::Window& parent, const core::NodeSource& src,
 
     const core::Node* n = m_src.find(m_moving);
     const std::string title = (n && !n->title.empty()) ? n->title : std::string("Untitled");
-    m_heading.set_markup("<b>Move “" + Glib::Markup::escape_text(title) +
-                         "” to…</b>");
+    m_heading.set_markup(feeding ? "<b>“" + Glib::Markup::escape_text(title) + "” feeds…</b>"
+                                 : "<b>Move “" + Glib::Markup::escape_text(title) + "” to…</b>");
     m_heading.set_xalign(0.0f);
     m_heading.set_ellipsize(Pango::EllipsizeMode::MIDDLE);
     page->append(m_heading);
@@ -96,7 +99,7 @@ MoveDialog::MoveDialog(Gtk::Window& parent, const core::NodeSource& src,
                                                       "Cancel");
     cancel->signal_clicked().connect([this]() { set_visible(false); });
     buttons->append(*cancel);
-    m_accept.set_label("Move");
+    m_accept.set_label(feeding ? "Choose" : "Move");
     m_accept.add_css_class("suggested-action");
     m_accept.signal_clicked().connect([this]() { accept(); });
     buttons->append(m_accept);
@@ -167,6 +170,24 @@ void MoveDialog::rebuild() {
     m_rows.clear();
 
     const std::string q = m_search.get_text();
+    if (m_purpose == Purpose::Feed) {   // s058: deadlines first, then every note
+        const auto targets = core::feed_targets(m_src, m_moving, q);
+        std::size_t shown = 0;
+        bool dl_head = false, all_head = false;
+        for (const auto& t : targets) {
+            if (shown == kMaxRows) break;
+            if (t.deadline && !dl_head) { add_header("Deadlines"); dl_head = true; }
+            if (!t.deadline && !all_head && dl_head) { add_header("All notes"); all_head = true; }
+            add_target(core::MoveTarget{t.id, t.title, t.path});
+            ++shown;
+        }
+        m_footer.set_text(targets.empty() ? (q.empty() ? "There is nothing else here to feed."
+                                                       : "No note matches “" + q + "”.")
+                                          : "Enter: it feeds the highlighted note.");
+        if (!m_rows.empty()) m_list.select_row(*m_rows.front().first);
+        m_accept.set_sensitive(!m_rows.empty());
+        return;
+    }
     const auto all = core::move_targets(m_src, m_moving, q);
 
     std::size_t drawn = 0;

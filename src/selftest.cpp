@@ -50,6 +50,7 @@
 #include "core/Deadline.hpp"
 #include "core/Errands.hpp"
 #include "core/Routine.hpp"
+#include "core/Feeders.hpp"
 #include "core/Repeat.hpp"
 
 #include <algorithm>
@@ -2163,6 +2164,118 @@ int main() {
             v.open(jd.string());
             check("routine/jots: the record's due survives a reopen",
                   v.history().size() == 1 && v.history()[0].due == at(0, 17));
+        }
+        fs::remove_all(jd, ec);
+    }
+
+    // ── s058: feeders ──────────────────────────────────────────────────────
+    {
+        std::cout << "\n-- feeders (s058) --\n";
+        namespace fs = std::filesystem;
+        std::tm t0{};
+        t0.tm_year = 2026 - 1900; t0.tm_mon = 9; t0.tm_mday = 7; t0.tm_hour = 12; t0.tm_isdst = -1;
+        const std::int64_t now = static_cast<std::int64_t>(std::mktime(&t0));
+        const auto day = [&](int n) {
+            std::tm t = t0;
+            t.tm_mday += n; t.tm_hour = 17; t.tm_isdst = -1;
+            return static_cast<std::int64_t>(std::mktime(&t));
+        };
+        core::Repeat weekly, monthly;
+        core::repeat_parse("weekly", weekly);
+        core::repeat_parse("monthly", monthly);
+
+        core::MemoryNodes m;
+        m.set_clock([&] { return now; });
+        const auto taxes = m.create("", "Taxes 2027");
+        m.make_task(taxes, true);
+        m.set_due(taxes, day(70));
+        m.set_deadline(taxes, true);
+        const auto other = m.create("", "Holiday");
+        const auto scan = m.create("", "scan receipts");
+        const auto bank = m.create("", "file the bank statement");
+        for (const auto& [id, r, est, due] : {std::tuple{scan, weekly, 15, day(3)},
+                                              std::tuple{bank, monthly, 20, day(5)}}) {
+            m.make_task(id, true);
+            m.set_repeat(id, r);
+            m.set_estimate(id, est);
+            m.set_due(id, due);
+            m.set_feeds(id, taxes);
+        }
+        check("feeds: a thing cannot feed itself", !m.set_feeds(taxes, taxes) && m.find(taxes)->task.feeds.empty());
+        auto f = core::feed_state(m, taxes, now);
+        check("feeders: found, in tree order",
+              core::feeders_of(m, taxes) == std::vector<core::NodeId>{scan, bank} && f.feeders.size() == 2);
+        check("feeders: occurrences to come before the due -- 10 weekly, 3 monthly",
+              f.feeders[0].to_come == 10 && f.feeders[1].to_come == 3,
+              std::to_string(f.feeders[0].to_come) + "/" + std::to_string(f.feeders[1].to_come));
+        check("feeders: the time they add up to, and per week",
+              f.minutes == 210 && f.weeks == 10 &&
+                  core::feed_line(f) == "2 feeders  ·  ~3h 30m before the due  ·  ~25m a week",
+              core::feed_line(f));
+        check("feeders: keeping up -- not done yet, not slipped",
+              f.slipped == 0 && core::feeder_line(f.feeders[0]) == "not done yet");
+
+        const auto shred = m.create("", "shred old papers");
+        m.make_task(shred, true);
+        m.set_repeat(shred, weekly);
+        m.set_due(shred, day(-15));
+        m.set_feeds(shred, taxes);
+        f = core::feed_state(m, taxes, now);
+        check("feeders: one slipped -- said, and counted; unsized said",
+              f.slipped == 1 && f.unsized == 1 && core::feeder_line(f.feeders[2]) == "slipped, 2 missed" &&
+                  core::feed_line(f).ends_with("1 not sized  ·  1 slipped"),
+              core::feed_line(f));
+        check("feeders: a slipped one still has its current occurrence plus the ones to come",
+              f.feeders[2].to_come == 11, std::to_string(f.feeders[2].to_come));
+
+        const auto once = m.create("", "ask for the P60");
+        m.make_task(once, true);
+        m.set_feeds(once, taxes);
+        f = core::feed_state(m, taxes, now);
+        check("feeders: a one-off feeder -- once, to do", core::feeder_line(f.feeders[3]) == "once  ·  to do");
+        core::set_project_state(m, once, core::ProjectState::Dropped);
+        check("feeders: a dropped feeder is left out", core::feeders_of(m, taxes).size() == 3);
+
+        const auto targets = core::feed_targets(m, scan, "");
+        bool self = false;
+        for (const auto& t : targets) self = self || t.id == scan;
+        check("targets: every note but itself, deadlines first",
+              !self && !targets.empty() && targets[0].id == taxes && targets[0].deadline);
+        const auto hol = core::feed_targets(m, scan, "holi");
+        check("targets: filtered by what is typed", hol.size() == 1 && hol[0].id == other);
+
+        check("look: a feeder's card names its goal", core::row_look(m, *m.find(scan), now).feeds == "Taxes 2027");
+        m.make_task(bank, false);
+        check("feeds: kept when the note stops being a todo", m.find(bank)->task.feeds == taxes);
+        check("feeds: Undo names it",
+              core::task_label(core::Task{}, [&] { core::Task t; t.feeds = taxes; return t; }()) == "Feeds" &&
+                  core::task_label([&] { core::Task t; t.feeds = taxes; return t; }(), core::Task{}) == "Not feeding");
+        core::Journal j;
+        core::UndoSource u(j, [&] { return &m; });
+        check("feeds: set through the door, one step", u.set_feeds(other, taxes) && j.undo_label() == "Feeds");
+        j.undo(m);
+        check("feeds: undone", m.find(other)->task.feeds.empty());
+        m.remove(taxes);
+        check("feeds: a goal that has gone is fed by nothing, and the card says nothing",
+              core::row_look(m, *m.find(scan), now).feeds.empty());
+
+        const fs::path jd = fs::temp_directory_path() / "jot_selftest_feeds.jots";
+        std::error_code ec;
+        fs::remove_all(jd, ec);
+        core::NodeId g, x;
+        {
+            core::Project v;
+            v.open(jd.string());
+            g = v.create("", "goal");
+            x = v.create("", "feeder");
+            v.set_feeds(x, g);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(jd.string());
+            check("feeds/jots: the link survives a reopen", v.find(x) && v.find(x)->task.feeds == g &&
+                                                                v.find(g) && v.find(g)->task.feeds.empty());
         }
         fs::remove_all(jd, ec);
     }

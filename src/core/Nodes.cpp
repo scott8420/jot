@@ -374,6 +374,10 @@ bool NodeSource::set_done_when(const NodeId& id, DoneWhen w) {
 bool NodeSource::set_deadline(const NodeId& id, bool on) {
     return edit_task(*this, id, [&](Task& t) { t.deadline = on; });
 }
+bool NodeSource::set_feeds(const NodeId& id, const NodeId& goal) {
+    if (goal == id) return false;   // a thing cannot feed itself
+    return edit_task(*this, id, [&](Task& t) { t.feeds = goal; });
+}
 bool NodeSource::set_status(const NodeId& id, Status s) {
     return edit_task(*this, id, [&](Task& t) { t.status = s; });
 }
@@ -400,6 +404,7 @@ bool NodeSource::make_task(const NodeId& id, bool on) {
         const ProjectMark  mark    = t.mark;       // s037b
         const DoneWhen     dw      = t.done_when;  // s054: the work's, too
         const bool         dl      = t.deadline;   // s055: likewise
+        const NodeId       fd      = t.feeds;      // s058: likewise
         const Task         was     = t;
         t = Task{};
         t.status   = keep;
@@ -409,6 +414,7 @@ bool NodeSource::make_task(const NodeId& id, bool on) {
         t.mark     = mark;
         t.done_when = dw;
         t.deadline  = dl;
+        t.feeds     = fd;
         // s037b: a project said on purpose keeps its dates and flag -- they
         // are the project's, and it is still a project.
         if (mark == ProjectMark::On) {

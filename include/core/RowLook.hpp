@@ -53,6 +53,8 @@ struct RowLook {
     // s057: a routine's word for the card -- "9 of 10" (on time, of the last
     // judged) or "slipped"; "" when it does not repeat or has no record yet.
     std::string routine;
+    // s058: the goal it feeds, by title ("" = none / gone).
+    std::string feeds;
 };
 
 RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now);

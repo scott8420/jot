@@ -136,6 +136,11 @@ struct Task {
     // s055 (J3). A DEADLINE: work back from the due date (core/Deadline). A
     // container field like done_when: kept when the node stops being a todo.
     bool         deadline = false;
+    // s058 (J4). What this work FEEDS -- the goal it is a small repeating step
+    // toward ("scan receipts" feeds "Taxes 2027"). "" = nothing. A container
+    // field like done_when: kept when the node stops being a todo. Read with
+    // core/Feeders; a goal that has gone is simply not found.
+    NodeId       feeds;
 
     bool operator==(const Task&) const = default;
 };
@@ -234,6 +239,7 @@ public:
     bool set_estimate(const NodeId& id, int minutes);     // s040; 0 clears
     bool set_done_when(const NodeId& id, DoneWhen w);      // s054
     bool set_deadline(const NodeId& id, bool on);          // s055
+    bool set_feeds(const NodeId& id, const NodeId& goal);  // s058; "" clears
     // Make this node a todo / stop it being one. Un-making CLEARS the fields
     // rather than leaving them set-but-ignored: a due date that survives
     // un-tasking is a date that comes back from the dead when you re-task.

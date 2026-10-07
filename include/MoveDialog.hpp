@@ -35,8 +35,11 @@ class MoveDialog : public Gtk::Window {
 public:
     using Done = std::function<void(const core::NodeId& target)>;
 
+    // s058: the same picker chooses what a todo FEEDS -- any note but
+    // itself, deadlines first. `Purpose` changes the words and the list.
+    enum class Purpose { Move, Feed };
     MoveDialog(Gtk::Window& parent, const core::NodeSource& src, const core::NodeId& moving,
-               std::vector<core::NodeId> recent, Done done);
+               std::vector<core::NodeId> recent, Done done, Purpose purpose = Purpose::Move);
     ~MoveDialog() override;
 
     // The cap on drawn rows. Thousands of rows per keystroke is the one way
@@ -55,6 +58,7 @@ private:
     core::NodeId              m_moving;
     std::vector<core::NodeId> m_recent;
     Done                      m_done;
+    Purpose                   m_purpose = Purpose::Move;
 
     widgets::Label          m_heading;
     widgets::Entry          m_search;

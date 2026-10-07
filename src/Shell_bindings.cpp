@@ -267,6 +267,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // status lines and a button onto win.preferences, so there is nothing here
     // to connect any more.
     m_drawer->signal_copy_link().connect(sigc::mem_fun(*this, &Shell::on_copy_link));
+    m_drawer->signal_pick_feeds().connect([this]() { open_feeds(m_editor->current()); });   // s058
     // s016b: the editor recognises an image arriving; the Shell decides where
     // it goes, because only the Shell knows whether there is a folder yet.
     m_editor->signal_files_dropped().connect(sigc::mem_fun(*this, &Shell::on_files_dropped));

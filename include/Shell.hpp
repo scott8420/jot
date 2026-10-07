@@ -588,6 +588,7 @@ private:
     // construction). Its Recent list lives in m_prefs.move_recent, per jots
     // folder; the scratch buffer has no folder and keeps none.
     std::unique_ptr<MoveDialog> m_move_dialog;
+    void open_feeds(const core::NodeId& id);   // s058: the picker, choosing what `id` feeds
     std::unique_ptr<PerspectiveDialog> m_persp_dialog;   // s038b
 
     // Set only by guard_scratch's continuation, so the second close_request

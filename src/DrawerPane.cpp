@@ -1,6 +1,8 @@
 #include "DrawerPane.hpp"
 #include "core/Deadline.hpp"
 #include "core/Routine.hpp"
+#include "core/Feeders.hpp"
+#include "core/Repeat.hpp"
 #include "TaskCard.hpp"
 #include "core/DoneWhen.hpp"
 #include <ctime>
@@ -180,6 +182,8 @@ DrawerPane::DrawerPane(std::string_view name)
       m_dw_hint("drawer.dw_hint"),
       m_dl_check("drawer.deadline_check"),
       m_dl_says("drawer.deadline_says"),
+      m_fed_says("drawer.fed_says"),
+      m_fed_rows("drawer.fed_rows", Gtk::Orientation::VERTICAL, 2),
       m_nudge_row("drawer.nudge_row", Gtk::Orientation::HORIZONTAL, 6),
       m_nudge_label("drawer.nudge_label"),
       m_nudge_pick("drawer.nudge_pick", [] {
@@ -203,6 +207,11 @@ DrawerPane::DrawerPane(std::string_view name)
       m_repeat("drawer.repeat"),
       m_repeat_done("drawer.repeat_done"),
       m_routine("drawer.routine", Gtk::Orientation::VERTICAL, 2),
+      m_feeds_row("drawer.feeds_row", Gtk::Orientation::HORIZONTAL, 6),
+      m_feeds_label("drawer.feeds_label"),
+      m_feeds_goal("drawer.feeds_goal"),
+      m_feeds_clear("drawer.feeds_clear"),
+      m_feeds_pick("drawer.feeds_pick"),
       m_est_row("drawer.est_row", Gtk::Orientation::HORIZONTAL, 8),
       m_est_label("drawer.est_label"),
       m_est("drawer.est"),
@@ -351,6 +360,15 @@ DrawerPane::DrawerPane(std::string_view name)
     m_dl_says.set_visible(false);
     m_packet_sec.body->insert_child_after(m_dl_check, m_packet_check);
     m_packet_sec.body->insert_child_after(m_dl_says, m_dl_check);
+    // s058 (J4): what feeds this -- a line that adds it up, then a row each.
+    m_fed_says.set_xalign(0.0f);
+    m_fed_says.set_wrap(true);
+    m_fed_says.add_css_class("caption");
+    m_fed_says.set_margin_top(4);
+    m_fed_says.set_visible(false);
+    m_fed_rows.set_visible(false);
+    m_packet_sec.body->insert_child_after(m_fed_says, m_dl_says);
+    m_packet_sec.body->insert_child_after(m_fed_rows, m_fed_says);
 
     // s051: Gather for sending, under the items. One control with two ways
     // out (a folder, or one zip) -- the same act, so they sit joined.
@@ -649,6 +667,46 @@ void DrawerPane::build_task_block() {
     m_routine.set_margin_start(4);
     m_routine.set_visible(false);
     m_task_body.append(m_routine);   // s057: the routine's record, under its rule
+
+    // s058 (J4): Feeds -- the goal this small step serves. The goal's name is
+    // a button that goes there; × stops it feeding; Choose… opens the picker.
+    m_feeds_label.set_text("Feeds");
+    m_feeds_label.set_xalign(0.0f);
+    m_feeds_label.set_width_chars(6);
+    m_feeds_label.add_css_class("dim-label");
+    m_feeds_label.set_tooltip_text("The goal this is a small step toward -- \"scan receipts\" feeds "
+                                   "\"Taxes 2027\". The goal lists what feeds it and how each keeps up.");
+    m_feeds_goal.set_has_frame(false);
+    m_feeds_goal.set_hexpand(true);
+    {   // the goal's name may be long: it shortens, the pane does not grow
+        auto* gl = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.feeds_goal_text");
+        gl->set_xalign(0.0f);
+        gl->set_ellipsize(Pango::EllipsizeMode::END);
+        gl->set_width_chars(4);
+        m_feeds_goal.set_child(*gl);
+    }
+    m_feeds_goal.signal_clicked().connect([this]() {
+        if (m_loading || !m_src || m_id.empty()) return;
+        if (const core::Node* n = m_src->find(m_id); n && !n->task.feeds.empty())
+            m_sig_goto.emit(n->task.feeds);
+    });
+    m_feeds_clear.set_icon_name("window-close-symbolic");
+    m_feeds_clear.add_css_class("flat");
+    m_feeds_clear.set_tooltip_text("Stop feeding it");
+    m_feeds_clear.signal_clicked().connect([this]() {
+        if (m_loading || !m_src || m_id.empty()) return;
+        m_src->set_feeds(m_id, {});
+    });
+    m_feeds_pick.set_icon_name("document-edit-symbolic");
+    m_feeds_pick.add_css_class("flat");
+    m_feeds_pick.set_tooltip_text("Choose\u2026 the goal this feeds -- deadlines are listed first");
+    m_feeds_pick.signal_clicked().connect([this]() { if (!m_loading) m_sig_pick_feeds.emit(); });
+    m_feeds_row.append(m_feeds_label);
+    m_feeds_row.append(m_feeds_goal);
+    m_feeds_row.append(m_feeds_clear);
+    m_feeds_row.append(m_feeds_pick);
+    m_feeds_row.set_margin_top(4);
+    m_task_body.append(m_feeds_row);
 
     // THE DERIVED LINE. Not a control and not stored anywhere -- it is the
     // answer availability() gives about this node right now. It is here because
@@ -1760,6 +1818,7 @@ void DrawerPane::fill_packet(const core::Node& n) {
     m_loading = false;
     m_dw_hint.set_text(core::done_when_hint(rule, n.packet));
     fill_deadline(n);   // s055
+    fill_feeds(n);      // s058
     if (!n.packet) {
         m_gather_row.set_visible(false);
         m_sent_row.set_visible(false);
@@ -1825,6 +1884,72 @@ void DrawerPane::fill_packet(const core::Node& n) {
         row->set_tooltip_text(it.in() ? "In" : "Missing \u2014 drop its file onto its line, or tick it");
         row->add_css_class(it.in() ? "jot-packet-in" : "jot-packet-missing");
         m_packet_sec.rows->append(*row);
+    }
+}
+
+// s058 (J4): feeders, both ways. On a todo: what it feeds (the Feeds row in
+// Todo). On anything fed: "Fed by" -- the line that adds it up ("2 feeders ·
+// ~6h before the due · ~15m a week · 1 slipped") and a row per feeder, its
+// rule and record, red when it has slipped. Click a row to go to it.
+void DrawerPane::fill_feeds(const core::Node& n) {
+    // ── the feeder side ──
+    m_loading = true;
+    const core::Node* goal = (m_src && !n.task.feeds.empty()) ? m_src->find(n.task.feeds) : nullptr;
+    if (auto* gl = dynamic_cast<Gtk::Label*>(m_feeds_goal.get_child()))
+        gl->set_text(goal ? "\u2192 " + (goal->title.empty() ? std::string("Untitled") : goal->title)
+                          : std::string("nothing"));
+    m_feeds_goal.set_sensitive(goal != nullptr);
+    m_feeds_goal.set_tooltip_text(goal ? "Go to the goal" : "");
+    m_feeds_clear.set_visible(goal != nullptr);
+    m_feeds_pick.set_sensitive(!n.protect);
+    m_loading = false;
+
+    // ── the goal side ──
+    while (auto* c = m_fed_rows.get_first_child()) m_fed_rows.remove(*c);
+    m_fed_says.remove_css_class("jot-pace-late");
+    if (!m_src) { m_fed_says.set_visible(false); m_fed_rows.set_visible(false); return; }
+    const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    const core::FeedState fs = core::feed_state(*m_src, n.id, now);
+    if (fs.feeders.empty()) { m_fed_says.set_visible(false); m_fed_rows.set_visible(false); return; }
+    m_fed_says.set_text("Fed by " + core::feed_line(fs));
+    if (fs.slipped > 0) m_fed_says.add_css_class("jot-pace-late");
+    m_fed_says.set_visible(true);
+    int i = 0;
+    for (const auto& f : fs.feeders) {
+        const core::Node* fn = m_src->find(f.id);
+        if (!fn) continue;
+        auto* box = Gtk::make_managed<widgets::Box>(widgets::unregistered,
+                                                    "drawer.fed." + std::to_string(i), Gtk::Orientation::VERTICAL, 0);
+        auto* t = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.fed_title." + std::to_string(i));
+        t->set_text(fn->title.empty() ? "Untitled" : fn->title);
+        t->set_xalign(0.0f);
+        t->set_ellipsize(Pango::EllipsizeMode::END);
+        box->append(*t);
+        auto* l = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.fed_line." + std::to_string(i));
+        std::string line = f.routine.on ? core::repeat_text(fn->task.repeat) + "  \u00b7  " + core::feeder_line(f)
+                                        : core::feeder_line(f);
+        if (f.to_come > 0 && fn->task.estimate > 0 && fs.due != 0)
+            line += "  \u00b7  " + std::to_string(f.to_come) + " to come";
+        l->set_text(line);
+        l->set_xalign(0.0f);
+        l->set_wrap(true);
+        l->add_css_class("caption");
+        l->add_css_class(f.routine.slipped() ? "jot-pace-late" : "dim-label");
+        box->append(*l);
+        auto* go = Gtk::make_managed<widgets::Button>(widgets::unregistered, "drawer.fed_go." + std::to_string(i));
+        go->set_has_frame(false);
+        go->set_child(*box);
+        const core::NodeId id = f.id;
+        go->signal_clicked().connect([this, id]() { if (!m_loading) m_sig_goto.emit(id); });
+        m_fed_rows.append(*go);
+        ++i;
+    }
+    m_fed_rows.set_visible(true);
+    static std::string said;
+    const std::string now_says = n.id + core::feed_line(fs);
+    if (now_says != said) {
+        said = now_says;
+        if (auto lg = log::get(log::Area::Drawer)) lg->info("feeders: '{}' {}", n.title, core::feed_line(fs));
     }
 }
 

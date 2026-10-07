@@ -94,6 +94,8 @@ RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now) {
         r.runway = runway_text(dl);
         if (!r.runway.empty()) r.pace = pace_word(dl.pace);
     }
+    if (!n.task.feeds.empty())                            // s058
+        if (const Node* g = src.find(n.task.feeds)) r.feeds = g->title.empty() ? std::string("Untitled") : g->title;
     if (!n.parent_id.empty())
         if (const Node* p = src.find(n.parent_id))
             r.project = p->title.empty() ? std::string("Untitled") : p->title;
