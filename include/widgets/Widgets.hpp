@@ -15,6 +15,7 @@
 #include <gtkmm/listbox.h>
 #include <gtkmm/searchentry.h>
 #include <gtkmm/menubutton.h>
+#include <gtkmm/overlay.h>
 #include <gtkmm/paned.h>
 #include <gtkmm/popover.h>
 #include <gtkmm/popovermenu.h>
@@ -42,6 +43,7 @@ using Image          = Named<Gtk::Image>;
 using Label          = Named<Gtk::Label>;
 using ListBox        = Named<Gtk::ListBox>;
 using MenuButton     = Named<Gtk::MenuButton>;
+using Overlay        = Named<Gtk::Overlay>;   // s053b
 using Paned          = Named<Gtk::Paned>;
 using Popover        = Named<Gtk::Popover>;
 using PopoverMenu    = Named<Gtk::PopoverMenu>;

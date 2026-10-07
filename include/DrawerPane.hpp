@@ -356,6 +356,7 @@ private:
     widgets::Box         m_sent_row;
     widgets::Label       m_sent_says;
     widgets::Button      m_sent_show;
+    widgets::Button      m_again;          // s053: Do it again
     // s052: how often it nudges while something is missing.
     widgets::Box         m_nudge_row;
     widgets::Label       m_nudge_label;

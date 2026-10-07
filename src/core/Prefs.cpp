@@ -1,4 +1,5 @@
 #include "core/Prefs.hpp"
+#include "core/Zoom.hpp"
 #include "core/RowLook.hpp"
 
 #include "json.hpp"
@@ -58,6 +59,7 @@ Prefs load_prefs(const std::string& file) {
         p.drop_links    = get_or(j, "drop_links", p.drop_links);
         p.accent        = get_or(j, "accent", p.accent);                 // s050b
         if (!p.accent.empty() && !is_hex_colour(p.accent)) p.accent.clear();
+        p.zoom          = zoom_clamp(get_or(j, "zoom", p.zoom));         // s053b
         // A list, not a scalar, so get_or's type deduction does not apply --
         // and a malformed entry must not take the whole prefs file down with
         // it, which is why the element type is checked rather than assumed.
@@ -131,6 +133,7 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     j["background"]    = p.background;
     j["drop_links"]    = p.drop_links;
     j["accent"]        = p.accent;   // s050b
+    j["zoom"]          = p.zoom;     // s053b
     j["announced"]     = p.announced;
     j["snoozed"]       = nlohmann::json::array();
     for (const auto& z : p.snoozed)

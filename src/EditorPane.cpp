@@ -1,4 +1,6 @@
 #include "EditorPane.hpp"
+#include "core/Zoom.hpp"
+#include "Menus.hpp"
 #include "core/Tags.hpp"
 #include "Log.hpp"
 
@@ -76,6 +78,8 @@ EditorPane::EditorPane(std::string_view name)
       m_body("editor.body"),
       m_status("editor.status"),
       m_stack("editor.stack"),
+      m_overlay("editor.overlay"),
+      m_zoom_chip("editor.zoom_chip"),
       m_read_scroll("editor.read_scroll"),
       m_read("editor.read") {
     set_margin(12);
@@ -120,7 +124,53 @@ EditorPane::EditorPane(std::string_view name)
     m_stack.set_vexpand(true);
     build_format_bar();
     append(m_fmt_bar);
-    append(m_stack);
+    // s053b: the zoom. Both text views carry `jot-note-text`, and ONE sheet
+    // sets its font-size as a percent -- headings (tag scales), code, drawn
+    // bullets and Reading's code bubbles all follow, being relative to it.
+    m_body.add_css_class("jot-note-text");
+    m_read.add_css_class("jot-note-text");
+    m_overlay.set_child(m_stack);
+    m_overlay.set_vexpand(true);
+    m_zoom_chip.add_css_class("jot-zoom-chip");
+    m_zoom_chip.set_halign(Gtk::Align::END);
+    m_zoom_chip.set_valign(Gtk::Align::END);
+    m_zoom_chip.set_margin_end(18);
+    m_zoom_chip.set_margin_bottom(12);
+    m_zoom_chip.set_can_focus(false);
+    m_zoom_chip.set_tooltip_text("Text size \u2014 click for 100% (Ctrl+0). "
+                                 "Ctrl+= bigger, Ctrl+\u2212 smaller, or Ctrl+scroll.");
+    m_zoom_chip.set_visible(false);
+    m_zoom_chip.signal_clicked().connect([this]() { zoom_reset(); });
+    m_overlay.add_overlay(m_zoom_chip);
+    // Ctrl+scroll over the note, in CAPTURE so the scrolled windows never see
+    // it (a plain scroll still scrolls).
+    m_zoom_wheel = Gtk::EventControllerScroll::create();
+    m_zoom_wheel->set_flags(Gtk::EventControllerScroll::Flags::VERTICAL);
+    m_zoom_wheel->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    m_zoom_wheel->signal_scroll().connect(
+        [this](double, double dy) {
+            const auto st = m_zoom_wheel->get_current_event_state();
+            if ((st & Gdk::ModifierType::CONTROL_MASK) != Gdk::ModifierType::CONTROL_MASK) {
+                m_zoom_scroll = 0.0;
+                return false;
+            }
+            m_zoom_scroll += dy;
+            while (m_zoom_scroll <= -1.0) { m_zoom_scroll += 1.0; zoom_in(); }
+            while (m_zoom_scroll >= 1.0)  { m_zoom_scroll -= 1.0; zoom_out(); }
+            return true;
+        },
+        false);
+    m_overlay.add_controller(m_zoom_wheel);
+    // s053c: and on the right-click menu of the note, in every view -- GTK
+    // adds these below its own Cut / Copy / Paste.
+    {
+        auto extra = Gio::Menu::create();
+        extra->append_section(menus::zoom_menu());
+        m_body.set_extra_menu(extra);
+        m_read.set_extra_menu(extra);
+    }
+    append(m_overlay);
+    set_zoom(m_zoom);
 
     m_read_click = Gtk::GestureClick::create();
     m_read_click->set_button(GDK_BUTTON_PRIMARY);
@@ -808,17 +858,18 @@ void EditorPane::draw_live(GtkSnapshot* snap) {
             // x=49 for text drawn at 32). The cursor's own position is right.
             const Gdk::Rectangle r = where(buf->get_iter_at_offset(d.cp));
             const double cy = r.get_y() + r.get_height() / 2.0;
+            const double k = m_zoom / 100.0;   // s053b: marks grow with the text
             if (d.kind == K::Bullet) {
-                cairo_t* cr = cairo_over(r.get_x() - 16, r.get_y(), 16, r.get_height());
+                cairo_t* cr = cairo_over(r.get_x() - 16 * k, r.get_y(), 16 * k, r.get_height());
                 cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.75);
-                cairo_arc(cr, r.get_x() - 9, cy, 2.6, 0, 2 * G_PI);
+                cairo_arc(cr, r.get_x() - 9 * k, cy, 2.6 * k, 0, 2 * G_PI);
                 cairo_fill(cr);
                 cairo_destroy(cr);
             } else {
-                constexpr double S = 14;
-                const double bx = r.get_x() - 21, by = cy - S / 2;
+                const double S = 14 * k;
+                const double bx = r.get_x() - 21 * k, by = cy - S / 2;
                 cairo_t* cr = cairo_over(bx - 2, by - 2, S + 4, S + 4);
-                const double rad = 3;
+                const double rad = 3 * k;
                 cairo_new_sub_path(cr);
                 cairo_arc(cr, bx + S - rad, by + rad, rad, -G_PI / 2, 0);
                 cairo_arc(cr, bx + S - rad, by + S - rad, rad, 0, G_PI / 2);
@@ -829,10 +880,10 @@ void EditorPane::draw_live(GtkSnapshot* snap) {
                     cairo_set_source_rgba(cr, 0.26, 0.52, 0.88, 1.0);
                     cairo_fill(cr);
                     cairo_set_source_rgba(cr, 1, 1, 1, 1);
-                    cairo_set_line_width(cr, 2);
-                    cairo_move_to(cr, bx + 3.5, by + 7.5);
-                    cairo_line_to(cr, bx + 6, by + 10);
-                    cairo_line_to(cr, bx + 10.5, by + 4.5);
+                    cairo_set_line_width(cr, 2 * k);
+                    cairo_move_to(cr, bx + 3.5 * k, by + 7.5 * k);
+                    cairo_line_to(cr, bx + 6 * k, by + 10 * k);
+                    cairo_line_to(cr, bx + 10.5 * k, by + 4.5 * k);
                     cairo_stroke(cr);
                 } else {
                     cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.55);
@@ -1552,7 +1603,10 @@ Gtk::Widget* EditorPane::code_bubble(const std::string& code, const std::string&
     box->add_css_class("jot-codeblock");
     box->set_name("editor.code_bubble");
     // As wide as the page, so every bubble has the same right edge.
-    const int page = m_read.get_width();
+    // s053c: Reading is rendered as it is switched to, before it has a width
+    // of its own -- the Source page beside it is the same width and has one.
+    int page = m_read.get_width();
+    if (page <= 200) page = m_scroll.get_width();
     box->set_size_request(page > 200 ? page - 40 : 560, -1);
 
     auto* head = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 4);
@@ -1599,5 +1653,69 @@ Gtk::Widget* EditorPane::code_bubble(const std::string& code, const std::string&
     box->append(*sc);
     return box;
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// s053b -- ZOOM. One display-wide sheet, rewritten on each change, sets the
+// font-size of every `jot-note-text` view. A percent of the theme's size, so
+// GNOME's Large Text still counts and this multiplies it.
+// ─────────────────────────────────────────────────────────────────────────────
+namespace {
+Glib::RefPtr<Gtk::CssProvider>& zoom_css() {
+    static Glib::RefPtr<Gtk::CssProvider> css;
+    if (!css) {
+        css = Gtk::CssProvider::create();
+        if (auto display = Gdk::Display::get_default())
+            gtk_style_context_add_provider_for_display(display->gobj(), GTK_STYLE_PROVIDER(css->gobj()),
+                                                       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        css->load_from_data(
+            "button.jot-zoom-chip, button.jot-zoom-chip:hover { border-radius: 999px; "
+            "padding: 2px 10px; min-height: 0; font-size: smaller; font-weight: 600; "
+            "background: alpha(black, 0.6); background-image: none; color: white; "
+            "box-shadow: none; border: none; outline: none; }"
+            "button.jot-zoom-chip:hover { background: alpha(black, 0.75); }"
+            "button.jot-zoom-chip label { color: white; }");
+    }
+    return css;
+}
+Glib::RefPtr<Gtk::CssProvider>& zoom_size_css() {
+    static Glib::RefPtr<Gtk::CssProvider> css;
+    if (!css) {
+        css = Gtk::CssProvider::create();
+        if (auto display = Gdk::Display::get_default())
+            gtk_style_context_add_provider_for_display(display->gobj(), GTK_STYLE_PROVIDER(css->gobj()),
+                                                       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    }
+    return css;
+}
+}  // namespace
+
+void EditorPane::set_zoom(int pct) {
+    m_zoom = core::zoom_clamp(pct);
+    zoom_css();
+    // The ticks in Live Preview are real check buttons anchored in the text,
+    // and a widget's size does not follow font-size -- so they are told.
+    const int box = std::max(12, 14 * m_zoom / 100);
+    zoom_size_css()->load_from_data(
+        "textview.jot-note-text { font-size: " + std::to_string(m_zoom) + "%; }"
+        "textview.jot-note-text check { min-width: " + std::to_string(box) + "px; min-height: " +
+        std::to_string(box) + "px; -gtk-icon-size: " + std::to_string(box) + "px; }");
+    m_zoom_chip.set_label(core::zoom_text(m_zoom));
+    m_zoom_chip.set_visible(m_zoom != core::kZoomDefault);
+    // Live Preview's drawn bullets and boxes are sized by the zoom; the room
+    // the hang tag leaves for them grows with it (10 px margin + 22 at 100%).
+    if (m_hang_tag) m_hang_tag->property_left_margin() = 10 + static_cast<int>(22 * m_zoom / 100.0 + 0.5);
+    m_body.queue_draw();
+    if (auto lg = log::get(log::Area::Editor)) lg->info("editor: zoom {}%", m_zoom);
+}
+
+void EditorPane::step_zoom(int pct) {
+    const int was = m_zoom;
+    set_zoom(pct);
+    if (m_zoom != was) m_sig_zoom.emit(m_zoom);
+}
+void EditorPane::zoom_in()    { step_zoom(core::zoom_in(m_zoom)); }
+void EditorPane::zoom_out()   { step_zoom(core::zoom_out(m_zoom)); }
+void EditorPane::zoom_reset() { step_zoom(core::kZoomDefault); }
 
 }  // namespace jot

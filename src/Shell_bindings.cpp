@@ -35,6 +35,11 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     add_action("cheat-sheet",   sigc::mem_fun(*this, &Shell::on_cheat_sheet));   // s030
     add_action("shortcuts",     sigc::mem_fun(*this, &Shell::on_shortcuts));
     add_action("preferences",   sigc::mem_fun(*this, &Shell::on_preferences));
+    // s053b: the note's text size. The editor steps it and says so; the Shell
+    // keeps it.
+    add_action("zoom-in",    [this]() { m_editor->zoom_in(); });
+    add_action("zoom-out",   [this]() { m_editor->zoom_out(); });
+    add_action("zoom-reset", [this]() { m_editor->zoom_reset(); });
     // NOT close(), and the difference only appeared in s012: under residency a
     // close HIDES the window, so a Quit that closed would leave the process
     // running and the menu item doing nothing visible. Quit means quit, which
@@ -252,6 +257,11 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     m_drawer->signal_tag_add().connect([this](std::string n) { on_tag_edit(true, n); });      // s035b
     m_drawer->signal_tag_remove().connect([this](std::string n) { on_tag_edit(false, n); });  // s035b
     m_editor->signal_tag_activated().connect(sigc::mem_fun(*this, &Shell::on_show_tag));   // s035
+    m_editor->set_zoom(m_prefs.zoom);                                                        // s053b
+    m_editor->signal_zoom().connect([this](int pct) {
+        m_prefs.zoom = pct;
+        core::save_prefs(m_prefs_file, m_prefs);
+    });
     // The footer used to carry three check boxes that asked these actions to
     // flip. s016a moved the switches to Preferences alone; the footer keeps the
     // status lines and a button onto win.preferences, so there is nothing here

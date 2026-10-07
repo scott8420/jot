@@ -1,4 +1,7 @@
 #pragma once
+#include "core/Nodes.hpp"
+
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -53,5 +56,28 @@ std::string packet_line(const PacketState& s);
 // s045: just the counts, for where the items are listed anyway (Note
 // details): "3 of 5 in  ·  2 missing" / "All 5 in" / the no-items hint.
 std::string packet_count(const PacketState& s);
+
+// ── s053: comes back next year ─────────────────────────────────────────────
+// "It comes back next year with the same list and empty slots." DO IT AGAIN
+// makes a FRESH COPY beside a packet and leaves the old one as the record --
+// its files, its ticks, its Sent stamp -- because last year's papers are
+// exactly what you look at when gathering this year's.
+
+// "Taxes 2026" -> "Taxes 2027" (the LAST standalone 19xx / 20xx moves on one);
+// with no year, "<title> (next)".
+std::string next_title(const std::string& title);
+
+// The items with nothing in: every task line unticked and every FILE link on
+// it taken out (web links stay -- they are where to get it, not the thing).
+// Other lines are kept. A trailing "Last time: ..." line of an earlier round
+// is dropped, so the chain does not pile up.
+std::string fresh_body(const std::string& body);
+
+// The copy, one place below `id` among its siblings: next_title, fresh_body +
+// "Last time: [<old title>](jot:<id>) -- sent <date>.", a packet with the same
+// nudge, and -- when it is a todo -- the same task record not done, its due
+// and defer one calendar year on. Returns the new id, or empty when `id` is
+// not a packet. Several writes: the caller makes them one step.
+NodeId packet_again(NodeSource& src, const NodeId& id);
 
 }  // namespace jot::core

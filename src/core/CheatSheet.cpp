@@ -221,6 +221,11 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Every day / 3 days / week / 2 weeks / month: while something is missing, a "
          "notification after 9:00 says what. In 3 days quiets it; I’ve got it (when only "
          "one is missing) ticks that item; Open goes to it. Stops when it is all in or sent."},
+        {"Projects", "", "Note details › Packet › Do it again (once sent)",
+         "Next year's packet, from this one",
+         "A fresh copy just below -- \u201cTaxes 2026\u201d becomes \u201cTaxes 2027\u201d: the same "
+         "items with nothing in, the same nudge, a due date a year on, and \u201cLast time\u201d "
+         "linking back. The old one keeps its files and its Sent stamp. One Ctrl+Z."},
 
         // ── Today ───────────────────────────────────────────────────────────
         {"Today", "", "Today tab", "What you can actually do now",
@@ -305,6 +310,12 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Double-click anywhere to go back to editing at that spot."},
         {"Views", "win.toggle-live", "", "Live Preview: marks show only where the cursor is",
          "Off: every mark on screen (plain Source)."},
+        {"Views", "win.zoom-in", "", "Bigger text in the note",
+         "Every view; headings and code grow with it. Also Ctrl+scroll over the note, "
+         "\u22ee \u203a View, or right-click in the note. Kept across restarts."},
+        {"Views", "win.zoom-out", "", "Smaller text in the note",
+         "A chip in the note's corner says the size whenever it is not 100%."},
+        {"Views", "win.zoom-reset", "", "Back to 100%", "Or click the chip in the note's corner."},
         {"Views", "win.toggle-tree", "", "Show or hide the side pane",
          "Or the top-left pair: the button with its LEFT side filled."},
         {"Views", "win.toggle-drawer", "", "Show or hide note details",

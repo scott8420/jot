@@ -69,7 +69,7 @@ void Shell::build_shell() {  // zone: window + header + paned body
     // here, and it is the same model the tree's right-click shows (Menus.cpp).
     m_note_menu_button.set_icon_name("view-more-symbolic");
     m_note_menu_button.set_tooltip_text("This note");
-    m_note_menu_button.set_menu_model(menus::note_menu());
+    m_note_menu_button.set_menu_model(menus::note_menu(true));   // s053c: with View
     header->pack_end(m_note_menu_button);
 
     // s021 / s034: Source | Live | Reading. It stays at the right where the
@@ -496,6 +496,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     mode->append("Reading view", "win.toggle-reading");   // s021
     mode->append("Live preview", "win.toggle-live");      // s022
     view->append_section(mode);
+    view->append_section(menus::zoom_menu());             // s053b
 
     // For finding out what jot thinks is true. Refresh-the-desktop lives here
     // now: it is a nudge for when the calendar looks stale, which is a

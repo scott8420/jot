@@ -45,6 +45,7 @@
 #include "core/Forecast.hpp"
 #include "core/Gather.hpp"
 #include "core/Nudge.hpp"
+#include "core/Zoom.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1570,6 +1571,97 @@ int main() {
                   v.find(a) && v.find(a)->nudge == 14 && v.find(b) && v.find(b)->nudge == 0);
         }
         fs::remove_all(jd, ec);
+    }
+
+    // ── s053: the packet comes back next year ─────────────────────────────
+    {
+        std::cout << "\n-- packet again (s053) --\n";
+        check("again: the year moves on; no year -> (next)",
+              core::next_title("Taxes 2026") == "Taxes 2027" &&
+                  core::next_title("2025 taxes for Pat") == "2026 taxes for Pat" &&
+                  core::next_title("Room 12345") == "Room 12345 (next)" &&
+                  core::next_title("Passport renewal") == "Passport renewal (next)" &&
+                  core::next_title("FY2026 - 1099") == "FY2027 - 1099",
+              core::next_title("FY2026 - 1099"));
+        const std::string body =
+            "For Pat.\n"
+            "- [ ] W-2 (employer) [w2](attachments/w2.pdf)\n"
+            "- [x] Property tax receipt\n"
+            "- [ ] HSA ![a](attachments/a.png) [b](file:///home/s/b.pdf) [form](https://irs.gov/x)\n"
+            "\n"
+            "Last time: [Taxes 2025](jot:abc) — sent 1 Mar 2025.\n";
+        const std::string fresh = core::fresh_body(body);
+        check("again: items unticked, files off their lines, web links and words kept, old footer gone",
+              fresh == "For Pat.\n- [ ] W-2 (employer)\n- [ ] Property tax receipt\n"
+                       "- [ ] HSA [form](https://irs.gov/x)\n",
+              fresh);
+        const auto fs0 = core::packet_state(fresh);
+        check("again: the fresh packet has every item and none in", fs0.total == 3 && fs0.in == 0);
+
+        core::MemoryNodes m;
+        const auto home = m.create("", "Home");
+        const auto taxes = m.create(home, "Taxes 2026");
+        const auto after = m.create(home, "After");
+        m.set_body(taxes, body);
+        m.set_packet(taxes, true);
+        m.set_nudge(taxes, 7);
+        m.make_task(taxes, true);
+        const std::int64_t due = 1'776'200'000;   // mid-April 2026
+        m.set_due(taxes, due);
+        m.set_done(taxes, true);
+        m.set_sent(taxes, 1'791'300'000, "/x/Taxes.zip");
+        core::NodeId n2;
+        {
+            core::Journal j;
+            core::UndoSource u{j, [&] { return &m; }};
+            {
+                core::Gesture g(u, "Do it again");
+                n2 = core::packet_again(u, taxes);
+            }
+            const core::Node* c = m.find(n2);
+            const auto kids = m.children(home);
+            check("again: a copy, right below, as one step",
+                  c && kids.size() == 3 && kids[1] == n2 && kids[2] == after && j.size() == 1 &&
+                      j.undo_label() == "Do it again", std::to_string(j.size()));
+            check("again: next year's title, a packet, same nudge, not sent",
+                  c && c->title == "Taxes 2027" && c->packet && c->nudge == 7 && c->sent == 0 &&
+                      c->sent_to.empty());
+            check("again: a todo again -- not done, due one year on",
+                  c && c->task.is_task && !c->task.done && c->task.finished == 0 &&
+                      c->task.due > due + 364 * 86400 && c->task.due < due + 367 * 86400);
+            check("again: it links back to the record",
+                  c && c->body.find("Last time: [Taxes 2026](jot:" + taxes + ") — sent ") != std::string::npos &&
+                      c->body.rfind(fresh, 0) == 0, c ? c->body : "");
+            const core::Node* o = m.find(taxes);
+            check("again: the old one is untouched -- files, ticks, stamp, done",
+                  o && o->body == body && o->sent != 0 && o->task.done && o->title == "Taxes 2026");
+            j.undo(m);
+            check("again: one Ctrl+Z takes the copy away", !m.find(n2) && m.children(home).size() == 2);
+        }
+        check("again: a plain note is refused", core::packet_again(m, after).empty());
+    }
+
+    // ── s053b: zoom ────────────────────────────────────────────────────────
+    {
+        std::cout << "\n-- zoom (s053b) --\n";
+        check("zoom: in steps up, out steps down, and back lands where it began",
+              core::zoom_in(100) == 110 && core::zoom_out(100) == 90 &&
+                  core::zoom_out(core::zoom_in(125)) == 125 && core::zoom_in(core::zoom_out(70)) == 80);
+        check("zoom: the ends hold", core::zoom_in(300) == 300 && core::zoom_out(70) == 70);
+        check("zoom: junk lands on a step",
+              core::zoom_clamp(0) == 100 && core::zoom_clamp(-5) == 100 && core::zoom_clamp(123) == 125 &&
+                  core::zoom_clamp(9999) == 300 && core::zoom_text(150) == "150%");
+        namespace fs = std::filesystem;
+        const std::string f = (fs::temp_directory_path() / "jot_selftest_zoom.json").string();
+        core::Prefs p;
+        p.zoom = 175;
+        core::save_prefs(f, p);
+        const bool kept = core::load_prefs(f).zoom == 175;
+        { std::ofstream o(f); o << "{\"zoom\": 133}"; }
+        const bool snapped = core::load_prefs(f).zoom == 125;
+        check("zoom pref: round trip, and an odd value snaps to a step", kept && snapped);
+        std::error_code ec;
+        fs::remove(f, ec);
     }
 
     // ── s045: undo in the navigator ────────────────────────────────────────

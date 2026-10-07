@@ -121,6 +121,7 @@ add_library(jot_core STATIC
     src/core/Packet.cpp
     src/core/Gather.cpp
     src/core/Nudge.cpp
+    src/core/Zoom.cpp
     # s045: undo / redo for the navigator's verbs -- two pictures per step.
     src/core/Undo.cpp
     src/core/Selection.cpp   # s047

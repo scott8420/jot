@@ -6,6 +6,7 @@
 #include "widgets/DrawTextView.hpp"
 #include "widgets/Widgets.hpp"
 
+#include <gtkmm/eventcontrollerscroll.h>
 #include <gtkmm/droptarget.h>
 #include <gtkmm/eventcontrollerkey.h>
 #include <gtkmm/eventcontrollerlegacy.h>
@@ -123,6 +124,15 @@ public:
     // s035: a #tag clicked -- Ctrl+click in Source / Live, a plain click in
     // Reading, the same gestures a link takes. The name, without the hash.
     sigc::signal<void(std::string)>& signal_tag_activated() { return m_sig_tag; }
+
+    // s053b: the note's text size, a percent (core/Zoom). set_zoom paints it;
+    // the verbs step it and emit signal_zoom so the Shell keeps it in prefs.
+    void set_zoom(int pct);
+    int  zoom() const { return m_zoom; }
+    void zoom_in();
+    void zoom_out();
+    void zoom_reset();
+    sigc::signal<void(int)>& signal_zoom() { return m_sig_zoom; }
     // Where an image's bytes are, for a target as written (`attachments/p.png`,
     // `file:///...`). Empty = not ours to draw. Set by the Shell, which knows
     // the store.
@@ -205,6 +215,15 @@ private:
     // stays the truth -- every edit, even a box ticked in Reading, goes
     // through it -- and Reading is re-rendered from it.
     widgets::Stack          m_stack;
+    // s053b: the stack sits in an overlay so the zoom chip can float in its
+    // corner in every view.
+    widgets::Overlay        m_overlay;
+    widgets::Button         m_zoom_chip;
+    int                     m_zoom = 100;
+    double                  m_zoom_scroll = 0.0;   // touchpads send fractions
+    Glib::RefPtr<Gtk::EventControllerScroll> m_zoom_wheel;
+    sigc::signal<void(int)> m_sig_zoom;
+    void step_zoom(int pct);
     widgets::ScrolledWindow m_read_scroll;
     widgets::TextView       m_read;
     std::map<core::Style, Glib::RefPtr<Gtk::TextTag>> m_read_tags;

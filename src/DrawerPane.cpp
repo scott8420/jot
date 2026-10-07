@@ -164,6 +164,7 @@ DrawerPane::DrawerPane(std::string_view name)
       m_sent_row("drawer.sent_row", Gtk::Orientation::HORIZONTAL, 6),
       m_sent_says("drawer.sent_says"),
       m_sent_show("drawer.sent_show"),
+      m_again("drawer.again"),
       m_nudge_row("drawer.nudge_row", Gtk::Orientation::HORIZONTAL, 6),
       m_nudge_label("drawer.nudge_label"),
       m_nudge_pick("drawer.nudge_pick", [] {
@@ -327,6 +328,15 @@ DrawerPane::DrawerPane(std::string_view name)
     m_sent_show.signal_clicked().connect([this]() { if (!m_loading) m_sig_gather.emit("show"); });
     m_sent_row.append(m_sent_says);
     m_sent_row.append(m_sent_show);
+    // s053: it comes back. Beside the stamp, because "sent" is when you would
+    // think of next time.
+    m_again.set_label("Do it again");
+    m_again.set_tooltip_text(
+        "A fresh copy for next time, just below: the same items with nothing in, "
+        "and a link back to this one. This one stays as it is -- the record.");
+    m_again.set_valign(Gtk::Align::CENTER);
+    m_again.signal_clicked().connect([this]() { if (!m_loading) m_sig_gather.emit("again"); });
+    m_sent_row.append(m_again);
     // s052: Nudge me -- above the way out, because it is about the waiting.
     m_nudge_label.set_text("Nudge me");
     m_nudge_label.set_xalign(0.0f);

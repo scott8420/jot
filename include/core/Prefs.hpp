@@ -97,6 +97,9 @@ struct Prefs {
     // "#rrggbb" -- one of core::accent_presets() or any colour picked.
     // Anything else read from the file is dropped back to "".
     std::string accent;
+    // s053b: the note's text size, a percent on core::zoom_steps(). Junk in
+    // the file reads as the nearest step; 0 / negative as 100.
+    int zoom = 100;
 
     // ── the second fingerprint, and why it is a LIST ───────────────────────
     // m_desktop_sig remembers what the desktop was last SENT -- one string,

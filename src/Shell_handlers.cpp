@@ -338,6 +338,17 @@ void Shell::on_packet_gather(std::string how) {  // handler: Gather for sending
     const core::Node* n = (m_store && !id.empty()) ? m_store->find(id) : nullptr;
     if (!n || !n->packet) return;
 
+    if (how == "again") {   // s053: comes back next year
+        core::NodeId made;
+        {
+            core::Gesture step(m_undo, "Do it again");
+            made = core::packet_again(m_undo, id);
+        }
+        if (auto lg = log::get(log::Area::Shell)) lg->info("again: {} -> {}", id, made);
+        if (!made.empty())
+            Glib::signal_idle().connect_once([this, made]() { on_goto_note(made); });
+        return;
+    }
     if (how == "show") {
         std::error_code ec;
         if (n->sent_to.empty() || !std::filesystem::exists(n->sent_to, ec)) {

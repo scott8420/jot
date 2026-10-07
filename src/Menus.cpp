@@ -2,7 +2,7 @@
 
 namespace jot::menus {
 
-Glib::RefPtr<Gio::Menu> note_menu() {
+Glib::RefPtr<Gio::Menu> note_menu(bool with_view) {
     auto menu = Gio::Menu::create();
 
     auto make = Gio::Menu::create();
@@ -48,6 +48,19 @@ Glib::RefPtr<Gio::Menu> note_menu() {
     arrange->append("Move Down", "win.move-down");
     menu->append_section(arrange);
 
+    // s053c (Scott): how this note looks -- the view, and its text size.
+    if (with_view) {
+    auto view = Gio::Menu::create();
+    auto mode = Gio::Menu::create();
+    mode->append("Reading view", "win.toggle-reading");
+    mode->append("Live preview", "win.toggle-live");
+    view->append_section(mode);
+    view->append_section(zoom_menu());
+    auto viewsec = Gio::Menu::create();
+    viewsec->append_submenu("View", view);
+    menu->append_section(viewsec);
+    }
+
     auto name = Gio::Menu::create();
     name->append("Rename", "win.rename-note");
     name->append("Move to\u2026", "win.move-to");   // s029
@@ -61,6 +74,14 @@ Glib::RefPtr<Gio::Menu> note_menu() {
     menu->append_section(guard);
 
     return menu;
+}
+
+Glib::RefPtr<Gio::Menu> zoom_menu() {
+    auto z = Gio::Menu::create();
+    z->append("Zoom In", "win.zoom-in");
+    z->append("Zoom Out", "win.zoom-out");
+    z->append("Actual Size", "win.zoom-reset");
+    return z;
 }
 
 }  // namespace jot::menus

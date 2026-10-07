@@ -22,6 +22,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 namespace jot::menus {
 
-Glib::RefPtr<Gio::Menu> note_menu();
+// with_view: the ⋮ button's copy carries a View submenu (s053c); the tree's
+// right-click copy does not -- a row is not where you look at the note.
+Glib::RefPtr<Gio::Menu> note_menu(bool with_view = false);
+// s053c: Zoom In / Zoom Out / Actual Size -- one model, used by the ⋮ menu's
+// View submenu and by the note's right-click menu (Source, Live, Reading).
+Glib::RefPtr<Gio::Menu> zoom_menu();
 
 }  // namespace jot::menus

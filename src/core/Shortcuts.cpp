@@ -234,6 +234,11 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         // or every mark on screen.
         {"View", "win.toggle-live",     {"<Ctrl><Shift>e"}, "",
          "Live preview: hide the marks except where the cursor is"},
+        // s053b: the browser keys. Ctrl+= is Ctrl++ without Shift.
+        {"View", "win.zoom-in",         {"<Ctrl>equal", "<Ctrl>plus"}, "",
+         "Bigger text in the note"},
+        {"View", "win.zoom-out",        {"<Ctrl>minus"}, "", "Smaller text in the note"},
+        {"View", "win.zoom-reset",      {"<Ctrl>0"}, "", "The note's text at 100%"},
 
         // ── Writing ───────────────────────────────────────────
         // s024: doc-only rows. These are bound on the NOTE, not the app, so
