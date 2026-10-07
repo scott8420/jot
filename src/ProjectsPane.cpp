@@ -2,6 +2,10 @@
 #include "Log.hpp"
 #include "core/Review.hpp"
 #include "core/Tasks.hpp"
+#include "core/Repeat.hpp"
+#include "core/RowLook.hpp"
+#include "core/Routine.hpp"
+#include "TaskCard.hpp"
 
 #include <glibmm/main.h>
 #include <gtkmm/enums.h>
@@ -56,6 +60,7 @@ ProjectsPane::ProjectsPane(std::string_view name)
       m_modes("projects.modes", Gtk::Orientation::HORIZONTAL, 0),
       m_mode_review("projects.mode_review"),
       m_mode_all("projects.mode_all"),
+      m_mode_routines("projects.mode_routines"),
       m_summary("projects.summary"),
       m_scroll("projects.scroll"),
       m_column("projects.column", Gtk::Orientation::VERTICAL, 4),
@@ -68,9 +73,15 @@ ProjectsPane::ProjectsPane(std::string_view name)
     m_modes.set_margin_bottom(6);
     m_mode_review.set_label("Review");
     m_mode_review.set_tooltip_text("Projects due a look, the longest-waiting first");
-    m_mode_all.set_label("All projects");
+    // s057: "All", not "All projects" -- a third button needs the room, and
+    // the tab already says Projects.
+    m_mode_all.set_label("All");
     m_mode_all.set_tooltip_text("Every project by where it stands");
     m_mode_all.set_group(m_mode_review);
+    m_mode_routines.set_label("Routines");
+    m_mode_routines.set_tooltip_text("Everything that repeats, and how regularly it has been done -- "
+                                     "slipped ones first");
+    m_mode_routines.set_group(m_mode_review);
     m_mode_review.set_active(true);
     m_mode_review.signal_toggled().connect([this]() {
         if (m_building || !m_mode_review.get_active()) return;
@@ -80,8 +91,13 @@ ProjectsPane::ProjectsPane(std::string_view name)
         if (m_building || !m_mode_all.get_active()) return;
         set_review_mode(false);
     });
+    m_mode_routines.signal_toggled().connect([this]() {
+        if (m_building || !m_mode_routines.get_active()) return;
+        set_mode(Mode::Routines);
+    });
     m_modes.append(m_mode_review);
     m_modes.append(m_mode_all);
+    m_modes.append(m_mode_routines);
     // s037b: + New project, at the end of the same row -- the list and the
     // way to add to it, side by side.
     auto* top = Gtk::make_managed<widgets::Box>(widgets::unregistered, "projects.top",
@@ -127,9 +143,13 @@ void ProjectsPane::set_source(core::NodeSource* src) {
 }
 
 void ProjectsPane::set_review_mode(bool review) {
-    m_review = review;
+    set_mode(review ? Mode::Review : Mode::All);
+}
+
+void ProjectsPane::set_mode(Mode m) {
+    m_mode = m;
     m_building = true;
-    (review ? m_mode_review : m_mode_all).set_active(true);
+    (m == Mode::Review ? m_mode_review : m == Mode::All ? m_mode_all : m_mode_routines).set_active(true);
     m_building = false;
     refresh();
 }
@@ -155,8 +175,11 @@ void ProjectsPane::refresh() {
         m_summary.set_text("");
         return;
     }
-    if (m_review) fill_review(now);
-    else          fill_all(now);
+    switch (m_mode) {
+    case Mode::Review:   fill_review(now);   break;
+    case Mode::All:      fill_all(now);      break;
+    case Mode::Routines: fill_routines(now); break;
+    }
 }
 
 // ── rows ────────────────────────────────────────────────────────────────────
@@ -184,6 +207,7 @@ Gtk::Widget* ProjectsPane::project_row(const core::Node& n, const std::string& l
     const core::NodeId id = n.id;
     auto* row = Gtk::make_managed<widgets::Box>(widgets::unregistered, "projects.row." + id,
                                                 Gtk::Orientation::HORIZONTAL, 6);
+    pickable(*row, id);   // s057b
     auto* text = Gtk::make_managed<widgets::Box>(widgets::unregistered, "projects.rowtext." + id,
                                                  Gtk::Orientation::VERTICAL, 0);
     auto* title = Gtk::make_managed<widgets::Label>(widgets::unregistered, "projects.title." + id);
@@ -266,6 +290,62 @@ void ProjectsPane::fill_review(std::int64_t now) {
             m_column.append(*project_row(*n, l1, when_line(*n, now), true, false));
         }
     if (auto lg = log::get(log::Area::Drawer)) lg->debug("projects: review {} due", due.size());
+}
+
+// ── Routines (s057) ─────────────────────────────────────────────────────────
+// Everything that repeats, slipped first. A row: the rule and when it is due
+// (or how much has slipped), then the dots and the record. It decides
+// nothing: core/Routine orders and words it.
+void ProjectsPane::fill_routines(std::int64_t now) {
+    const auto ids = core::routine_list(*m_src, now);
+    if (ids.empty()) {
+        m_summary.set_text("");
+        m_empty.set_text("No routines yet.\n\n"
+                         "A routine is a todo that repeats: give one a Repeat in Note "
+                         "details (weekly, every 3 days, monthly...). Each time you tick "
+                         "it, it comes back -- and this list keeps how regularly it got done.");
+        m_empty.set_visible(true);
+        return;
+    }
+    int slipped = 0;
+    for (const auto& id : ids) {
+        const core::Node* n = m_src->find(id);
+        if (!n) continue;
+        const core::RoutineState rs = core::routine_state(*m_src, id, now);
+        if (rs.slipped()) ++slipped;
+        std::string l1 = core::repeat_text(n->task.repeat);
+        if (rs.slipped()) l1 += "  \u00b7  " + core::slipped_line(rs).substr(std::string("Slipped \u2014 ").size());
+        else if (rs.due != 0) l1 += "  \u00b7  next " + core::short_due(rs.due, now);
+        auto* row = project_row(*n, l1, core::routine_line(rs, now), false, false);
+        // The dots under the text, inside the row's button box.
+        if (auto* go = row->get_first_child())
+            if (auto* text = dynamic_cast<Gtk::Box*>(static_cast<Gtk::Button*>(go)->get_child()))
+                if (!rs.recent.empty() || rs.slipped())
+                    text->append(*routine_dots(rs, "projects.routine." + id));
+        // Wrap, not cut: the record IS the row here (the tree's ellipsis rule
+        // is for titles; these lines are what you came to read).
+        if (auto* go = row->get_first_child())
+            if (auto* text = static_cast<Gtk::Button*>(go)->get_child())
+                for (auto* c = text->get_first_child() ? text->get_first_child()->get_next_sibling() : nullptr;
+                     c; c = c->get_next_sibling())
+                    if (auto* l = dynamic_cast<Gtk::Label*>(c)) {
+                        l->set_ellipsize(Pango::EllipsizeMode::NONE);
+                        l->set_wrap(true);
+                    }
+        if (rs.slipped())
+            if (auto* go = row->get_first_child())
+                if (auto* text = static_cast<Gtk::Button*>(go)->get_child())
+                    if (auto* sub = text->get_first_child() ? text->get_first_child()->get_next_sibling() : nullptr)
+                    {
+                        sub->remove_css_class("dim-label");
+                        sub->add_css_class("jot-pace-late");
+                    }
+        m_column.append(*row);
+    }
+    m_summary.set_text(std::to_string(ids.size()) + (ids.size() == 1 ? " routine" : " routines") +
+                       (slipped ? "  \u00b7  " + std::to_string(slipped) + " slipped" : std::string{}));
+    if (auto lg = log::get(log::Area::Drawer))
+        lg->info("routines: {} listed, {} slipped", ids.size(), slipped);
 }
 
 // ── All projects ────────────────────────────────────────────────────────────

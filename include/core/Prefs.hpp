@@ -100,6 +100,9 @@ struct Prefs {
     // s053b: the note's text size, a percent on core::zoom_steps(). Junk in
     // the file reads as the nearest step; 0 / negative as 100.
     int zoom = 100;
+    // s057b: where Open... last looked -- the folder the chosen jots folder
+    // sits in, so the next Open starts there. "" = never used.
+    std::string open_from;
 
     // ── the second fingerprint, and why it is a LIST ───────────────────────
     // m_desktop_sig remembers what the desktop was last SENT -- one string,

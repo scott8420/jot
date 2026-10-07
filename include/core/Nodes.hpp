@@ -178,6 +178,9 @@ struct LogRecord {
     NodeId       id;
     std::string  title;
     std::int64_t when = 0;
+    // s057: the occurrence's due when it was ticked (0 = undated, or a record
+    // from before s057) -- what makes "on time" or "late" knowable.
+    std::int64_t due  = 0;
     bool operator==(const LogRecord&) const = default;
 };
 
@@ -400,6 +403,18 @@ private:
     std::int64_t now() const;
     std::function<std::int64_t()> m_clock;
     std::vector<LogRecord>        m_history;
+    // s057: what a ROLL moved, so undo can take its record out of the history
+    // and redo put it back (the journal restores the Task through set_task,
+    // which never knew a roll had written a record). Session only.
+    struct Roll {
+        NodeId       id;
+        std::int64_t when = 0;
+        std::int64_t due0 = 0, defer0 = 0;   // before the roll
+        std::int64_t due1 = 0, defer1 = 0;   // after it
+        LogRecord    rec;                    // filled when undone (the stash)
+    };
+    std::vector<Roll>             m_rolls;      // rolls whose record is in the history
+    std::vector<Roll>             m_unrolled;   // rolls undone, their records held for redo
     Node* mutable_find(const NodeId& id);
     void  reindex();
     void  collect_subtree(const NodeId& id, std::vector<NodeId>& out) const;

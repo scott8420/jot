@@ -417,7 +417,8 @@ bool Project::open(const std::string& dir) {
                 if (r.is_object())
                     h.push_back(LogRecord{r.value("id", std::string{}),
                                           r.value("title", std::string{}),
-                                          r.value("when", std::int64_t{0})});
+                                          r.value("when", std::int64_t{0}),
+                                          r.value("due", std::int64_t{0})});   // s057
         set_history(std::move(h));
     }
     load_bodies(nodes);
@@ -593,8 +594,11 @@ bool Project::save_project() const {
     }
     if (!history().empty()) {                                                     // s033
         j["history"] = json::array();
-        for (const auto& r : history())
-            j["history"].push_back({{"id", r.id}, {"title", r.title}, {"when", r.when}});
+        for (const auto& r : history()) {
+            json e = {{"id", r.id}, {"title", r.title}, {"when", r.when}};
+            if (r.due != 0) e["due"] = r.due;   // s057
+            j["history"].push_back(std::move(e));
+        }
     }
     if (!m_attach.metas.empty()) j["enclosures"] = json::parse(encode_metas(m_attach.metas));
     return write_atomic(fs::path(m_dir) / kProjectFile, j.dump(2) + "\n");

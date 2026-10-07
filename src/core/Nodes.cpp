@@ -262,12 +262,48 @@ bool MemoryNodes::set_task(const NodeId& id, const Task& in) {
     bool rolled = false;
     if (t.is_task && t.repeat.on() && is == 1 && was != 1) {
         const std::int64_t at = now();
-        m_history.push_back(LogRecord{id, n->title, at});
+        Roll roll{id, at, t.due, t.defer, 0, 0, {}};
+        m_history.push_back(LogRecord{id, n->title, at, t.due});
         repeat_next(t.repeat, at, t.due, t.defer);
         t.done     = false;
         t.finished = 0;
         if (t.project == ProjectState::Completed) t.project = ProjectState::Active;
         rolled = true;
+        roll.due1 = t.due;
+        roll.defer1 = t.defer;
+        if (roll.due0 != roll.due1 || roll.defer0 != roll.defer1) m_rolls.push_back(roll);
+    } else if (!t.done) {
+        // s057: an UNDO of a roll puts the dates back exactly -- take the
+        // occurrence's record out too, or the history keeps a tick that the
+        // undo took back. A REDO moves them on again: the record returns.
+        for (auto it = m_rolls.rbegin(); it != m_rolls.rend(); ++it) {
+            if (it->id != id) continue;
+            if (n->task.due == it->due1 && n->task.defer == it->defer1 &&
+                t.due == it->due0 && t.defer == it->defer0) {
+                Roll r = *it;
+                m_rolls.erase(std::next(it).base());
+                for (auto h = m_history.rbegin(); h != m_history.rend(); ++h)
+                    if (h->id == id && h->when == r.when) {
+                        r.rec = *h;
+                        m_history.erase(std::next(h).base());
+                        break;
+                    }
+                m_unrolled.push_back(r);
+            }
+            break;   // only the latest roll can be the one undone
+        }
+        for (auto it = m_unrolled.rbegin(); it != m_unrolled.rend(); ++it) {
+            if (it->id != id) continue;
+            if (n->task.due == it->due0 && n->task.defer == it->defer0 &&
+                t.due == it->due1 && t.defer == it->defer1 && !it->rec.id.empty()) {
+                Roll r = *it;
+                m_unrolled.erase(std::next(it).base());
+                m_history.push_back(r.rec);
+                r.rec = LogRecord{};
+                m_rolls.push_back(r);
+            }
+            break;
+        }
     }
     if (n->task == t && !rolled) return false;   // no-op writes must not dirty a note
     // s037: looking at a project is not changing it. A write that touches only

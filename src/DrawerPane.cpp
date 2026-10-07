@@ -1,5 +1,7 @@
 #include "DrawerPane.hpp"
 #include "core/Deadline.hpp"
+#include "core/Routine.hpp"
+#include "TaskCard.hpp"
 #include "core/DoneWhen.hpp"
 #include <ctime>
 #include "core/Undo.hpp"
@@ -200,6 +202,7 @@ DrawerPane::DrawerPane(std::string_view name)
       m_repeat_label("drawer.repeat_label"),
       m_repeat("drawer.repeat"),
       m_repeat_done("drawer.repeat_done"),
+      m_routine("drawer.routine", Gtk::Orientation::VERTICAL, 2),
       m_est_row("drawer.est_row", Gtk::Orientation::HORIZONTAL, 8),
       m_est_label("drawer.est_label"),
       m_est("drawer.est"),
@@ -643,6 +646,9 @@ void DrawerPane::build_task_block() {
         m_src->set_repeat(m_id, r);
     });
     m_task_body.append(m_repeat_done);
+    m_routine.set_margin_start(4);
+    m_routine.set_visible(false);
+    m_task_body.append(m_routine);   // s057: the routine's record, under its rule
 
     // THE DERIVED LINE. Not a control and not stored anywhere -- it is the
     // answer availability() gives about this node right now. It is here because
@@ -1261,6 +1267,7 @@ void DrawerPane::fill_task(const core::Node& n) {
             m_repeat_done.set_active(n.task.repeat.from_done);
             m_repeat_done.set_visible(n.task.repeat.on());
         }
+        fill_routine(n);   // s057
 
         // The derived line, spelled out rather than named. "Blocked" alone
         // tells you the verdict and not the reason, and the reason is the only
@@ -1818,6 +1825,42 @@ void DrawerPane::fill_packet(const core::Node& n) {
         row->set_tooltip_text(it.in() ? "In" : "Missing \u2014 drop its file onto its line, or tick it");
         row->add_css_class(it.in() ? "jot-packet-in" : "jot-packet-missing");
         m_packet_sec.rows->append(*row);
+    }
+}
+
+// s057 (J3): a routine's record, under Repeat -- the last ten as dots, how
+// many on time and when last done, then "Slipped -- 2 missed since ..." in red
+// when whole intervals have gone by since the due.
+void DrawerPane::fill_routine(const core::Node& n) {
+    while (auto* c = m_routine.get_first_child()) m_routine.remove(*c);
+    if (!m_src || !n.task.is_task || !n.task.repeat.on()) { m_routine.set_visible(false); return; }
+    const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+    const core::RoutineState rs = core::routine_state(*m_src, n.id, now);
+    if (!rs.recent.empty() || rs.slipped()) m_routine.append(*routine_dots(rs, "drawer.routine"));
+    auto* line = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.routine_line");
+    line->set_text(core::routine_line(rs, now));
+    line->set_xalign(0.0f);
+    line->set_wrap(true);
+    line->add_css_class("caption");
+    line->add_css_class("dim-label");
+    m_routine.append(*line);
+    if (const std::string sl = core::slipped_line(rs); !sl.empty()) {
+        auto* slip = Gtk::make_managed<widgets::Label>(widgets::unregistered, "drawer.routine_slipped");
+        slip->set_text(sl);
+        slip->set_xalign(0.0f);
+        slip->set_wrap(true);
+        slip->add_css_class("caption");
+        slip->add_css_class("jot-pace-late");
+        m_routine.append(*slip);
+    }
+    m_routine.set_visible(true);
+    static std::string said;
+    const std::string now_says = n.id + core::routine_line(rs, now) + core::slipped_line(rs);
+    if (now_says != said) {
+        said = now_says;
+        if (auto lg = log::get(log::Area::Drawer))
+            lg->info("routine: '{}' {} recorded, {} of {} on time, {} missed", n.title, rs.total,
+                     rs.on_time, rs.known, rs.missed);
     }
 }
 
@@ -2541,6 +2584,7 @@ void DrawerPane::fill_task_common() {
         show_field(m_repeat, c.repeat.mixed, core::repeat_text(c.repeat.value), "never");
         m_repeat_done.set_active(!c.repeat.mixed && c.repeat.value.from_done);
         m_repeat_done.set_visible(!c.repeat.mixed && c.repeat.value.on());
+        m_routine.set_visible(false);   // s057: one note's record, not a set's
 
         // The derived line, for many: how they stand, counted.
         const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));

@@ -1,4 +1,5 @@
 #include "InboxPane.hpp"
+#include "TaskCard.hpp"
 #include "Log.hpp"
 #include "core/Inbox.hpp"
 
@@ -90,6 +91,7 @@ Gtk::Widget* InboxPane::row(const core::Node& n, std::int64_t now) {
     // s043: the card shape. A waiting capture has the darker edge (it wants
     // filing); a filed or done one is quiet until Clean Up takes it.
     box->add_css_class("jot-card");
+    pickable(*box, id);   // s057b
     box->add_css_class(st == core::InboxState::Waiting ? "st-inbox"
                        : st == core::InboxState::Done  ? "st-done" : "st-note");
     auto* text = Gtk::make_managed<widgets::Box>(widgets::unregistered, "inbox.rowtext." + id,

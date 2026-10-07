@@ -38,7 +38,11 @@ public:
     // Review (true) or All (false). The Shell flips it on a second
     // Ctrl+Shift+P; the buttons are the other writer and call this too.
     void set_review_mode(bool review);
-    bool review_mode() const { return m_review; }
+    bool review_mode() const { return m_mode == Mode::Review; }
+    // s057: the third way to look -- the routines (repeating todos) and how
+    // regularly each has been done. Review / All / Routines are one control.
+    enum class Mode { Review, All, Routines };
+    void set_mode(Mode m);
 
     // The first project due a look, "" when none -- Mark Reviewed (the key)
     // walks on to it, so a review is: read, Ctrl+Shift+R, read the next.
@@ -50,16 +54,18 @@ public:
 private:
     void fill_review(std::int64_t now);
     void fill_all(std::int64_t now);
+    void fill_routines(std::int64_t now);   // s057
     void add_heading(const std::string& text, const std::string& id, const char* icon);
     Gtk::Widget* project_row(const core::Node& n, const std::string& line1,
                              const std::string& line2, bool reviewed_button, bool dim);
 
     core::NodeSource* m_src = nullptr;   // not owned; the seam
-    bool              m_review = true;
+    Mode              m_mode = Mode::Review;
 
     widgets::Box          m_modes;
     widgets::ToggleButton m_mode_review;
     widgets::ToggleButton m_mode_all;
+    widgets::ToggleButton m_mode_routines;   // s057
     widgets::Label        m_summary;
     widgets::ScrolledWindow m_scroll;
     widgets::Box          m_column;

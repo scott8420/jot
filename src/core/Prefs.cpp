@@ -60,6 +60,7 @@ Prefs load_prefs(const std::string& file) {
         p.accent        = get_or(j, "accent", p.accent);                 // s050b
         if (!p.accent.empty() && !is_hex_colour(p.accent)) p.accent.clear();
         p.zoom          = zoom_clamp(get_or(j, "zoom", p.zoom));         // s053b
+        p.open_from     = get_or(j, "open_from", p.open_from);           // s057b
         // A list, not a scalar, so get_or's type deduction does not apply --
         // and a malformed entry must not take the whole prefs file down with
         // it, which is why the element type is checked rather than assumed.
@@ -134,6 +135,7 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     j["drop_links"]    = p.drop_links;
     j["accent"]        = p.accent;   // s050b
     j["zoom"]          = p.zoom;     // s053b
+    if (!p.open_from.empty()) j["open_from"] = p.open_from;   // s057b
     j["announced"]     = p.announced;
     j["snoozed"]       = nlohmann::json::array();
     for (const auto& z : p.snoozed)

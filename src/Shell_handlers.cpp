@@ -1,5 +1,6 @@
 #include <algorithm>
 #include "Shell.hpp"
+#include "TaskCard.hpp"
 #include "core/DoneWhen.hpp"
 #include "core/Gather.hpp"
 #include "core/Packet.hpp"
@@ -663,6 +664,12 @@ void Shell::on_selection_changed(const core::NodeId& id) {  // handler: tree row
     // the new note shows a backlink the old note no longer declares.
     if (!m_editor->current().empty()) m_links.update(*m_store, m_editor->current());
     m_drawer->show_node(id);
+    // s057b: the note on show is marked in every list, not only the tree.
+    set_current_note(id);
+    for (Gtk::Widget* w : {static_cast<Gtk::Widget*>(m_today.get()), static_cast<Gtk::Widget*>(m_inbox.get()),
+                           static_cast<Gtk::Widget*>(m_tags.get()), static_cast<Gtk::Widget*>(m_projects.get()),
+                           static_cast<Gtk::Widget*>(m_search.get())})
+        if (w) mark_current(*w);
     // s054: what the tree's chip says now, so a box ticked in the text that
     // changes it can be noticed (queue_drawer_refresh).
     m_dw_seen_id = id;
@@ -857,12 +864,32 @@ void Shell::on_open_jots() {  // handler: folder chooser -> open that jots folde
 void Shell::open_jots_chooser() {
     auto dialog = Gtk::FileDialog::create();
     dialog->set_title("Open or create a jots folder");
+    // s057b (Scott: "the dialog does not remember the last folder"): start
+    // where the last Open looked -- the folder the chosen one sits in -- else
+    // beside the jots folder in use, so a sibling .jots is one click away.
+    {
+        std::error_code ec;
+        std::string start = m_prefs.open_from;
+        if (start.empty() || !std::filesystem::is_directory(start, ec)) {
+            start.clear();
+            if (!m_recents.empty())
+                start = std::filesystem::path(m_recents.front()).parent_path().string();
+        }
+        if (!start.empty() && std::filesystem::is_directory(start, ec)) {
+            dialog->set_initial_folder(Gio::File::create_for_path(start));
+            if (auto lg = log::get(log::Area::Shell)) lg->info("open-jots: starting in '{}'", start);
+        }
+    }
     dialog->select_folder(*this,
         [this, dialog](const Glib::RefPtr<Gio::AsyncResult>& result) {
             try {
                 auto dir = dialog->select_folder_finish(result);
                 if (!dir) return;
                 const std::string folder = dir->get_path();
+                if (!folder.empty()) {   // s057b: remember where we looked
+                    m_prefs.open_from = std::filesystem::path(folder).parent_path().string();
+                    core::save_prefs(m_prefs_file, m_prefs);
+                }
                 // An empty folder becomes a jots folder; a jots folder is opened.
                 // There is no separate "new jots folder" verb, because there is no
                 // difference between the two on disk.

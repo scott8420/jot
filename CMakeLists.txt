@@ -122,6 +122,7 @@ add_library(jot_core STATIC
     src/core/DoneWhen.cpp
     src/core/Deadline.cpp    # s055 (J3): work back from the date
     src/core/Errands.cpp     # s056 (J3): the errand run -- todos by place
+    src/core/Routine.cpp     # s057 (J3): a repeating todo's record
     src/core/Gather.cpp
     src/core/Nudge.cpp
     src/core/Zoom.cpp

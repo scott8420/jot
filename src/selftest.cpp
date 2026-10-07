@@ -49,6 +49,8 @@
 #include "core/DoneWhen.hpp"
 #include "core/Deadline.hpp"
 #include "core/Errands.hpp"
+#include "core/Routine.hpp"
+#include "core/Repeat.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -2041,6 +2043,128 @@ int main() {
               runs3.size() == 2 ? core::run_summary(runs3[1]) : "");
         core::MemoryNodes empty;
         check("runs: none -- the line says so", core::runs_summary(empty, core::errand_runs(empty, now)) == "No places yet");
+    }
+
+    // ── s057: routines ─────────────────────────────────────────────────────
+    {
+        std::cout << "\n-- routines (s057) --\n";
+        namespace fs = std::filesystem;
+        std::tm t0{};
+        t0.tm_year = 2026 - 1900; t0.tm_mon = 9; t0.tm_mday = 7; t0.tm_hour = 12; t0.tm_isdst = -1;
+        const auto at = [&](int n, int hour) {
+            std::tm t = t0;
+            t.tm_mday += n; t.tm_hour = hour; t.tm_isdst = -1;
+            return static_cast<std::int64_t>(std::mktime(&t));
+        };
+        std::int64_t clock = at(0, 12);
+        core::MemoryNodes m;
+        m.set_clock([&] { return clock; });
+        const auto w = m.create("", "water the plants");
+        m.make_task(w, true);
+        core::Repeat weekly;
+        core::repeat_parse("weekly", weekly);
+        m.set_repeat(w, weekly);
+        m.set_due(w, at(0, 17));
+
+        auto s = core::routine_state(m, w, clock);
+        check("routine: none recorded yet -- says so, no card word",
+              s.on && s.total == 0 && core::routine_line(s, clock) == "Not done yet" &&
+                  core::routine_short(s).empty());
+        m.set_done(w, true);                       // on its due day
+        check("routine: a tick records the occurrence WITH its due", m.history().size() == 1 &&
+                                                                      m.history()[0].due == at(0, 17));
+        clock = at(9, 12);                         // due day(7): two days late
+        m.set_done(w, true);
+        s = core::routine_state(m, w, clock);
+        check("routine: on time by the due DAY, late counts its days",
+              s.total == 2 && s.recent.size() == 2 && s.recent[0].punct == core::Punct::OnTime &&
+                  s.recent[1].punct == core::Punct::Late && s.recent[1].late_days == 2 && s.on_time == 1 &&
+                  s.known == 2);
+        check("routine: the line -- of the last N on time, last done",
+              core::routine_line(s, clock).rfind("1 of the last 2 on time  ·  last done ", 0) == 0,
+              core::routine_line(s, clock));
+        check("routine: the card's word", core::routine_short(s) == "1 of 2", core::routine_short(s));
+
+        // undo / redo of a repeating tick keep the history honest
+        core::Journal j;
+        core::UndoSource u(j, [&] { return &m; });
+        clock = at(15, 12);
+        const std::int64_t due_before = m.find(w)->task.due;
+        u.set_done(w, true);
+        const std::int64_t due_after = m.find(w)->task.due;
+        check("undo: a repeating tick rolls on and records", m.history().size() == 3 && due_after > due_before);
+        j.undo(m);
+        check("undo: Ctrl+Z puts the date back AND takes the record out",
+              m.find(w)->task.due == due_before && m.history().size() == 2, std::to_string(m.history().size()));
+        j.redo(m);
+        check("redo: the date moves on again and the record comes back",
+              m.find(w)->task.due == due_after && m.history().size() == 3 && m.history().back().due == due_before);
+        j.undo(m);
+        j.redo(m);
+        check("undo/redo again: still exactly one record for it", m.history().size() == 3);
+        m.set_flagged(w, true);
+        check("a plain write to a routine leaves its history alone", m.history().size() == 3);
+
+        // slipped: whole intervals gone by since the due
+        const std::int64_t later = core::repeat_add(due_after, weekly, 2) + 3600;
+        s = core::routine_state(m, w, later);
+        check("routine: two weeks past the due -- 2 missed, slipped",
+              s.missed == 2 && s.slipped() && core::routine_short(s) == "slipped" &&
+                  core::slipped_line(s).rfind("Slipped — 2 missed since ", 0) == 0,
+              core::slipped_line(s));
+        s = core::routine_state(m, w, due_after + 3600);
+        check("routine: late by less than an interval is not slipped", s.missed == 0 && !s.slipped());
+
+        // an old record (no due) is done, not judged
+        const auto old = m.create("", "old habit");
+        m.make_task(old, true);
+        m.set_repeat(old, weekly);
+        auto h = m.history();
+        h.push_back(core::LogRecord{old, "old habit", at(-3, 12), 0});
+        m.set_history(h);
+        s = core::routine_state(m, old, clock);
+        check("routine: a record from before s057 is done, not judged",
+              s.total == 1 && s.known == 0 && s.recent[0].punct == core::Punct::Unknown &&
+                  core::routine_line(s, clock).rfind("Done once", 0) == 0,
+              core::routine_line(s, clock));
+
+        // the list: slipped first; dropped and plain todos out
+        const auto drop = m.create("", "dropped routine");
+        m.make_task(drop, true);
+        m.set_repeat(drop, weekly);
+        core::set_project_state(m, drop, core::ProjectState::Dropped);
+        const auto plain = m.create("", "plain");
+        m.make_task(plain, true);
+        const auto soon = m.create("", "soon");
+        m.make_task(soon, true);
+        m.set_repeat(soon, weekly);
+        m.set_due(soon, core::repeat_add(due_after, weekly, 3));
+        const auto list = core::routine_list(m, later);
+        check("routines: slipped first, then by due, undated last; dropped and plain out",
+              list.size() == 3 && list[0] == w && list[1] == soon && list[2] == old,
+              std::to_string(list.size()));
+        check("look: the card's routine word", core::row_look(m, *m.find(w), later).routine == "slipped");
+
+        const fs::path jd = fs::temp_directory_path() / "jot_selftest_routine.jots";
+        std::error_code ec;
+        fs::remove_all(jd, ec);
+        {
+            core::Project v;
+            v.open(jd.string());
+            const auto x = v.create("", "x");
+            v.make_task(x, true);
+            v.set_repeat(x, weekly);
+            v.set_due(x, at(0, 17));
+            v.set_done(x, true);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(jd.string());
+            check("routine/jots: the record's due survives a reopen",
+                  v.history().size() == 1 && v.history()[0].due == at(0, 17));
+        }
+        fs::remove_all(jd, ec);
     }
 
     // ── s053b: zoom ────────────────────────────────────────────────────────

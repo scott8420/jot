@@ -4,6 +4,7 @@
 #include "widgets/Widgets.hpp"
 
 #include <gtkmm/enums.h>
+#include <algorithm>
 
 namespace jot {
 namespace {
@@ -34,6 +35,7 @@ Gtk::Widget* task_card(core::NodeSource& src, const core::Node& n, std::int64_t 
                                                  Gtk::Orientation::HORIZONTAL, 10);
     card->add_css_class("jot-card");
     card->add_css_class(st);
+    pickable(*card, id);   // s057b
     if (opts.dim) card->add_css_class("jot-card-dim");
 
     auto* tick = Gtk::make_managed<widgets::CheckButton>(widgets::unregistered,
@@ -91,7 +93,8 @@ Gtk::Widget* task_card(core::NodeSource& src, const core::Node& n, std::int64_t 
     if (!look.done_when.empty()) add("\u2611 " + look.done_when);   // s054: done-when's count
     if (!look.runway.empty())    add("\u23f3 " + look.runway);      // s055: the deadline's runway
     if (!look.estimate.empty()) add("⏱ " + look.estimate);
-    if (!look.repeat.empty())   add("↻ " + look.repeat);
+    if (!look.repeat.empty())                                        // s057: and its record
+        add("↻ " + look.repeat + (look.routine.empty() ? std::string{} : "  ·  " + look.routine));
 
     const bool want_project = opts.show_project && !look.project.empty();
     if (want_project || !meta.empty()) {
@@ -131,5 +134,62 @@ Gtk::Widget* task_card(core::NodeSource& src, const core::Node& n, std::int64_t 
     card->append(*go);
     return card;
 }
+
+// s057: the routine's dots (see TaskCard.hpp).
+Gtk::Widget* routine_dots(const core::RoutineState& s, const std::string& name) {
+    auto* row = Gtk::make_managed<widgets::Box>(widgets::unregistered, name + ".dots",
+                                                Gtk::Orientation::HORIZONTAL, 2);
+    row->add_css_class("jot-dots");
+    int i = 0;
+    for (const auto& o : s.recent) {
+        auto* d = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                    name + ".dot." + std::to_string(i++));
+        d->set_text("\u25cf");
+        d->add_css_class(std::string("jot-dot-") + core::punct_word(o.punct));
+        std::string tip = core::format_date(o.when).substr(0, 10);
+        if (o.punct == core::Punct::OnTime) tip += " \u2014 on time";
+        else if (o.punct == core::Punct::Late)
+            tip += " \u2014 " + std::to_string(o.late_days) + (o.late_days == 1 ? " day late" : " days late");
+        else tip += " \u2014 done";
+        d->set_tooltip_text(tip);
+        row->append(*d);
+    }
+    for (int k = 0; k < std::min(s.missed, 5); ++k) {
+        auto* d = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                    name + ".miss." + std::to_string(k));
+        d->set_text("\u25cb");
+        d->add_css_class("jot-dot-missed");
+        d->set_tooltip_text("Missed");
+        row->append(*d);
+    }
+    return row;
+}
+
+// s057b: the note on show, marked in every list (see TaskCard.hpp).
+namespace {
+core::NodeId g_current;
+bool names_note(const Gtk::Widget& w, const core::NodeId& id) {
+    if (id.empty()) return false;
+    const std::string name = w.get_name();
+    const std::string tail = "." + id;
+    return name.size() > tail.size() && name.compare(name.size() - tail.size(), tail.size(), tail) == 0;
+}
+void walk(Gtk::Widget& w) {
+    if (w.has_css_class("jot-pickable")) {
+        if (names_note(w, g_current)) w.add_css_class("jot-current");
+        else w.remove_css_class("jot-current");
+    }
+    for (auto* c = w.get_first_child(); c; c = c->get_next_sibling()) walk(*c);
+}
+}  // namespace
+
+void set_current_note(const core::NodeId& id) { g_current = id; }
+
+void pickable(Gtk::Widget& w, const core::NodeId& id) {
+    w.add_css_class("jot-pickable");
+    if (!id.empty() && id == g_current) w.add_css_class("jot-current");
+}
+
+void mark_current(Gtk::Widget& root) { walk(root); }
 
 }  // namespace jot

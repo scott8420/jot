@@ -267,6 +267,7 @@ Gtk::Widget* TagsPane::note_row(const core::Node& n) {
     go->set_hexpand(true);
     go->set_child(*text);
     go->signal_clicked().connect([this, id]() { m_sig_goto.emit(id); });
+    pickable(*go, id);   // s057b
     return go;
 }
 

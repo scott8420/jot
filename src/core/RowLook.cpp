@@ -1,5 +1,6 @@
 #include "core/RowLook.hpp"
 #include "core/Deadline.hpp"
+#include "core/Routine.hpp"
 #include "core/DoneWhen.hpp"
 #include "core/Repeat.hpp"
 #include "core/Tasks.hpp"
@@ -79,7 +80,10 @@ RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now) {
     r.due_inherited = due != 0 && due != n.task.due;
     r.flagged       = effective_flagged(src, n.id);
     if (n.task.estimate > 0) r.estimate = format_estimate(n.task.estimate);
-    if (n.task.repeat.on())  r.repeat   = repeat_text(n.task.repeat);
+    if (n.task.repeat.on()) {
+        r.repeat  = repeat_text(n.task.repeat);
+        r.routine = routine_short(routine_state(src, n.id, now));   // s057
+    }
     if (!n.task.done) {                                   // s054
         const DoneState ds = done_state(src, n.id);
         r.done_when = done_count(ds);

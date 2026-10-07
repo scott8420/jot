@@ -111,6 +111,10 @@ std::string sheet(bool dark) {
     c += ".jot-tree row:selected { background-color: alpha(" + accent + ", 0.20); }\n";
     c += ".jot-tree row:selected:hover { background-color: alpha(" + accent + ", 0.26); }\n";
     c += ".jot-tree row:selected .jot-tree-card { background-color: alpha(" + accent + ", 0.06); }\n";
+    // s057b: the note on show, in every other list -- the same accent tint as
+    // the tree's selection, and a thin ring so a card's own colour still reads.
+    c += ".jot-pickable.jot-current { background-color: alpha(" + accent + ", 0.20); "
+         "box-shadow: inset 0 0 0 1px alpha(" + accent + ", 0.55); border-radius: 8px; }\n";
     // s050b: and the keyboard ring, or a chosen orange wears a blue outline.
     c += ".jot-tree row:focus-visible { outline-color: alpha(" + accent + ", 0.8); }\n";
     // The side pane a shade off the editor -- a Mac source list. A tint of
@@ -133,6 +137,13 @@ std::string sheet(bool dark) {
     // s055: a deadline's mark and its pace line -- quiet on track, the
     // today colour when running short, the late colour when late.
     c += std::string(".jot-pace-short { color: ") + p.today + "; }\n";
+    // s057: a routine's dots -- on time green, late the today orange, done
+    // with no due grey, missed a red ring.
+    c += std::string(".jot-dot-ontime { color: ") + p.done + "; }\n";
+    c += std::string(".jot-dot-late { color: ") + p.today + "; }\n";
+    c += ".jot-dot-unknown { color: alpha(currentColor, 0.45); }\n";
+    c += std::string(".jot-dot-missed { color: ") + p.overdue + "; }\n";
+    c += ".jot-dots label { font-size: 9pt; }\n";
     c += std::string(".jot-pace-late { color: ") + p.overdue + "; }\n";
     c += std::string(".jot-pace-ready { color: ") + p.done + "; }\n";
     c += std::string(".jot-due.jot-pace-short { background-color: alpha(") + p.today + ", 0.16); }\n";

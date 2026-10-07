@@ -107,6 +107,7 @@ Gtk::Widget* SearchPane::hit_row(const core::SearchHit& h) {
     const core::NodeId id = h.id;
     const int at = h.cp_start, len = h.cp_len;
     go->signal_clicked().connect([this, id, at, len]() { m_sig_open.emit(id, at, len); });
+    pickable(*go, id);   // s057b
     go->set_hexpand(true);
     go->add_css_class("jot-card-go");
     // s043: a note hit wears the card shape with a quiet edge.

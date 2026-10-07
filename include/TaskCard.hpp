@@ -1,5 +1,6 @@
 #pragma once
 #include "core/Nodes.hpp"
+#include "core/Routine.hpp"
 
 #include <gtkmm/widget.h>
 
@@ -33,5 +34,21 @@ struct CardOpts {
 Gtk::Widget* task_card(core::NodeSource& src, const core::Node& n, std::int64_t now,
                        const CardOpts& opts,
                        std::function<void(const core::NodeId&)> on_open);
+
+// s057: a routine's track record as a row of dots, oldest left: green ● on
+// time, orange ● late, grey ● done (no due to judge by), then a red ○ for each
+// occurrence missed since the current due (up to five). Each dot's tooltip
+// says which day and how it went. `name` prefixes the widget names.
+// s057b (Scott: "the metadata changes for the item but the item does not
+// visually look selected"). The note ON SHOW is marked in every list, not
+// only the tree: a row or card made with pickable() carries `jot-current`
+// while its note is the one in the editor and Note details. The id is kept
+// here so a list rebuilt later marks it as it is built; mark_current() walks
+// a list already on screen.
+void set_current_note(const core::NodeId& id);
+void pickable(Gtk::Widget& w, const core::NodeId& id);   // its name must end ".<id>"
+void mark_current(Gtk::Widget& root);
+
+Gtk::Widget* routine_dots(const core::RoutineState& s, const std::string& name);
 
 }  // namespace jot

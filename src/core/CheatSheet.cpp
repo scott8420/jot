@@ -205,6 +205,10 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Active, On hold, then Completed and Dropped folded at the foot. A project is a note "
          "with todos directly under it."},
 
+        {"Projects", "", "Projects tab \u203a Routines", "Everything that repeats, and how regularly",
+         "Slipped ones first (\u201c2 missed since Sun 20 Sep\u201d, in red), then by the next due. Each "
+         "has its last ten as dots -- green on time, orange late, a red ring for each missed -- and "
+         "\u201c4 of the last 5 on time\u201d. The same record sits under Repeat in Note details."},
         // ── Done when (s054) ────────────────────────────────────────────────
         {"Projects", "", "Note details \u203a Done when: Every item is in / Every step is done",
          "Say what finished means for a todo or project",

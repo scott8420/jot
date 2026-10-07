@@ -50,6 +50,9 @@ struct RowLook {
     // Both "" when the node is not a deadline or is finished.
     std::string runway;
     std::string pace;
+    // s057: a routine's word for the card -- "9 of 10" (on time, of the last
+    // judged) or "slipped"; "" when it does not repeat or has no record yet.
+    std::string routine;
 };
 
 RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now);

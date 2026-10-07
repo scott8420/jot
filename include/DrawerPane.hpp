@@ -233,6 +233,7 @@ private:
     void fill_packet(const core::Node& n);   // s044
     void fill_done_when(const core::Node& n);   // s054: the count + rows when it is not a packet
     void fill_deadline(const core::Node& n);    // s055
+    void fill_routine(const core::Node& n);     // s057
     void fill_backlinks(const core::Node& n);
     void fill_tags(const core::Node& n);
     void fill_structure(const core::Node& n);
@@ -309,6 +310,7 @@ private:
     widgets::Label       m_repeat_label;
     widgets::Entry       m_repeat;
     widgets::CheckButton m_repeat_done;     // count from when it is done, not from the due date
+    widgets::Box         m_routine;         // s057: the record -- dots, the line, slipped
     widgets::Box         m_est_row;         // s040: how long it takes
     widgets::Label       m_est_label;
     widgets::Entry       m_est;
