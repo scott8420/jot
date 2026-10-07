@@ -396,6 +396,7 @@ private:
     bool m_inbox_refresh_queued  = false;   // s028
     sigc::connection m_projects_refresh;     // s037
     sigc::connection m_search_refresh;       // s038
+    sigc::connection m_errands_refresh;      // s056: Today › Errands reads tags out of bodies
     sigc::connection m_tags_refresh;         // s035: the debounce; tags live in bodies, so keystrokes count
 
     // Which nodes are todos, in document order. Owned here for the same reason

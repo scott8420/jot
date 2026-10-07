@@ -48,6 +48,7 @@
 #include "core/Zoom.hpp"
 #include "core/DoneWhen.hpp"
 #include "core/Deadline.hpp"
+#include "core/Errands.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1951,6 +1952,95 @@ int main() {
                   v.find(x) && v.find(x)->task.deadline && v.find(y) && !v.find(y)->task.deadline);
         }
         fs::remove_all(jd, ec);
+    }
+
+    // ── s056: errand runs ──────────────────────────────────────────────────
+    {
+        std::cout << "\n-- errands (s056) --\n";
+        std::tm t0{};
+        t0.tm_year = 2026 - 1900; t0.tm_mon = 9; t0.tm_mday = 7; t0.tm_hour = 12; t0.tm_isdst = -1;
+        const std::int64_t now = static_cast<std::int64_t>(std::mktime(&t0));
+        const auto day = [&](int n) {
+            std::tm t = t0;
+            t.tm_mday += n; t.tm_hour = 17; t.tm_isdst = -1;
+            return static_cast<std::int64_t>(std::mktime(&t));
+        };
+        check("place: under at/ only",
+              core::is_place_key("at/town") && core::is_place_key("at/town/bank") &&
+                  !core::is_place_key("at") && !core::is_place_key("attic") &&
+                  !core::is_place_key("home/at/x") && !core::is_place_key("at/"));
+
+        core::MemoryNodes m;
+        const auto todo = [&](const char* title, const char* body) {
+            const auto id = m.create("", title);
+            m.make_task(id, true);
+            m.set_body(id, body);
+            return id;
+        };
+        const auto stamps = todo("stamps", "#at/Town\n");
+        const auto cash   = todo("pay in a cheque", "#at/town/bank\n");
+        const auto bulbs  = todo("bulbs", "#at/hardware-store #at/town\n");
+        const auto later  = todo("pick up glasses", "#at/town\n");
+        const auto done   = todo("library book", "#at/town\n");
+        const auto screws = todo("screws", "#at/hardware-store\n");
+        const auto home   = todo("not an errand", "#home\n");
+        const auto note   = m.create("", "a note about town");
+        m.set_body(note, "#at/town\n");
+        m.set_estimate(stamps, 10);
+        m.set_estimate(cash, 15);
+        m.set_due(cash, day(2));
+        m.set_due(bulbs, day(-1));
+        m.set_due(screws, day(20));
+        m.set_defer(later, day(3));
+        m.set_done(done, true);
+        (void)home;
+
+        const auto runs = core::errand_runs(m, now);
+        check("runs: one per place, nested rolled up, no note, no done, a #home todo nowhere",
+              runs.size() == 2, std::to_string(runs.size()));
+        const core::ErrandRun* town = nullptr;
+        const core::ErrandRun* hw = nullptr;
+        for (const auto& r : runs) {
+            if (r.key == "at/town") town = &r;
+            if (r.key == "at/hardware-store") hw = &r;
+        }
+        check("runs: the name as written, capitalised, dashes as spaces",
+              town && hw && town->name == "Town" && hw->name == "Hardware store",
+              town ? town->name : "");
+        check("runs: Town -- soonest due first, the sub-place kept, deferred counted later",
+              town && town->errands.size() == 3 && town->errands[0].id == bulbs &&
+                  town->errands[1].id == cash && town->errands[1].sub == "bank" &&
+                  town->errands[2].id == stamps && town->later == 1);
+        check("runs: Town adds up -- 25m, 1 not sized, 1 late, 1 due this week",
+              town && town->minutes == 25 && town->unsized == 1 && town->late == 1 && town->week == 1);
+        check("runs: the summary's words",
+              town && core::run_summary(*town) ==
+                          "3 errands  ·  ~25m (1 not sized)  ·  1 late  ·  1 due this week  ·  1 later",
+              town ? core::run_summary(*town) : "");
+        check("runs: a todo with two places is an errand in both",
+              hw && hw->errands.size() == 2 && hw->errands[0].id == bulbs && hw->errands[1].id == screws);
+        check("runs: the run with the soonest due comes first", runs[0].key == "at/hardware-store" ||
+                                                                    runs[0].key == "at/town");
+        check("runs: the view's line counts a two-place errand once",
+              core::runs_summary(m, runs) == "2 places  ·  4 errands  ·  ~25m", core::runs_summary(m, runs));
+        check("runs: a two-place errand says the other place on each",
+              town && hw && town->errands[0].also == "Hardware store" && hw->errands[0].also == "Town" &&
+                  hw->errands[1].also.empty());
+
+        m.set_due(bulbs, 0);
+        const auto runs2 = core::errand_runs(m, now);
+        check("runs: order follows the soonest due -- Town (due in 2 days) before the store (20)",
+              runs2.size() == 2 && runs2[0].key == "at/town" && runs2[1].key == "at/hardware-store");
+        m.set_done(cash, true);
+        m.set_done(stamps, true);
+        m.set_done(bulbs, true);
+        const auto runs3 = core::errand_runs(m, now);
+        check("runs: a place with nothing doable yet goes last and says so",
+              runs3.size() == 2 && runs3[1].key == "at/town" && runs3[1].errands.empty() &&
+                  core::run_summary(runs3[1]) == "Nothing to do there yet  ·  1 later",
+              runs3.size() == 2 ? core::run_summary(runs3[1]) : "");
+        core::MemoryNodes empty;
+        check("runs: none -- the line says so", core::runs_summary(empty, core::errand_runs(empty, now)) == "No places yet");
     }
 
     // ── s053b: zoom ────────────────────────────────────────────────────────

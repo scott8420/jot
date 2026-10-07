@@ -2,6 +2,7 @@
 #include "TaskCard.hpp"
 #include "core/RowLook.hpp"
 #include "core/Deadline.hpp"
+#include "core/Errands.hpp"
 #include "Log.hpp"
 
 #include <gtkmm/cssprovider.h>
@@ -71,6 +72,7 @@ TodayPane::TodayPane(std::string_view name)
       m_b_flagged("today.filter_flagged"),
       m_b_logbook("today.filter_logbook"),
       m_b_forecast("today.filter_forecast"),
+      m_b_errands("today.filter_errands"),
       m_day_strip("today.day_strip", Gtk::Orientation::HORIZONTAL, 0),
       m_scroll("today.scroll"),
       m_column("today.column", Gtk::Orientation::VERTICAL, 14),
@@ -235,6 +237,8 @@ void TodayPane::build_filter_bar() {
          "Logbook \u2014 what got done, newest first, by day"},
         {&m_b_forecast,  "jot-view-forecast-symbolic",  View::Forecast,
          "Forecast \u2014 the days ahead: what is due, and what starts (its defer runs out), day by day"},
+        {&m_b_errands,   "jot-view-errands-symbolic",   View::Errands,
+         "Errands \u2014 todos by place: tag one #at/town and it joins the Town run, its time added up"},
     };
     for (auto& s : spec) {
         s.b->set_icon_name(s.icon);
@@ -262,6 +266,7 @@ void TodayPane::set_view(View v) {
     m_b_flagged.set_active(v == View::Flagged);
     m_b_logbook.set_active(v == View::Logbook);
     m_b_forecast.set_active(v == View::Forecast);
+    m_b_errands.set_active(v == View::Errands);
     m_day_strip.set_visible(v == View::Forecast);
     m_switching = false;
     refresh();
@@ -380,6 +385,7 @@ void TodayPane::refresh() {
         return;
     }
     if (m_view == View::Forecast) { fill_forecast(now); return; }  // s039: pins Overdue itself
+    if (m_view == View::Errands)  { fill_errands(now); return; }   // s056: by place, no pin
 
     core::Filter f = core::Filter::Today;
     if (m_view == View::Available) f = core::Filter::Available;
@@ -450,6 +456,7 @@ void TodayPane::refresh() {
                 break;
             case View::Logbook: break;   // fill_logbook says its own
             case View::Forecast: break;  // fill_forecast says its own
+            case View::Errands:  break;  // fill_errands says its own
         }
         m_empty.set_visible(true);
     }
@@ -761,6 +768,64 @@ void TodayPane::fill_forecast(std::int64_t now) {
     if (auto lg = log::get(log::Area::Drawer))
         lg->debug("today: forecast pick={} overdue={} later_days={}", m_day_pick, overdue.size(),
                   f.later.size());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// s056 (J3): Errands -- one group per PLACE (#at/town), the trip's errands
+// under it, soonest due first. The head of each place says what the trip adds
+// up to, so the choice of trip is made from the headings alone.
+// No Overdue pin here: a late errand is in its place's run, and its run says
+// "1 late" -- moving it out would split the trip.
+// ─────────────────────────────────────────────────────────────────────────────
+void TodayPane::fill_errands(std::int64_t now) {
+    const auto runs = core::errand_runs(*m_src, now);
+    set_head("Errands", core::runs_summary(*m_src, runs));
+    if (runs.empty()) {
+        m_empty.set_text("No errands yet.\n\n"
+                         "Give a todo a place tag \u2014 #at/town, #at/hardware-store \u2014 "
+                         "and it joins that place's run here, with the time added up. "
+                         "#at/town/bank goes on the Town run.");
+        m_empty.set_visible(true);
+        return;
+    }
+    for (const auto& r : runs) {
+        auto* group = Gtk::make_managed<widgets::Box>(widgets::unregistered, "today.run." + r.key,
+                                                      Gtk::Orientation::VERTICAL, 4);
+        auto* head = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                       "today.run_head." + r.key);
+        head->set_text(r.name);
+        head->set_xalign(0.0f);
+        head->add_css_class("heading");
+        head->set_tooltip_text("#" + r.key);
+        group->append(*head);
+        auto* sub = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                      "today.run_sum." + r.key);
+        sub->set_text(core::run_summary(r));
+        sub->set_xalign(0.0f);
+        sub->set_wrap(true);
+        sub->add_css_class("caption");
+        sub->add_css_class(r.late > 0 ? "jot-pace-late" : r.week > 0 ? "jot-pace-short" : "dim-label");
+        group->append(*sub);
+        for (const auto& e : r.errands) {
+            const core::Node* n = m_src->find(e.id);
+            if (!n) continue;
+            CardOpts o;
+            o.prefix       = "today.run." + r.key;
+            o.show_project = true;
+            // "bank" -- where in town; "also Hardware store" -- the other trip
+            // that would do; neither keeps the state word.
+            o.note = e.sub;
+            if (!e.also.empty()) o.note += (o.note.empty() ? "" : "  \u00b7  ") + std::string("also ") + e.also;
+            group->append(*task_card(*m_src, *n, now, o,
+                                     [this](const core::NodeId& id) { m_sig_goto.emit(id); }));
+        }
+        m_column.append(*group);
+    }
+    if (auto lg = log::get(log::Area::Drawer)) {
+        std::string line;
+        for (const auto& r : runs) line += (line.empty() ? "" : " | ") + r.name + ": " + core::run_summary(r);
+        lg->info("errands: {}", line);
+    }
 }
 
 }  // namespace jot

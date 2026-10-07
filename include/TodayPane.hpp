@@ -48,6 +48,9 @@ public:
 
     void set_source(core::NodeSource* src, const core::TaskIndex* tasks);
     void refresh();
+    // s056: Errands reads TAGS, which live in the text -- the one view a
+    // text change can reshape. The Shell asks before re-reading on a keystroke.
+    bool reads_text() const { return m_view == View::Errands; }
 
     // ── the footer: three REPORTS (s009, s011, s012; reshaped s016a) ───────
     // Each of these features happens in another process -- the calendar
@@ -77,7 +80,9 @@ private:
     // a fifth tab because it is still a report over the same nodes.
     // s039: Forecast -- the days ahead, due and starting. A fifth button, not
     // a sixth tab, for the Logbook's reason: a report over the same todos.
-    enum class View { Today, Available, Flagged, Logbook, Forecast };
+    // s056: Errands -- the todos bunched by place (#at/...), a sixth button for
+    // the same reason: one more lens over the same todos.
+    enum class View { Today, Available, Flagged, Logbook, Forecast, Errands };
 
     void build_filter_bar();
     void build_desktop_bar();
@@ -90,6 +95,7 @@ private:
     void         fill_logbook(std::int64_t now);
     void         build_day_strip();                 // s039
     void         fill_forecast(std::int64_t now);   // s039
+    void         fill_errands(std::int64_t now);    // s056
     void         add_day_rows(const std::string& key, const std::string& head,
                               const core::ForecastDay& d);
     void set_view(View v);
@@ -99,7 +105,7 @@ private:
     View                   m_view  = View::Today;
 
     widgets::Box            m_filter_bar;
-    widgets::ToggleButton   m_b_today, m_b_available, m_b_flagged, m_b_logbook, m_b_forecast;
+    widgets::ToggleButton   m_b_today, m_b_available, m_b_flagged, m_b_logbook, m_b_forecast, m_b_errands;
     // s039: the Forecast's strip -- today, the six days after it, and Later.
     // Built once and relabelled on each refresh, so a click never destroys the
     // button it came from. Shown only in the Forecast view.

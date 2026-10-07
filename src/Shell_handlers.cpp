@@ -689,6 +689,16 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
     // s035: tags are in bodies, so every change counts -- debounced, and only
     // while the Tags view is the one showing.
     queue_tags_refresh();
+    // s056: so does Today › Errands (a place is a tag) -- same debounce, only
+    // while it is the view on show. Other changes already refresh Today.
+    if (what == C::Body && m_today && m_today->reads_text() &&
+        m_left_stack.get_visible_child_name() == "today") {
+        m_errands_refresh.disconnect();
+        m_errands_refresh = Glib::signal_timeout().connect([this]() {
+            if (m_today) m_today->refresh();
+            return false;
+        }, 400);
+    }
     // s037: a tick, a move, a state, a new child -- not a keystroke.
     if (what != C::Body) queue_projects_refresh();
     queue_search_refresh();   // s038: a word typed can make or break a match

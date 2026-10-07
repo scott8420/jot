@@ -244,6 +244,10 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Today", "", "Today tab", "What you can actually do now",
          "Today: due by tonight, plus flagged. Available: everything not blocked or "
          "deferred. Flagged: all flagged."},
+        {"Today", "", "Today tab \u203a Errands (the pin)", "Errands by place, one trip at a time",
+         "Tag a todo with a place under #at/ -- #at/town, #at/hardware-store -- and it joins that "
+         "place's run: \u201cTown \u00b7 4 errands \u00b7 ~1h 20m \u00b7 2 due this week\u201d, soonest "
+         "due first. #at/town/bank is on the Town run (its card says \u201cbank\u201d)."},
         {"Today", "", "Today tab › Logbook", "What got done, newest first, by day",
          "Ticked todos, and projects Completed or Dropped, with the time. Untick one there "
          "and it goes back."},
