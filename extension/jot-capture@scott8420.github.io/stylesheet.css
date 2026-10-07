@@ -1,0 +1,21 @@
+/* Jot Capture -- the quick-settings tile's menu. */
+
+.jot-capture-item {
+    padding: 4px 8px;
+}
+
+.jot-capture-entry {
+    min-width: 260px;
+    padding: 8px 12px;
+    border-radius: 12px;
+}
+
+.jot-capture-status {
+    padding: 2px 14px 6px 14px;
+    font-size: 0.9em;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.jot-capture-status.jot-capture-error {
+    color: #ff7b63;
+}

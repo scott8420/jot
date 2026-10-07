@@ -91,6 +91,22 @@ from a script or a keybinding should not throw a window in front of
 whatever you are doing. Without text there is nothing to file, so the
 only sensible reading is "let me type", and that does raise it.
 
+### A tile in quick settings
+
+```sh
+./install-extension.sh      # once; then log out and back in
+```
+
+puts a **Jot** tile in GNOME's quick settings panel (top-right). Its ›
+opens a line with the cursor in it: type, press **Enter**, and the
+thought is in the Inbox; the line clears for the next one and says what
+jot said ("Filed to the Inbox." or, with jot closed, "Filed. jot will
+pick it up next time it opens."). **Open jot** sits under it.
+
+The tile files nothing itself: every Enter is `jot --capture "text"`,
+run with the binary the desktop entry names (`install-desktop.sh`, which
+the script runs first if it has to). `--uninstall` takes it out.
+
 ### A global key for it
 
 **Preferences → Capture → Global capture shortcut → Set…**, then press

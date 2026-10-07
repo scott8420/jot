@@ -1035,11 +1035,11 @@ void Shell::queue_drawer_refresh() {  // helper: one index update + repaint per 
 // is the real feedback -- but in full-focus mode both side panes are hidden and
 // nothing would show at all, so the placeholder says what landed.
 // ─────────────────────────────────────────────────────────────────────────────
-void Shell::capture(const std::string& text) {  // helper: text -> an unfiled note
-    if (!m_store) return;
+bool Shell::capture(const std::string& text) {  // helper: text -> an unfiled note
+    if (!m_store) return false;
     core::NodeId id;
     core::as_step(m_undo, "Capture", {}, false, [&] { id = core::capture(m_undo, text); });   // s046b
-    if (id.empty()) return;
+    if (id.empty()) return false;
 
     if (const core::Node* n = m_store->find(id)) {
         std::string tell = n->title;
@@ -1054,6 +1054,7 @@ void Shell::capture(const std::string& text) {  // helper: text -> an unfiled no
 
     if (auto lg = log::get(log::Area::Model))
         lg->info("capture: '{}' -> {}", text.size() > 40 ? text.substr(0, 40) + "..." : text, id);
+    return true;
 }
 
 std::string Shell::capture_list(const std::string& name,

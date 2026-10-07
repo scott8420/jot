@@ -1,0 +1,8 @@
+{
+  "uuid": "jot-capture@scott8420.github.io",
+  "name": "Jot Capture",
+  "description": "A Jot tile in quick settings: type a thought, press Enter, and it lands in jot's Inbox. Calls `jot --capture`.",
+  "shell-version": ["45", "46", "47", "48", "49"],
+  "url": "https://github.com/scott8420/jot",
+  "version": 1
+}

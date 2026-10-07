@@ -98,7 +98,9 @@ public:
     // the editor, and does not present the window. Capture that costs you the
     // place you were working in is capture you stop using mid-thought, which is
     // the only time it matters.
-    void capture(const std::string& text);       // category: helper: text -> an unfiled note
+    // s061: false when nothing took it (no jots folder open) -- the caller
+    // spools it rather than losing it.
+    bool capture(const std::string& text);       // category: helper: text -> an unfiled note
     // s025c: `jot --list NAME items...` -- task lines on the note NAME, grown if
     // it exists, made if not (core::capture_list). Returns the tell the
     // terminal prints: "Added 3 items to Groceries." / empty if nothing done.

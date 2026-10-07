@@ -72,6 +72,9 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Set it in Preferences › Capture › Global capture shortcut."},
         {"Capture", "", "jot --capture \"text\"", "Capture from a terminal or a script",
          "With jot closed it is kept and filed the next time jot opens."},
+        {"Capture", "", "Jot tile", "Capture from GNOME's quick settings panel",
+         "The › on the Jot tile opens a line: type, Enter, the next one. "
+         "Install once with ./install-extension.sh."},
 
         // ── Inbox ───────────────────────────────────────────────────────────
         {"Inbox", "", "Inbox tab", "Everything captured and not dealt with yet",

@@ -238,7 +238,17 @@ int App::on_command_line(const Glib::RefPtr<Gio::ApplicationCommandLine>& cmd) {
     if (r.text.empty()) {
         m_shell->focus_capture_bar();
     } else {
-        m_shell->capture(r.text);
+        // s061: the warm path answers too -- the quick-settings tile reads this
+        // line. A jot running with no folder open has no Inbox: the capture is
+        // spooled, and the next folder opened takes it, rather than dropped.
+        if (m_shell->capture(r.text)) {
+            cmd->print("Filed to the Inbox.\n");
+        } else if (file_pending(r.text)) {
+            cmd->print("Filed. jot will pick it up when a jots folder is open.\n");
+        } else {
+            cmd->printerr("jot: no jots folder open and the pending folder could not be written.\n");
+            return 1;
+        }
         if (auto lg = log::get(log::Area::App)) lg->info("captured from the command line");
     }
     return 0;
