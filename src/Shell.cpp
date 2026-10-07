@@ -1,6 +1,7 @@
 #include "Shell.hpp"
 #include "Appearance.hpp"
 #include "AboutWindow.hpp"      // complete type for ~unique_ptr<AboutWindow> in ~Shell()
+#include "TimelinePane.hpp"     // complete type for ~unique_ptr<TimelinePane>
 #include "CheatSheetWindow.hpp"  // s030 -- same singleton shape, same dtor requirement
 #include "ShortcutsDialog.hpp"  // ditto -- same singleton shape, same dtor requirement
 #include "PreferencesWindow.hpp" // ditto (s014)
@@ -60,7 +61,9 @@ Shell::Shell()
       m_drawer_toggle("shell.drawer_toggle"),
       m_mode_source("shell.mode_source"),
       m_mode_live("shell.mode_live"),
-      m_mode_reading("shell.mode_reading") {
+      m_mode_reading("shell.mode_reading"),
+      m_center("shell.center"),
+      m_mode_timeline("shell.mode_timeline") {
     set_name("shell.window");
     m_tree   = std::make_unique<TreePane>("shell.tree");
     m_editor = std::make_unique<EditorPane>("shell.editor");
@@ -70,6 +73,7 @@ Shell::Shell()
     m_tags   = std::make_unique<TagsPane>("shell.tags");
     m_projects = std::make_unique<ProjectsPane>("shell.projects");   // s037
     m_search   = std::make_unique<SearchPane>("shell.search");       // s038
+    m_timeline = std::make_unique<TimelinePane>("shell.timeline");   // s059
 }
 
 Shell::~Shell() = default;
@@ -127,6 +131,7 @@ void Shell::build_ui() {
     m_tags->set_source(&m_undo);   // s035
     m_projects->set_source(&m_undo);   // s037
     m_search->set_source(&m_undo);     // s038
+    m_timeline->set_source(&m_undo);   // s059
     m_search->set_perspectives(&m_prefs.perspectives);   // s038b: the summary names a saved view
     queue_inbox_refresh();   // the tab's count and Clean Up's greying
 

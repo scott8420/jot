@@ -78,6 +78,7 @@ class InboxPane;
 class TagsPane;
 class ProjectsPane;
 class SearchPane;
+class TimelinePane;
 class PerspectiveDialog;
 
 class Shell : public Gtk::ApplicationWindow {
@@ -223,6 +224,8 @@ private:
     void on_toggle_reading();                    // category: handler: s021 Source <-> Reading
     void on_toggle_live();                       // category: handler: s022 Live Preview on/off
     void on_view_mode(const Glib::ustring& m);   // category: handler: s034 Source | Live | Reading, the joined control
+    void on_toggle_timeline();                   // category: handler: s059 Ctrl+Shift+L -- the timeline in the note's place, or back
+    void queue_timeline_refresh();               // category: helper: s059 the timeline follows the model, debounced, only while showing
     void build_view_modes(Gtk::HeaderBar& header);  // category: zone: s034 the three-way view control
     void on_import_markdown();                   // category: handler: s021b Notes -> Import Markdown Files...
     void on_import_folder();                     // category: handler: s021c Notes -> Import Markdown Folder...
@@ -367,6 +370,10 @@ private:
     std::unique_ptr<TagsPane>   m_tags;       // s035
     std::unique_ptr<ProjectsPane> m_projects; // s037
     std::unique_ptr<SearchPane> m_search;     // s038
+    std::unique_ptr<TimelinePane> m_timeline; // s059: the centre's other view
+    widgets::Stack              m_center;     // s059: "note" (the editor) | "timeline"
+    bool                        m_timeline_on = false;   // s059: not kept -- jot opens on the note
+    sigc::connection            m_timeline_refresh;      // s059
 
     // The two toggles. BOTH OFF is the focus mode -- the note alone on screen,
     // which is the front door ARCHITECTURE describes. They are held so
@@ -379,6 +386,7 @@ private:
     widgets::ToggleButton m_mode_source;
     widgets::ToggleButton m_mode_live;
     widgets::ToggleButton m_mode_reading;
+    widgets::ToggleButton m_mode_timeline;   // s059: the fourth -- the centre shows the timeline
     bool m_applying_layout = false;
 
     // Layout state, persisted. A pane you can hide has to come back the way you

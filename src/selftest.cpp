@@ -51,6 +51,7 @@
 #include "core/Errands.hpp"
 #include "core/Routine.hpp"
 #include "core/Feeders.hpp"
+#include "core/Timeline.hpp"
 #include "core/Repeat.hpp"
 
 #include <algorithm>
@@ -2166,6 +2167,130 @@ int main() {
                   v.history().size() == 1 && v.history()[0].due == at(0, 17));
         }
         fs::remove_all(jd, ec);
+    }
+
+    // ── s059: the timeline ─────────────────────────────────────────────────
+    {
+        std::cout << "\n-- timeline (s059) --\n";
+        std::tm t0{};
+        t0.tm_year = 2026 - 1900; t0.tm_mon = 9; t0.tm_mday = 7; t0.tm_hour = 12; t0.tm_isdst = -1;
+        const std::int64_t now = static_cast<std::int64_t>(std::mktime(&t0));
+        const auto day = [&](int n) {
+            std::tm t = t0;
+            t.tm_mday += n; t.tm_hour = 17; t.tm_isdst = -1;
+            return static_cast<std::int64_t>(std::mktime(&t));
+        };
+        std::int64_t clock = day(-3);
+        core::MemoryNodes m;
+        m.set_clock([&] { return clock; });
+        const auto move = m.create("", "Move house");          // a project, due in 9 days
+        core::set_project_mark(m, move, core::ProjectMark::On);
+        m.make_task(move, true);
+        m.set_due(move, day(9));
+        const auto van  = m.create(move, "book the van");       // undated: rides in Move house
+        m.make_task(van, true);
+        const auto keys = m.create(move, "hand back keys");     // its own due: its own day
+        m.make_task(keys, true);
+        m.set_due(keys, day(10));
+        const auto late = m.create("", "renew licence");        // late
+        m.make_task(late, true);
+        m.set_due(late, day(-2));
+        const auto paint = m.create("", "paint the fence");     // undated, no carrier: someday
+        m.make_task(paint, true);
+        const auto seeds = m.create("", "plant seeds");         // starts in 4 days
+        m.make_task(seeds, true);
+        m.set_defer(seeds, day(4));
+        clock = now;
+        const auto ticked = m.create("", "post the letter");    // done today
+        m.make_task(ticked, true);
+        m.set_done(ticked, true);
+        const auto idea = m.create("", "garden ideas");         // a note, made today
+        const auto gone = m.create("", "old plan");             // dropped: not on the line
+        core::set_project_mark(m, gone, core::ProjectMark::On);
+        m.make_task(gone, true);
+        m.set_due(gone, day(3));
+        core::set_project_state(m, gone, core::ProjectState::Dropped);
+
+        const auto tl = core::build_timeline(m, {}, now);
+        auto find_day = [&](std::int64_t d) -> const core::TlDay* {
+            for (const auto& x : tl.days) if (x.day == core::day_start(d)) return &x;
+            return nullptr;
+        };
+        auto on = [&](std::int64_t d, const core::NodeId& id) {
+            const auto* x = find_day(d);
+            if (!x) return false;
+            for (const auto& it : x->items) if (it.id == id) return true;
+            return false;
+        };
+        const auto* nine = find_day(day(9));
+        check("timeline: a project on its due, an undated step riding in it",
+              on(day(9), move) && nine && nine->items[0].kind == core::TlKind::Project &&
+                  nine->items[0].steps == std::vector<core::NodeId>{van});
+        check("timeline: a step with its own due on its own day", on(day(10), keys) && !on(day(9), keys));
+        check("timeline: late is red and counted", on(day(-2), late) &&
+              find_day(day(-2))->items[0].tone == core::TlTone::Late && tl.late == 1);
+        check("timeline: a deferred todo starts on its defer day",
+              on(day(4), seeds) && find_day(day(4))->items[0].why == core::TlWhy::Starts);
+        check("timeline: ticked on the day it was ticked; a note on the day it was made",
+              on(now, ticked) && on(now, idea) &&
+                  find_day(now)->items.back().kind == core::TlKind::Note);
+        check("timeline: dropped is left out; undated is not on a day, someday off by default",
+              !on(day(3), gone) && tl.someday.empty());
+        core::TlShow sd; sd.someday = true;
+        const auto tl2 = core::build_timeline(m, sd, now);
+        check("timeline: the Someday filter brings undated work in",
+              tl2.someday.size() == 1 && tl2.someday[0].id == paint);
+        core::TlShow nn; nn.notes = false; nn.todos = false;
+        const auto tl3 = core::build_timeline(m, nn, now);
+        check("timeline: chips leave kinds out", tl3.dated == 1 && tl3.days[0].items[0].id == move,
+              std::to_string(tl3.dated));
+        check("timeline: the span runs at least two weeks back and eight on",
+              tl.first <= core::day_at(core::day_start(now), -14) &&
+                  tl.last >= core::day_at(core::day_start(now), 56) &&
+                  core::day_index(tl.first, core::day_start(now)) >= 14);
+        check("timeline: summary", core::timeline_summary(tl, now) ==
+              "6 on the line · 1 late · 1 in the next 7 days", core::timeline_summary(tl, now));
+        const auto hits = core::timeline_matches(m, tl, "van", now);
+        check("timeline: find reaches a step inside its project", hits == std::vector<core::NodeId>{van});
+        {
+            const auto order = core::timeline_matches(m, tl, "is:todo", now);
+            std::string got;
+            for (const auto& id : order) got += m.find(id)->title + "; ";
+            check("timeline: find, in timeline order",
+                  order == std::vector<core::NodeId>{late, ticked, seeds, move, van, keys}, got);
+        }
+
+        // Feeders as beads on their goal's thread.
+        core::Repeat weekly; core::repeat_parse("weekly", weekly);
+        const auto goal = m.create("", "Taxes");
+        m.make_task(goal, true);
+        m.set_due(goal, day(21));
+        const auto scan = m.create("", "scan receipts");
+        m.make_task(scan, true);
+        m.set_repeat(scan, weekly);
+        m.set_due(scan, day(1));
+        m.set_feeds(scan, goal);
+        const auto tl4 = core::build_timeline(m, {}, now);
+        check("timeline: a goal's thread, a bead each week before its due",
+              tl4.threads.size() == 1 && tl4.threads[0].beads.size() == 3 &&
+                  tl4.threads[0].due_day == core::day_start(day(21)),
+              std::to_string(tl4.threads.empty() ? 0 : tl4.threads[0].beads.size()));
+
+        // Placement: three boxes, the middle overlapping the first.
+        const auto tops = core::stack_down({{0, 100, 40}, {50, 150, 30}, {200, 260, 20}}, 8, 6);
+        check("timeline: clumps stack down only where they would touch",
+              tops[0] == 0 && tops[1] == 46 && tops[2] == 0);
+        const auto tops2 = core::stack_down({{0, 100, 40}, {50, 150, 30}, {0, 40, 20}}, 8, 6);
+        check("timeline: a later clump takes a gap that fits", tops2[2] == 46 || tops2[2] == 82);
+        const auto tops3 = core::stack_down({{0, 100, 40}, {50, 150, 90}}, 8, 6, {-1, 0});
+        check("timeline: a pinned clump keeps its place; the others make room",
+              tops3[1] == 0 && tops3[0] == 96);
+        const auto box = core::thumb_box(1000, 500, 200, 100, {250, 100, 500, 250});
+        double vx = 0, vy = 0;
+        core::thumb_to_view(1000, 500, 200, 100, 100, 50, 500, 250, vx, vy);
+        check("timeline: the thumbnail's box, and back",
+              box.x == 50 && box.y == 20 && box.w == 100 && box.h == 50 && vx == 250 && vy == 125);
+        check("timeline: DST-safe day steps", core::day_index(core::day_at(now, 0), core::day_at(now, 200)) == 200);
     }
 
     // ── s058: feeders ──────────────────────────────────────────────────────

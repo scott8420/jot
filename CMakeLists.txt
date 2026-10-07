@@ -124,6 +124,7 @@ add_library(jot_core STATIC
     src/core/Errands.cpp     # s056 (J3): the errand run -- todos by place
     src/core/Routine.cpp     # s057 (J3): a repeating todo's record
     src/core/Feeders.cpp     # s058 (J4): the small repeating steps that feed a goal
+    src/core/Timeline.cpp    # s059 (J5): the running calendar -- what lands on which day, stacked down
     src/core/Gather.cpp
     src/core/Nudge.cpp
     src/core/Zoom.cpp
@@ -226,6 +227,8 @@ add_executable(jot
     # s035: tags as contexts -- chips over core::tag_list, rows over tag_members.
     src/TagsPane.cpp
     src/ProjectsPane.cpp
+    # s059 (J5): the running calendar -- core/Timeline places, this draws.
+    src/TimelinePane.cpp
     src/SearchPane.cpp
     # s029. "Move to...": a picker you type into, over core/Filing.
     src/MoveDialog.cpp

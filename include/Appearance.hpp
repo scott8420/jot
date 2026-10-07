@@ -58,6 +58,7 @@
 // default alone rather than to force light and override a theme the user may
 // have chosen by other means.
 // ─────────────────────────────────────────────────────────────────────────────
+#include <functional>
 #include <string>
 
 namespace jot::appearance {
@@ -80,5 +81,13 @@ void set_chosen_accent(const std::string& hex);
 // What the desktop's accent is right now (GNOME blue when it says nothing) --
 // for Preferences to show under "System".
 std::string desktop_accent();
+
+// s059: for widgets that DRAW (the timeline's canvas) rather than wear CSS --
+// the same answers the stylesheet was built from, and a call when they change.
+bool        is_dark();
+std::string accent_in_force();          // a CSS colour: "#rrggbb" or "rgb(...)"
+struct StateColours { std::string late, today, flagged, available, done; };
+StateColours state_colours();           // the card palette for the scheme in force
+void        on_change(std::function<void()> fn);   // after every restyle (scheme, accent)
 
 }  // namespace jot::appearance

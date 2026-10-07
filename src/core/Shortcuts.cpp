@@ -225,6 +225,9 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
         // s037: Review. P for Projects; pressed again, Review <-> All projects.
         {"View", "win.show-projects",   {"<Ctrl><Shift>p"}, "",
          "Projects: the ones due a review, or all of them by state"},
+        // s059: L for timeLine (Ctrl+T is the new todo). Nothing in a text box binds it.
+        {"View", "win.timeline",        {"<Ctrl><Shift>l"}, "",
+         "Timeline: your work along the days, in the note's place (again: back to the note)"},
         {"View", "win.toggle-drawer",   {"<Ctrl>bracketright", "F10"}, "",
          "Show or hide note details"},
         // s021: Obsidian's key for the same flip. No F-key twin needed.

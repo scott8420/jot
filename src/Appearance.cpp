@@ -10,6 +10,7 @@
 // entire job is to compile on the first try against whatever gtkmm the machine
 // has, and it is the one file in Slate that talks to the session bus.
 #include <gio/gio.h>
+#include <vector>
 
 #include <gtkmm/cssprovider.h>
 #include <gtkmm/stylecontext.h>
@@ -70,6 +71,7 @@ constexpr Palette kDark {"#ff7b9c", "#ffa348", "#f6d32d", "#78aeed", "#57e389"};
 std::string g_accent = jot::core::kDefaultAccent;   // what the DESKTOP says
 std::string g_chosen;            // s050b: Preferences' pick; "" = follow the desktop
 bool        g_dark   = false;   // the scheme last applied, for an accent-only repaint
+std::vector<std::function<void()>> g_watchers;   // s059
 std::string accent_ref() { return g_chosen.empty() ? g_accent : g_chosen; }
 
 std::string sheet(bool dark) {
@@ -119,6 +121,10 @@ std::string sheet(bool dark) {
     c += ".jot-tree row:focus-visible { outline-color: alpha(" + accent + ", 0.8); }\n";
     // s058b: the About window's row icons wear the accent.
     c += ".jot-about-row-icon { color: " + accent + "; }\n";
+    // s059: the timeline's chips -- pills, the accent when on.
+    c += ".jot-tl-chip { border-radius: 999px; padding: 2px 12px; min-height: 0; }\n";
+    c += ".jot-tl-chip:checked { background-color: alpha(" + accent + ", 0.20); "
+         "box-shadow: inset 0 0 0 1px alpha(" + accent + ", 0.45); }\n";
     // The side pane a shade off the editor -- a Mac source list. A tint of
     // the text colour: darker on a light theme, a touch lighter on a dark one
     // (the way macOS does it in dark mode). Its lists go transparent so the
@@ -184,6 +190,7 @@ void apply_css(bool dark) {
     }
     g_dark = dark;
     g_css->load_from_data(sheet(dark));
+    for (auto& fn : g_watchers) if (fn) fn();   // s059: the drawn widgets repaint
     if (auto lg = log::get(log::Area::App))
         lg->info("appearance: stylesheet {} with accent {} ({})", dark ? "dark" : "light", accent_ref(),
                  g_chosen.empty() ? "the desktop's" : "chosen in Preferences");
@@ -463,5 +470,13 @@ void set_chosen_accent(const std::string& hex) {
 }
 
 std::string desktop_accent() { return g_accent; }
+
+bool        is_dark() { return g_dark; }
+std::string accent_in_force() { return accent_ref(); }
+StateColours state_colours() {
+    const Palette& p = g_dark ? kDark : kLight;
+    return {p.overdue, p.today, p.flagged, p.available, p.done};
+}
+void on_change(std::function<void()> fn) { g_watchers.push_back(std::move(fn)); }
 
 }  // namespace jot::appearance

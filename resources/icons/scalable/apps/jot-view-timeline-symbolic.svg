@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- jot s059: the Timeline. A running calendar across the top, work hanging down from its days. Scott's Curvz drawing can replace it under the same name. -->
+  <rect fill="currentColor" x="1" y="1.5" width="14" height="2" rx="1"/>
+  <rect fill="currentColor" x="3.4" y="3.5" width="1.2" height="3"/>
+  <rect fill="currentColor" x="8.4" y="3.5" width="1.2" height="7"/>
+  <rect fill="currentColor" x="12.4" y="3.5" width="1.2" height="4"/>
+  <circle fill="currentColor" cx="4" cy="8" r="2"/>
+  <circle fill="currentColor" cx="9" cy="12.5" r="2.5"/>
+  <circle fill="currentColor" cx="13" cy="9" r="1.6"/>
+</svg>

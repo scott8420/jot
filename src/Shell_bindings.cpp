@@ -1,4 +1,5 @@
 #include "Shell.hpp"
+#include "TimelinePane.hpp"   // s059
 #include "core/Enclosures.hpp"
 #include "DrawerPane.hpp"
 #include "EditorPane.hpp"
@@ -67,6 +68,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
         "toggle-live", sigc::mem_fun(*this, &Shell::on_toggle_live), m_prefs.live_preview);
     // s034. The header's three-way view control. Derived from the two bools
     // above by apply_layout_state(), so it is never a second source of truth.
+    add_action("timeline", sigc::mem_fun(*this, &Shell::on_toggle_timeline));   // s059
     m_act_view_mode = add_action_radio_string(
         "view-mode", sigc::mem_fun(*this, &Shell::on_view_mode),
         m_prefs.reading ? "reading" : (m_prefs.live_preview ? "live" : "source"));
@@ -249,6 +251,14 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     m_inbox->signal_move().connect([this](const core::NodeId& id) { open_move(id); });      // s029
     m_tags->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));    // s035
     m_projects->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));   // s037
+    // s059: a click picks (Note details follows, the timeline stays); a
+    // double-click opens the note in the timeline's place; Esc goes back.
+    m_timeline->signal_pick().connect(sigc::mem_fun(*this, &Shell::on_goto_note));
+    m_timeline->signal_open().connect([this](const core::NodeId& id) {
+        on_goto_note(id);
+        if (m_timeline_on) on_toggle_timeline();
+    });
+    m_timeline->signal_close().connect([this]() { if (m_timeline_on) on_toggle_timeline(); });
     m_search->signal_open().connect(sigc::mem_fun(*this, &Shell::on_search_open));   // s038
     m_projects->signal_new().connect(sigc::mem_fun(*this, &Shell::on_new_project));  // s037b
     m_drawer->signal_reviewed().connect([this]() { on_mark_reviewed(); });          // s037

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include "Shell.hpp"
+#include "TimelinePane.hpp"   // s059
 #include "TaskCard.hpp"
 #include "core/DoneWhen.hpp"
 #include "core/Gather.hpp"
@@ -203,6 +204,10 @@ void Shell::on_left_view(const Glib::ustring& which) {  // handler: Notes | Inbo
 // s038. Ctrl+F: the Find field over the Notes tab, side pane shown if it was
 // hidden, what was typed last selected so typing replaces it.
 void Shell::on_find() {  // handler: Ctrl+F
+    if (m_timeline_on) {   // s059: the timeline's own find takes it
+        m_timeline->focus_find();
+        return;
+    }
     if (!m_prefs.show_tree) {
         m_prefs.show_tree = true;
         apply_layout_state();
@@ -683,6 +688,7 @@ void Shell::on_selection_changed(const core::NodeId& id) {  // handler: tree row
     m_drawer->show_node(id);
     // s057b: the note on show is marked in every list, not only the tree.
     set_current_note(id);
+    if (m_timeline) m_timeline->set_current(id);   // s059
     for (Gtk::Widget* w : {static_cast<Gtk::Widget*>(m_today.get()), static_cast<Gtk::Widget*>(m_inbox.get()),
                            static_cast<Gtk::Widget*>(m_tags.get()), static_cast<Gtk::Widget*>(m_projects.get()),
                            static_cast<Gtk::Widget*>(m_search.get())})
@@ -725,6 +731,7 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
     }
     // s037: a tick, a move, a state, a new child -- not a keystroke.
     if (what != C::Body) queue_projects_refresh();
+    queue_timeline_refresh();   // s059: a word typed can change a find match, a title its row
     queue_search_refresh();   // s038: a word typed can make or break a match
     // s052: a packet's nudge set, or a folder opened, speaks within the second
     // rather than at the next minute tick. The outbox keeps a burst of these
@@ -1118,6 +1125,7 @@ void Shell::on_toggle_drawer() {  // handler: show/hide the metadata drawer
 // the action, the editor is told.
 void Shell::on_toggle_reading() {  // handler
     if (m_applying_layout) return;
+    m_timeline_on = false;   // s059: a note view asked for brings the note back
     m_prefs.reading = !m_prefs.reading;
     apply_layout_state();
 }
@@ -1127,6 +1135,7 @@ void Shell::on_toggle_reading() {  // handler
 // way back.
 void Shell::on_toggle_live() {  // handler
     if (m_applying_layout) return;
+    m_timeline_on = false;   // s059
     m_prefs.live_preview = !m_prefs.live_preview;
     apply_layout_state();
 }
@@ -1136,6 +1145,12 @@ void Shell::on_toggle_live() {  // handler
 // build_view_modes).
 void Shell::on_view_mode(const Glib::ustring& m) {  // handler
     if (m_applying_layout) return;
+    if (m == "timeline") {   // s059: the fourth button
+        if (!m_timeline_on) on_toggle_timeline();
+        return;
+    }
+    const bool was_timeline = m_timeline_on;
+    m_timeline_on = false;
     if (m == "reading") {
         m_prefs.reading = true;
     } else {
@@ -1143,6 +1158,21 @@ void Shell::on_view_mode(const Glib::ustring& m) {  // handler
         m_prefs.live_preview = (m == "live");
     }
     apply_layout_state();
+    if (was_timeline) m_editor->focus_capture();
+}
+
+// s059. The timeline in the note's place, or the note back. Not kept across
+// restarts: jot opens on the note, where capture lands.
+void Shell::on_toggle_timeline() {  // handler: Ctrl+Shift+L
+    m_timeline_on = !m_timeline_on;
+    apply_layout_state();
+    if (m_timeline_on) {
+        m_timeline->set_current(m_editor->current());
+        m_timeline->opened();
+    } else {
+        m_editor->focus_capture();
+    }
+    if (auto lg = log::get(log::Area::Shell)) lg->info("timeline: {}", m_timeline_on ? "shown" : "hidden");
 }
 
 // A double-click in Reading, or a capture, wants to type. Place the cursor

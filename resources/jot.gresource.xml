@@ -33,6 +33,8 @@
     <file preprocess="xml-stripblanks" alias="jot-view-reading-symbolic.svg">icons/scalable/apps/jot-view-reading-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-view-live-symbolic.svg">icons/scalable/apps/jot-view-live-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-filter-symbolic.svg">icons/scalable/apps/jot-filter-symbolic.svg</file>
+    <!-- s059: the Timeline (the fourth button of the centre control). -->
+    <file preprocess="xml-stripblanks" alias="jot-view-timeline-symbolic.svg">icons/scalable/apps/jot-view-timeline-symbolic.svg</file>
     <!-- s048: the tabs and Today's view buttons. Scott's Curvz drawings replace these file for file, same names. -->
     <file preprocess="xml-stripblanks" alias="jot-tab-notes-symbolic.svg">icons/scalable/apps/jot-tab-notes-symbolic.svg</file>
     <file preprocess="xml-stripblanks" alias="jot-tab-inbox-symbolic.svg">icons/scalable/apps/jot-tab-inbox-symbolic.svg</file>

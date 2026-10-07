@@ -259,6 +259,14 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Today", "", "Today tab › Logbook", "What got done, newest first, by day",
          "Ticked todos, and projects Completed or Dropped, with the time. Untick one there "
          "and it goes back."},
+        // ── Timeline (s059) ─────────────────────────────────────────────────
+        {"Today", "win.timeline", "", "The timeline: everything along the days",
+         "A running calendar on top, each day's projects, todos and notes hanging under it -- "
+         "crowded days stack down. Click picks, double-click opens, right-click opens a clump "
+         "(a project's steps). Week / Month / Season; drag or scroll to move, Ctrl+scroll zooms; "
+         "drag the box in the corner map. Its find takes Find's words, #tag, is:, due: -- "
+         "Enter / Shift+Enter step through. Someday brings in undated work. Also the fourth "
+         "button beside Source / Live / Reading."},
         // ── Forecast (s039) ─────────────────────────────────────────────────
         {"Today", "", "Today tab › Forecast", "The days ahead: what is due, and what starts, day by day",
          "A strip of today and the next six days with a count on each, then Later. Pick a day. "

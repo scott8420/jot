@@ -1,4 +1,5 @@
 #include "Shell.hpp"
+#include "TimelinePane.hpp"   // s059
 #include "DrawerPane.hpp"
 #include "EditorPane.hpp"
 #include "TreePane.hpp"
@@ -91,7 +92,12 @@ void Shell::build_shell() {  // zone: window + header + paned body
     // symmetric. Both SIDE panes hold their width and the NOTE absorbs every
     // resize, because the note is what you are looking at and a window drag
     // should make it bigger, not make the metadata column wider.
-    m_paned_right.set_start_child(*m_editor);
+    // s059: the centre is a stack -- the note, or the timeline in its place.
+    m_center.add(*m_editor, "note");
+    m_center.add(*m_timeline, "timeline");
+    m_center.set_transition_type(Gtk::StackTransitionType::CROSSFADE);
+    m_center.set_transition_duration(120);
+    m_paned_right.set_start_child(m_center);
     m_paned_right.set_end_child(*m_drawer);
     m_paned_right.set_resize_start_child(true);    // the note takes the slack
     m_paned_right.set_resize_end_child(false);     // the drawer holds its width
@@ -387,7 +393,19 @@ void Shell::build_view_modes(Gtk::HeaderBar& header) {  // zone: Source | Live |
         m.b.set_action_target_value(Glib::Variant<Glib::ustring>::create(m.target));
         trio->append(m.b);
     }
-    header.pack_end(*trio);
+    // s059: the fourth -- the same control, because it answers the same
+    // question (what the middle of the window shows). Pressed, the timeline
+    // takes the note's place; any of the other three brings the note back.
+    m_mode_timeline.set_icon_name("jot-view-timeline-symbolic");
+    m_mode_timeline.set_tooltip_text("Timeline: your work along the days (Ctrl+Shift+L)");
+    m_mode_timeline.set_action_name("win.view-mode");
+    m_mode_timeline.set_action_target_value(Glib::Variant<Glib::ustring>::create("timeline"));
+    m_mode_timeline.set_margin_start(6);
+    auto* both = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.view_modes_and_timeline",
+                                                 Gtk::Orientation::HORIZONTAL, 0);
+    both->append(*trio);
+    both->append(m_mode_timeline);
+    header.pack_end(*both);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -495,6 +513,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto mode = Gio::Menu::create();
     mode->append("Reading view", "win.toggle-reading");   // s021
     mode->append("Live preview", "win.toggle-live");      // s022
+    mode->append("Timeline", "win.timeline");             // s059
     view->append_section(mode);
     view->append_section(menus::zoom_menu());             // s053b
 

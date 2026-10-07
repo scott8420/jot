@@ -1,4 +1,5 @@
 #include "Shell.hpp"
+#include "TimelinePane.hpp"   // s059
 #include "core/DoneWhen.hpp"
 #include "core/Nudge.hpp"
 #include "core/Packet.hpp"
@@ -277,6 +278,7 @@ void Shell::save_scratch(const std::string& target) {
     m_projects->set_source(&m_undo);   // s037
     end_search();                            // s038: a query over the old folder means nothing here
     m_search->set_source(&m_undo);
+    if (m_timeline) m_timeline->set_source(&m_undo);   // s059
     queue_inbox_refresh();
     queue_desktop_sync();
     note_recent(target);
@@ -546,6 +548,7 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     m_projects->set_source(&m_undo);   // s037
     end_search();                            // s038: a query over the old folder means nothing here
     m_search->set_source(&m_undo);
+    if (m_timeline) m_timeline->set_source(&m_undo);   // s059
     queue_inbox_refresh();
     queue_desktop_sync();
     note_recent(dir);
@@ -799,6 +802,15 @@ void Shell::queue_projects_refresh() {  // helper: Projects pane, debounced, onl
     }, 150);
 }
 
+void Shell::queue_timeline_refresh() {  // helper: s059 the timeline, debounced, only while showing
+    if (!m_timeline || !m_timeline_on) return;
+    m_timeline_refresh.disconnect();
+    m_timeline_refresh = Glib::signal_timeout().connect([this]() {
+        if (m_timeline && m_timeline_on) m_timeline->refresh();
+        return false;
+    }, 300);
+}
+
 void Shell::queue_tags_refresh() {  // helper: Tags pane, debounced, only while showing
     if (!m_tags || m_left_stack.get_visible_child_name() != "tags") return;
     m_tags_refresh.disconnect();
@@ -859,7 +871,9 @@ void Shell::apply_layout_state() {  // helper: the one place layout changes
     // s034: the three-way control is a view of the two flags above.
     if (m_act_view_mode)
         m_act_view_mode->set_state(Glib::Variant<Glib::ustring>::create(
-            m_prefs.reading ? "reading" : (m_prefs.live_preview ? "live" : "source")));
+            m_timeline_on ? "timeline"
+                          : m_prefs.reading ? "reading" : (m_prefs.live_preview ? "live" : "source")));
+    m_center.set_visible_child(m_timeline_on ? "timeline" : "note");   // s059
 
     m_tree_toggle.set_tooltip_text(m_prefs.show_tree ? "Hide the side pane (Ctrl+[ or F9)"
                                                      : "Show the side pane (Ctrl+[ or F9)");
