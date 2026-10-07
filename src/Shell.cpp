@@ -104,6 +104,9 @@ void Shell::build_ui() {
     m_tree->set_source(&m_undo);
     m_journal.on_change([this] { update_undo_actions(); });   // s046b: whichever pane made the step
     m_journal.set_selection_source([this] { return m_tree->selection(); });   // s049
+    m_undo.set_gate([this](const core::NodeId& id, std::function<void()> retry) {   // s054
+        on_done_gate(id, std::move(retry));
+    });
     update_undo_actions();
     m_editor->set_source(m_store.get());   // raw: the body's undo is the text view's
     m_links.rebuild(*m_store);        // one pass at load -- the backlink index

@@ -78,6 +78,20 @@ enum class ProjectState { Active, OnHold, Completed, Dropped };
 // that happens to hold todos from ever being one.
 enum class ProjectMark { Auto, On, Off };
 
+// s054 (J3). DONE-WHEN: what FINISHED means for this todo or project, said up
+// front (core/DoneWhen). Like Status and the project mark it describes the
+// node as a piece of work, so it survives the node stopping being a todo.
+//
+//   Tick   -- the default: done is whatever the tick says.
+//   Items  -- every checkbox line in its text is IN: ticked, or a file on its
+//             line (the packet's rule, s044, made general; a packet is Items
+//             whatever this says).
+//   Steps  -- every todo directly under it is done.
+//
+// Ticking it while its done-when is not met asks first ("2 of 3 in -- tick
+// anyway?"); the tick is still yours.
+enum class DoneWhen { Tick, Items, Steps };
+
 // The optional fields that make a node a todo. D2 says a node is a todo when it
 // HAS them and a note when it does not -- and since C++ has no absent `bool`,
 // `is_task` is that "has them". A todo with no dates and no flag is the common
@@ -116,6 +130,9 @@ struct Task {
     // s040. How long it takes, in minutes; 0 == no estimate. A todo field (it
     // clears with the rest when the note stops being a todo).
     int          estimate = 0;
+    // s054 (J3). What finished means (see DoneWhen). A container field: kept
+    // when the node stops being a todo.
+    DoneWhen     done_when = DoneWhen::Tick;
 
     bool operator==(const Task&) const = default;
 };
@@ -209,6 +226,7 @@ public:
     bool set_status(const NodeId& id, Status s);
     bool set_repeat(const NodeId& id, const Repeat& r);   // s033
     bool set_estimate(const NodeId& id, int minutes);     // s040; 0 clears
+    bool set_done_when(const NodeId& id, DoneWhen w);      // s054
     // Make this node a todo / stop it being one. Un-making CLEARS the fields
     // rather than leaving them set-but-ignored: a due date that survives
     // un-tasking is a date that comes back from the dead when you re-task.

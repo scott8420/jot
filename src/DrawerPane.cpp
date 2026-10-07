@@ -1,4 +1,5 @@
 #include "DrawerPane.hpp"
+#include "core/DoneWhen.hpp"
 #include "core/Undo.hpp"
 #include "core/Packet.hpp"
 #include "core/Gather.hpp"
@@ -98,7 +99,7 @@ struct SectionSpec {
 
 constexpr SectionSpec kSections[] = {
     {"project",   "Project",     true,  false},   // s037b
-    {"packet",    "Packet",      true,  false, 200},   // s044; s045 capped
+    {"packet",    "Done when",   true,  false, 200},   // s044; s045 capped; s054 renamed (key kept: the open state)
     {"todo",      "Todo",        true,  false},
     {"structure", "Structure",   true,  false},
     {"links",     "Links",       true,  true,  200},
@@ -165,6 +166,14 @@ DrawerPane::DrawerPane(std::string_view name)
       m_sent_says("drawer.sent_says"),
       m_sent_show("drawer.sent_show"),
       m_again("drawer.again"),
+      m_dw_row("drawer.dw_row", Gtk::Orientation::HORIZONTAL, 6),
+      m_dw_label("drawer.dw_label"),
+      m_dw_pick("drawer.dw_pick", [] {
+          std::vector<Glib::ustring> v;
+          for (const auto& c : core::done_when_choices()) v.push_back(c);
+          return v;
+      }()),
+      m_dw_hint("drawer.dw_hint"),
       m_nudge_row("drawer.nudge_row", Gtk::Orientation::HORIZONTAL, 6),
       m_nudge_label("drawer.nudge_label"),
       m_nudge_pick("drawer.nudge_pick", [] {
@@ -278,10 +287,13 @@ DrawerPane::DrawerPane(std::string_view name)
     // The mark, then what it adds up to, then one row per required item. The
     // items ARE the note's checkbox lines (core/Packet): this section reads
     // them; it never keeps a list of its own.
-    m_packet_check.set_label("This is a packet");
+    // s054: the packet is the first STRATEGY -- it brings its done-when
+    // (every item in) and adds the nudges, Gather and Do it again.
+    m_packet_check.set_label("A packet (gather, then send once)");
     m_packet_check.set_tooltip_text(
         "A packet is a set of things a piece of work needs -- one checkbox line each. "
-        "An item is in when a file is dropped onto its line, or when you tick it.");
+        "An item is in when a file is dropped onto its line, or when you tick it. "
+        "jot nudges about what is missing and gathers it all for sending.");
     m_packet_check.signal_toggled().connect([this]() {
         if (m_loading || !m_src || m_id.empty()) return;
         m_src->set_packet(m_id, m_packet_check.get_active());
@@ -291,6 +303,28 @@ DrawerPane::DrawerPane(std::string_view name)
     m_packet_says.add_css_class("caption");
     m_packet_sec.body->prepend(m_packet_says);
     m_packet_sec.body->prepend(m_packet_check);
+
+    // s054 (J3): Done when -- what finished means. Above the strategy: the
+    // rule is the general idea, the packet one way of working to it.
+    m_dw_label.set_text("Done when");
+    m_dw_label.set_xalign(0.0f);
+    m_dw_label.set_hexpand(true);
+    m_dw_label.set_tooltip_text("What finished means. Ticking it before then asks first.");
+    m_dw_pick.property_selected().signal_changed().connect([this]() {
+        if (m_loading || !m_src || m_id.empty()) return;
+        const auto i = m_dw_pick.get_selected();
+        if (i < core::done_when_choices().size())
+            m_src->set_done_when(m_id, static_cast<core::DoneWhen>(i));
+    });
+    m_dw_row.append(m_dw_label);
+    m_dw_row.append(m_dw_pick);
+    m_dw_hint.set_xalign(0.0f);
+    m_dw_hint.set_wrap(true);
+    m_dw_hint.add_css_class("caption");
+    m_dw_hint.add_css_class("dim-label");
+    m_packet_check.set_margin_top(4);
+    m_packet_sec.body->prepend(m_dw_hint);
+    m_packet_sec.body->prepend(m_dw_row);
 
     // s051: Gather for sending, under the items. One control with two ways
     // out (a folder, or one zip) -- the same act, so they sit joined.
@@ -1688,12 +1722,18 @@ void DrawerPane::fill_links(const core::Node& n) {
 void DrawerPane::fill_packet(const core::Node& n) {
     m_loading = true;
     m_packet_check.set_active(n.packet);
+    // s054: the rule. A packet's is Items and cannot be changed here -- the
+    // strategy brings it; untick the packet to choose another.
+    const core::DoneWhen rule = core::effective_done_when(n);
+    m_dw_pick.set_selected(static_cast<guint>(rule));
+    m_dw_pick.set_sensitive(!n.packet && !n.protect);
     m_loading = false;
+    m_dw_hint.set_text(core::done_when_hint(rule, n.packet));
     if (!n.packet) {
-        m_packet_says.set_visible(false);
         m_gather_row.set_visible(false);
         m_sent_row.set_visible(false);
         m_nudge_row.set_visible(false);
+        fill_done_when(n);
         return;
     }
     const core::PacketState st = core::packet_state(n.body);
@@ -1753,6 +1793,65 @@ void DrawerPane::fill_packet(const core::Node& n) {
         row->set_ellipsize(Pango::EllipsizeMode::END);
         row->set_tooltip_text(it.in() ? "In" : "Missing \u2014 drop its file onto its line, or tick it");
         row->add_css_class(it.in() ? "jot-packet-in" : "jot-packet-missing");
+        m_packet_sec.rows->append(*row);
+    }
+}
+
+// s054 (J3): a done-when that is not a packet -- the same count and the same
+// ✓ / ○ rows, for its items (Items) or its steps (Steps). Nothing for Tick.
+void DrawerPane::fill_done_when(const core::Node& n) {
+    const core::DoneState st = m_src ? core::done_state(*m_src, n.id) : core::DoneState{};
+    m_packet_says.remove_css_class("jot-packet-done");
+    if (st.rule == core::DoneWhen::Tick) {
+        m_packet_says.set_visible(false);
+        if (m_packet_sec.count) m_packet_sec.count->set_text("");
+        return;
+    }
+    if (st.total == 0) {
+        m_packet_says.set_text(st.rule == core::DoneWhen::Items
+                                   ? "No items yet -- add a checkbox line for each thing it needs"
+                                   : "No steps yet -- add todos under it");
+    } else {
+        m_packet_says.set_text(st.met() ? (st.rule == core::DoneWhen::Items
+                                               ? "All " + std::to_string(st.total) + " in"
+                                               : "All " + std::to_string(st.total) + " steps done")
+                                        : core::done_count(st) + "  \u00b7  " +
+                                              std::to_string(st.total - st.in) + " to go");
+        if (st.met()) m_packet_says.add_css_class("jot-packet-done");
+    }
+    m_packet_says.set_visible(true);
+    if (m_packet_sec.count)
+        m_packet_sec.count->set_text(st.total ? std::to_string(st.in) + "/" + std::to_string(st.total)
+                                              : std::string{});
+    if (st.rule == core::DoneWhen::Items) {
+        const core::PacketState ps = core::packet_state(n.body);
+        for (std::size_t i = 0; i < ps.items.size(); ++i) {
+            const auto& it = ps.items[i];
+            auto* row = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                          "drawer.packet.item." + std::to_string(i));
+            row->set_text((it.in() ? "\u2713  " : "\u25cb  ") + it.label +
+                          (it.files.empty() ? (it.ticked ? std::string("  \u00b7  ticked") : std::string{})
+                                            : std::string("  \u00b7  file")));
+            row->set_xalign(0.0f);
+            row->set_ellipsize(Pango::EllipsizeMode::END);
+            row->set_tooltip_text(it.in() ? "In" : "Missing \u2014 tick it, or drop its file onto its line");
+            row->add_css_class(it.in() ? "jot-packet-in" : "jot-packet-missing");
+            m_packet_sec.rows->append(*row);
+        }
+        return;
+    }
+    int i = 0;
+    for (const auto& k : m_src->children(n.id)) {
+        const core::Node* c = m_src->find(k);
+        if (!c || !c->task.is_task) continue;
+        const bool dealt = c->task.done || c->task.project == core::ProjectState::Completed ||
+                           c->task.project == core::ProjectState::Dropped;
+        auto* row = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                      "drawer.dw.step." + std::to_string(i++));
+        row->set_text((dealt ? "\u2713  " : "\u25cb  ") + (c->title.empty() ? std::string("(untitled)") : c->title));
+        row->set_xalign(0.0f);
+        row->set_ellipsize(Pango::EllipsizeMode::END);
+        row->add_css_class(dealt ? "jot-packet-in" : "jot-packet-missing");
         m_packet_sec.rows->append(*row);
     }
 }

@@ -1,4 +1,5 @@
 #include "TreePane.hpp"
+#include "core/DoneWhen.hpp"
 #include "Log.hpp"
 #include "Menus.hpp"
 #include "core/Tasks.hpp"
@@ -474,7 +475,35 @@ Gtk::Widget* TreePane::build_row(const core::Node& n, int depth, bool has_childr
         label->set_hexpand(true);
         box->append(*label);
         // s048: a project reads as a heading, with its steps counted.
-        if (m_src && core::is_project(*m_src, n.id)) {
+        // s054: a done-when's count takes the chip's place when it has one --
+        // "2 of 3 in" is the news where the rule is set.
+        std::string dw;
+        bool dw_met = true;
+        if (m_src && !n.task.done) {
+            if (n.task.is_task) { dw = look.done_when; dw_met = look.done_met; }
+            else if (n.task.project != core::ProjectState::Completed) {   // a note project
+                const core::DoneState ds = core::done_state(*m_src, n.id);
+                dw = core::done_count(ds);
+                dw_met = ds.met();
+            }
+        }
+        if (!dw.empty()) {
+            auto* count = Gtk::make_managed<widgets::Label>(widgets::unregistered,
+                                                            "tree.donewhen." + n.id);
+            // The pane is narrow: "1 of 3", as the project chip always said;
+            // "in" stays -- it is what tells an item count from a step count.
+            std::string shown = dw;
+            if (shown.ends_with(" steps")) shown.resize(shown.size() - 6);
+            count->set_text(shown);
+            count->add_css_class("jot-chip");
+            count->add_css_class("jot-count");
+            if (dw_met) count->add_css_class("jot-count-met");
+            count->set_valign(Gtk::Align::CENTER);
+            count->set_tooltip_text(dw_met ? "Done when: met -- ready to tick"
+                                                  : "Done when: " + dw + " -- ticking it asks first");
+            if (core::is_project(*m_src, n.id)) label->add_css_class("jot-tree-project");
+            box->append(*count);
+        } else if (m_src && core::is_project(*m_src, n.id)) {
             label->add_css_class("jot-tree-project");
             const core::StepCount sc = core::step_count(*m_src, n.id);
             if (sc.total > 0) {

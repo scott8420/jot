@@ -129,6 +129,7 @@ std::string sheet(bool dark) {
     c += ".jot-tree-card.jot-just-done { animation: jot-done-flash 500ms ease-out; }\n";
     c += ".jot-just-done .jot-tree-title { animation: jot-done-fade 500ms ease-out; }\n";
     c += ".jot-count { color: alpha(currentColor, 0.7); font-weight: 600; }\n";
+    c += std::string(".jot-count.jot-count-met { color: ") + p.done + "; }\n";   // s054: ready to tick
     c += std::string(".jot-flag { color: ") + p.flagged + "; }\n";
     // s044: a packet's items -- in is green and quiet, missing is the text.
     c += std::string(".jot-packet-in { color: ") + p.done + "; }\n";

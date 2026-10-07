@@ -231,6 +231,7 @@ private:
 
     void fill_links(const core::Node& n);
     void fill_packet(const core::Node& n);   // s044
+    void fill_done_when(const core::Node& n);   // s054: the count + rows when it is not a packet
     void fill_backlinks(const core::Node& n);
     void fill_tags(const core::Node& n);
     void fill_structure(const core::Node& n);
@@ -347,6 +348,12 @@ private:
     // s044 (J2): the packet -- a mark and what it adds up to.
     widgets::CheckButton m_packet_check;
     widgets::Label       m_packet_says;
+    // s054 (J3): Done when -- the rule (a packet's is fixed at Items) and
+    // what it means, above the packet strategy.
+    widgets::Box         m_dw_row;
+    widgets::Label       m_dw_label;
+    widgets::DropDown    m_dw_pick;
+    widgets::Label       m_dw_hint;
     // s051: Gather for sending -- the line it adds up to, the two ways out,
     // and the stamp once it has gone.
     widgets::Box         m_gather_row;

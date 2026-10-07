@@ -46,6 +46,7 @@
 #include "core/Gather.hpp"
 #include "core/Nudge.hpp"
 #include "core/Zoom.hpp"
+#include "core/DoneWhen.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -1639,6 +1640,147 @@ int main() {
             check("again: one Ctrl+Z takes the copy away", !m.find(n2) && m.children(home).size() == 2);
         }
         check("again: a plain note is refused", core::packet_again(m, after).empty());
+    }
+
+    // ── s054: done-when ────────────────────────────────────────────────────
+    {
+        std::cout << "\n-- done-when (s054) --\n";
+        namespace fs = std::filesystem;
+        core::MemoryNodes m;
+        const auto job = m.create("", "Kitchen");
+        m.make_task(job, true);
+        m.set_body(job, "- [x] tiles\n- [ ] grout [g](attachments/g.pdf)\n- [ ] sealant\n");
+        check("done-when: just the tick by default -- met, nothing counted",
+              core::done_state(m, job).met() && core::done_count(core::done_state(m, job)).empty());
+        m.set_done_when(job, core::DoneWhen::Items);
+        const auto st = core::done_state(m, job);
+        check("done-when: Items counts the checkbox lines, a file or a tick is in",
+              st.in == 2 && st.total == 3 && !st.met() && core::done_count(st) == "2 of 3 in" &&
+                  st.missing.size() == 1 && st.missing[0] == "sealant",
+              core::done_count(st));
+
+        const auto proj = m.create("", "Move");
+        const auto s1 = m.create(proj, "pack");
+        const auto s2 = m.create(proj, "van");
+        const auto s3 = m.create(proj, "keys");
+        m.create(proj, "a plain note under it");
+        for (const auto& k : {s1, s2, s3}) m.make_task(k, true);
+        m.set_done(s1, true);
+        core::set_project_state(m, s3, core::ProjectState::Dropped);
+        m.set_done_when(proj, core::DoneWhen::Steps);
+        const auto ps = core::done_state(m, proj);
+        check("done-when: Steps counts the todos under it; dropped is dealt with; notes ignored",
+              ps.total == 3 && ps.in == 2 && core::done_count(ps) == "2 of 3 steps" &&
+                  ps.missing.size() == 1 && ps.missing[0] == "van",
+              core::done_count(ps));
+
+        const auto pk = m.create("", "Taxes");
+        m.set_body(pk, "- [ ] W-2\n");
+        m.set_packet(pk, true);
+        check("done-when: a packet is Items whatever its setting says",
+              core::effective_done_when(*m.find(pk)) == core::DoneWhen::Items &&
+                  core::done_state(m, pk).total == 1);
+        const auto empty = m.create("", "Empty");
+        m.set_done_when(empty, core::DoneWhen::Items);
+        check("done-when: no items yet is met (nothing to nag about)",
+              core::done_state(m, empty).met() && !core::done_state(m, empty).counted());
+
+        core::Task a, b;
+        a.is_task = true; b = a; b.done = true;
+        core::Task c, d; d.project = core::ProjectState::Completed;
+        core::Task e, f; f.project = core::ProjectState::Dropped;
+        check("done-when: a tick and a Complete finish; Drop and an untick do not",
+              core::finishes(a, b) && core::finishes(c, d) && !core::finishes(e, f) && !core::finishes(b, a));
+
+        // the question's words
+        const auto one = core::done_ask(m, {job}, false);
+        check("done-when: one -- the count and what is missing",
+              one.message == "“Kitchen” is 2 of 3 in" && one.detail == "Missing: sealant." &&
+                  one.button == "Tick Anyway",
+              one.message + " / " + one.detail);
+        const auto two = core::done_ask(m, {job, proj, empty}, true);
+        check("done-when: many -- a line each, met ones left out; Complete Anyway",
+              two.message == "2 aren’t finished yet" &&
+                  two.detail == "“Kitchen” — 2 of 3 in\n“Move” — 2 of 3 steps" &&
+                  two.button == "Complete Anyway",
+              two.message + " / " + two.detail);
+        check("done-when: all met -- no question", core::done_ask(m, {empty}, false).message.empty());
+
+        // the gate, through the one door
+        core::Journal j;
+        core::UndoSource u(j, [&] { return &m; });
+        std::vector<core::NodeId> asked;
+        std::function<void()> again;
+        u.set_gate([&](const core::NodeId& id, std::function<void()> retry) {
+            asked.push_back(id);
+            again = std::move(retry);
+        });
+        const bool refused = !u.set_done(job, true);
+        check("gate: ticking an unmet done-when is refused and asked about, nothing written",
+              refused && asked.size() == 1 && asked[0] == job && !m.find(job)->task.done && !j.can_undo());
+        again();
+        check("gate: Tick anyway -- done, one undo step", m.find(job)->task.done && j.can_undo() &&
+                                                            j.undo_label() == "Tick");
+        j.undo(m);
+        check("gate: undone -- not done again", !m.find(job)->task.done);
+        asked.clear();
+        m.set_body(job, "- [x] tiles\n- [ ] grout [g](attachments/g.pdf)\n- [x] sealant\n");
+        check("gate: met -- ticks without asking", u.set_done(job, true) && asked.empty() && m.find(job)->task.done);
+        check("gate: unticking never asks", u.set_done(job, false) && asked.empty());
+        check("gate: Complete on an unmet Steps project asks",
+              !core::set_project_state(u, proj, core::ProjectState::Completed) && asked.size() == 1);
+        asked.clear();
+        {
+            core::UndoSource::Pass pass(u);
+            check("gate: a Pass goes through (a notification's Mark done)",
+                  core::set_project_state(u, proj, core::ProjectState::Completed) && asked.empty());
+        }
+        check("gate: Drop never asks",
+              core::set_project_state(u, proj, core::ProjectState::Dropped) && asked.empty());
+        const auto plain = m.create("", "plain todo");
+        m.make_task(plain, true);
+        check("gate: a todo with no done-when ticks as before", u.set_done(plain, true) && asked.empty());
+
+        m.make_task(job, false);
+        check("done-when: kept when the note stops being a todo",
+              m.find(job)->task.done_when == core::DoneWhen::Items);
+        check("done-when: Undo names the change",
+              core::task_label(core::Task{}, [] { core::Task t; t.done_when = core::DoneWhen::Steps; return t; }()) ==
+                  "Done when");
+
+        // the card / row's count
+        const auto look = core::row_look(m, *m.find(s2), 0);
+        m.make_task(proj, true);
+        m.set_done(proj, false);
+        core::set_project_state(m, proj, core::ProjectState::Active);
+        const auto plook = core::row_look(m, *m.find(proj), 0);
+        check("look: the card carries the count while unmet; a step with no rule has none",
+              plook.done_when == "2 of 3 steps" && !plook.done_met && look.done_when.empty(),
+              plook.done_when);
+
+        const fs::path jd = fs::temp_directory_path() / "jot_selftest_donewhen.jots";
+        std::error_code ec;
+        fs::remove_all(jd, ec);
+        core::NodeId x, y, z;
+        {
+            core::Project v;
+            v.open(jd.string());
+            x = v.create("", "Items");
+            y = v.create("", "Steps");
+            z = v.create("", "plain");
+            v.set_done_when(x, core::DoneWhen::Items);
+            v.set_done_when(y, core::DoneWhen::Steps);
+            v.flush();
+        }
+        {
+            core::Project v;
+            v.open(jd.string());
+            check("done-when/jots: the rule survives a reopen, only where it was set",
+                  v.find(x) && v.find(x)->task.done_when == core::DoneWhen::Items && v.find(y) &&
+                      v.find(y)->task.done_when == core::DoneWhen::Steps && v.find(z) &&
+                      v.find(z)->task.done_when == core::DoneWhen::Tick);
+        }
+        fs::remove_all(jd, ec);
     }
 
     // ── s053b: zoom ────────────────────────────────────────────────────────

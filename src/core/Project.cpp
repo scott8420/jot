@@ -474,6 +474,11 @@ bool Project::load_project(std::vector<Node>& out) const {
         n.task.reviewed = e.value("reviewed", std::int64_t{0});
         if (e.contains("is_project") && e["is_project"].is_boolean())        // s037b
             n.task.mark = e["is_project"].get<bool>() ? ProjectMark::On : ProjectMark::Off;
+        {   // s054; absent / unknown == just the tick
+            const std::string dw = e.value("done_when", std::string{});
+            n.task.done_when = dw == "items" ? DoneWhen::Items
+                             : dw == "steps" ? DoneWhen::Steps : DoneWhen::Tick;
+        }
         n.inbox        = e.value("inbox", false);   // s028; absent == processed
         n.packet       = e.value("packet", false);  // s044; absent == not a packet
         n.sent         = e.value("sent", std::int64_t{0});       // s051; absent == not sent
@@ -572,6 +577,8 @@ bool Project::save_project() const {
             if (n->task.reviewed != 0)         e["reviewed"] = n->task.reviewed;
             if (n->task.mark != ProjectMark::Auto)                                // s037b
                 e["is_project"] = n->task.mark == ProjectMark::On;
+            if (n->task.done_when != DoneWhen::Tick)                              // s054
+                e["done_when"] = n->task.done_when == DoneWhen::Items ? "items" : "steps";
             if (n->inbox)                      e["inbox"]   = true;   // s028, same rule
             if (n->packet)                     e["packet"]  = true;   // s044, same rule
             if (n->sent != 0)                  e["sent"]    = n->sent;          // s051

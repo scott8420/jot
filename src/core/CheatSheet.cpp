@@ -205,23 +205,29 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Active, On hold, then Completed and Dropped folded at the foot. A project is a note "
          "with todos directly under it."},
 
+        // ── Done when (s054) ────────────────────────────────────────────────
+        {"Projects", "", "Note details \u203a Done when: Every item is in / Every step is done",
+         "Say what finished means for a todo or project",
+         "Every item is in: each checkbox line in its text, ticked or with a file on it. "
+         "Every step is done: each todo directly under it. Cards and the tree show the count "
+         "(\u201c2 of 3 in\u201d); ticking it before then asks \u201ctick anyway?\u201d -- Cancel leaves it."},
         // ── Packets (s044) ──────────────────────────────────────────────────
-        {"Projects", "", "Note details › Packet › This is a packet",
-         "Make a note a packet: a set of things the work needs",
+        {"Projects", "", "Note details › Done when › A packet",
+         "Make a note a packet: a set of things the work needs, sent once",
          "Each checkbox line is an item. It is in when a file is dropped onto its line, or "
          "ticked (a paper copy). Note details says \u201c3 of 5 in \u00b7 missing: ...\u201d."},
-        {"Projects", "", "Note details \u203a Packet \u203a Gather for sending: Folder\u2026 / Zip\u2026",
+        {"Projects", "", "Note details \u203a Done when \u203a Gather for sending: Folder\u2026 / Zip\u2026",
          "Send a packet once everything is in",
          "Every item's file is copied into one new folder, or one zip, named for its item "
          "(\u201c01 W-2 (employer).pdf\u201d) with a Contents list that also names the paper "
          "copies. The packet is stamped \u201cSent\u201d with the date; the folder button beside "
          "it shows where it went. Ctrl+Z takes the stamp back (the copies stay)."},
-        {"Projects", "", "Note details › Packet › Nudge me",
+        {"Projects", "", "Note details › Done when › Nudge me",
          "Be reminded what a packet is still missing",
          "Every day / 3 days / week / 2 weeks / month: while something is missing, a "
          "notification after 9:00 says what. In 3 days quiets it; I’ve got it (when only "
          "one is missing) ticks that item; Open goes to it. Stops when it is all in or sent."},
-        {"Projects", "", "Note details › Packet › Do it again (once sent)",
+        {"Projects", "", "Note details › Done when › Do it again (once sent)",
          "Next year's packet, from this one",
          "A fresh copy just below -- \u201cTaxes 2026\u201d becomes \u201cTaxes 2027\u201d: the same "
          "items with nothing in, the same nudge, a due date a year on, and \u201cLast time\u201d "

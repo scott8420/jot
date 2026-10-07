@@ -88,6 +88,7 @@ Gtk::Widget* task_card(core::NodeSource& src, const core::Node& n, std::int64_t 
         meta += part;
     };
     add(opts.note.empty() ? state_word(look.state) : opts.note);
+    if (!look.done_when.empty()) add("\u2611 " + look.done_when);   // s054: done-when's count
     if (!look.estimate.empty()) add("⏱ " + look.estimate);
     if (!look.repeat.empty())   add("↻ " + look.repeat);
 

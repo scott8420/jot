@@ -255,6 +255,8 @@ private:
                    JotsFolderDialog::Done done);  // category: helper: the one naming dialog, three occasions
     bool scratch_has_content() const;            // category: helper: has anything been written with no folder?
     void save_scratch(const std::string& target);  // category: helper: adopt the scratch buffer into a new folder
+    void on_done_gate(const core::NodeId& id, std::function<void()> retry);  // category: helper: s054 a finish that came too soon -- queue the question
+    void ask_done_when();                        // category: helper: s054 ONE question for every finish queued, then tick or put the boxes back
     void guard_scratch(std::function<void()> then);  // category: helper: save/discard/cancel, THEN do the thing
     void relocate_to(const std::string& target); // category: helper: flush, move the folder, reopen there
     void report_problem(const std::string& summary,
@@ -468,6 +470,13 @@ private:
     // s046b: THE door. Every surface but the note body writes through this, so
     // every model write is an undo step. Asks for m_store at each call.
     core::UndoSource m_undo{m_journal, [this] { return m_store.get(); }};
+    // s054: finishes waiting for the done-when question (one dialog for all
+    // of them -- a multi-select tick asks once).
+    struct DoneAskItem { core::NodeId id; std::function<void()> retry; bool tick = true; };
+    std::vector<DoneAskItem> m_done_ask;
+    bool m_done_ask_open = false;
+    core::NodeId m_dw_seen_id;             // s054: the note whose count was last seen ...
+    std::string  m_dw_seen;                // ... and the count, so a change can repaint the tree
     std::size_t  m_notify_delivered = 0;   // receipts, this run
     bool         m_notify_verified  = false;  // ... was the last one one of them?
     std::string  m_notify_last_error;      // the daemon's own words, if it refused

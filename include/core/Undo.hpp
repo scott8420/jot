@@ -173,6 +173,28 @@ public:
     NodeSource* inner() const { return m_inner ? m_inner() : nullptr; }
     Journal&    journal() { return m_j; }
 
+    // ── s054: the done-when gate ───────────────────────────────────────────
+    // A task write that FINISHES work (core::finishes) whose done-when is not
+    // met is not made: the gate is called with the node and a `retry` that
+    // makes it after all, and set_task returns false. The Shell's gate asks
+    // ("2 of 3 in -- tick anyway?") and runs retry on yes. Every tick in jot
+    // comes through this door, so no pane can forget to ask. No gate (the
+    // selftest, a jot started for a notification button) = no question.
+    using Gate = std::function<void(const NodeId&, std::function<void()> retry)>;
+    void set_gate(Gate g) { m_gate = std::move(g); }
+    // While one is alive, writes pass the gate (retry, and roads where the
+    // user already chose -- a notification's Mark done).
+    class Pass {
+    public:
+        explicit Pass(UndoSource& u) : m_u(u), m_was(u.m_pass) { u.m_pass = true; }
+        ~Pass() { m_u.m_pass = m_was; }
+        Pass(const Pass&) = delete;
+        Pass& operator=(const Pass&) = delete;
+    private:
+        UndoSource& m_u;
+        bool        m_was;
+    };
+
     std::vector<NodeId> children(const NodeId& parent) const override;
     const Node*         find(const NodeId& id) const override;
     std::size_t         count() const override;
@@ -195,6 +217,8 @@ public:
 private:
     Journal&                     m_j;
     std::function<NodeSource*()> m_inner;
+    Gate                         m_gate;
+    bool                         m_pass = false;
 };
 
 // Run `fn` as ONE step called `label` when `src` is an UndoSource (touching

@@ -1,4 +1,5 @@
 #include "core/RowLook.hpp"
+#include "core/DoneWhen.hpp"
 #include "core/Repeat.hpp"
 #include "core/Tasks.hpp"
 
@@ -78,6 +79,11 @@ RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now) {
     r.flagged       = effective_flagged(src, n.id);
     if (n.task.estimate > 0) r.estimate = format_estimate(n.task.estimate);
     if (n.task.repeat.on())  r.repeat   = repeat_text(n.task.repeat);
+    if (!n.task.done) {                                   // s054
+        const DoneState ds = done_state(src, n.id);
+        r.done_when = done_count(ds);
+        r.done_met  = ds.met();
+    }
     if (!n.parent_id.empty())
         if (const Node* p = src.find(n.parent_id))
             r.project = p->title.empty() ? std::string("Untitled") : p->title;

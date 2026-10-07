@@ -43,6 +43,8 @@ struct RowLook {
     std::string estimate;       // "45m", "" if none
     std::string repeat;         // "every week", "" if none
     std::string project;        // the parent's title, "" at top level
+    std::string done_when;      // s054: "2 of 3 in" / "1 of 4 steps" while unfinished; "" otherwise
+    bool        done_met = true;   // s054: false = its done-when is not met yet
 };
 
 RowLook row_look(const NodeSource& src, const Node& n, std::int64_t now);

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include "Shell.hpp"
+#include "core/DoneWhen.hpp"
 #include "core/Gather.hpp"
 #include "core/Packet.hpp"
 #include "Appearance.hpp"
@@ -662,6 +663,10 @@ void Shell::on_selection_changed(const core::NodeId& id) {  // handler: tree row
     // the new note shows a backlink the old note no longer declares.
     if (!m_editor->current().empty()) m_links.update(*m_store, m_editor->current());
     m_drawer->show_node(id);
+    // s054: what the tree's chip says now, so a box ticked in the text that
+    // changes it can be noticed (queue_drawer_refresh).
+    m_dw_seen_id = id;
+    m_dw_seen    = m_store ? core::done_count(core::done_state(*m_store, id)) : std::string{};
     update_note_actions();
 }
 

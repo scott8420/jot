@@ -1,4 +1,5 @@
 #include "core/Undo.hpp"
+#include "core/DoneWhen.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -290,6 +291,7 @@ std::string task_label(const Task& a, const Task& b) {
                                        : b.mark == ProjectMark::Off ? "Not a project" : "Project";
     if (!(a.review == b.review))  return "Review interval";
     if (a.reviewed != b.reviewed) return "Mark reviewed";
+    if (a.done_when != b.done_when) return "Done when";
     return "Edit todo";
 }
 
@@ -367,6 +369,12 @@ bool UndoSource::set_task(const NodeId& id, const Task& t) {
     NodeSource* in = inner();
     if (!in) return false;
     const Node* n = in->find(id);
+    // s054: finishing work whose done-when is not met asks first.
+    if (m_gate && !m_pass && n && finishes(n->task, t) && !done_state(*in, id).met()) {
+        const Task want = t;
+        m_gate(id, [this, id, want] { Pass p(*this); set_task(id, want); });
+        return false;
+    }
     const std::string label = n ? task_label(n->task, t) : std::string("Edit todo");
     return recorded(m_j, *in, label, "", {id}, false, [&] { return in->set_task(id, t); });
 }

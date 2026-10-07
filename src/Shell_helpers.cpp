@@ -1,4 +1,5 @@
 #include "Shell.hpp"
+#include "core/DoneWhen.hpp"
 #include "core/Nudge.hpp"
 #include "core/Packet.hpp"
 #include <gtkmm/editable.h>
@@ -300,6 +301,85 @@ void Shell::save_scratch(const std::string& target) {
 // the default and Discard is not. No confirm-your-confirm; a second dialog
 // guarding the first is worse than the risk it guards.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// s054: the done-when question.
+//
+// The UndoSource's gate refused a finish (a tick, a Complete) on work whose
+// done-when is not met, and handed over a retry. Several can arrive at once
+// -- a multi-select Tick, Note details' Done on three notes -- so they queue
+// and ONE dialog asks on the next idle: "“Taxes 2026” is 2 of 3 in /
+// Missing: 1099-INT (bank)." [Cancel] [Tick Anyway]. Yes runs every retry as
+// one undo step; Cancel puts the boxes back (the widgets ticked themselves
+// before the model said no).
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::on_done_gate(const core::NodeId& id, std::function<void()> retry) {
+    for (const auto& q : m_done_ask)
+        if (q.id == id) return;
+    const core::Node* n = m_store ? m_store->find(id) : nullptr;
+    m_done_ask.push_back({id, std::move(retry), n && n->task.is_task});
+    if (auto lg = log::get(log::Area::Model))
+        lg->info("done-when: '{}' is {} -- asking", n ? n->title : id,
+                 core::done_count(core::done_state(*m_store, id)));
+    if (m_done_ask.size() == 1 && !m_done_ask_open)
+        Glib::signal_idle().connect_once([this] { ask_done_when(); });
+}
+
+void Shell::ask_done_when() {
+    if (m_done_ask.empty() || m_done_ask_open || !m_store) return;
+    std::vector<core::NodeId> ids;
+    bool completing = true;
+    for (const auto& q : m_done_ask) {
+        ids.push_back(q.id);
+        if (q.tick) completing = false;
+    }
+    const core::DoneAsk words = core::done_ask(*m_store, ids, completing);
+    auto put_back = [this] {
+        refresh_tasks(false);
+        queue_tree_rebuild();
+        queue_drawer_refresh();
+        queue_tags_refresh();
+        queue_search_refresh();
+        queue_projects_refresh();
+        queue_inbox_refresh();
+    };
+    if (words.message.empty()) {            // met since it was queued (a file dropped meanwhile)
+        auto items = std::move(m_done_ask);
+        m_done_ask.clear();
+        core::Gesture g(m_undo, completing ? "Complete" : "Tick");
+        for (auto& q : items) q.retry();
+        put_back();
+        return;
+    }
+    m_done_ask_open = true;
+    auto alert = Gtk::AlertDialog::create();
+    alert->set_message(words.message);
+    alert->set_detail(words.detail);
+    alert->set_buttons({"Cancel", words.button});
+    alert->set_cancel_button(0);
+    alert->set_default_button(0);          // the safe answer is the default
+    alert->set_modal(true);
+    alert->choose(*this, [this, alert, completing, put_back](const Glib::RefPtr<Gio::AsyncResult>& result) {
+        int button = 0;
+        try {
+            button = alert->choose_finish(result);
+        } catch (const Glib::Error&) {
+            button = 0;                     // dismissed == Cancel
+        }
+        auto items = std::move(m_done_ask);
+        m_done_ask.clear();
+        m_done_ask_open = false;
+        auto lg = log::get(log::Area::Model);
+        if (button == 1) {
+            if (lg) lg->info("done-when: {} anyway ({})", completing ? "completed" : "ticked", items.size());
+            core::Gesture g(m_undo, completing ? "Complete" : "Tick");
+            for (auto& q : items) q.retry();
+        } else if (lg) {
+            lg->info("done-when: not yet -- {} left as it was", items.size());
+        }
+        put_back();
+    });
+}
+
 void Shell::guard_scratch(std::function<void()> then) {
     if (!scratch_has_content()) { then(); return; }
 
@@ -910,6 +990,18 @@ void Shell::queue_drawer_refresh() {  // helper: one index update + repaint per 
         const core::NodeId id = m_editor->current();
         if (!id.empty()) m_links.update(*m_store, id);
         m_drawer->refresh();
+        // s054: a box ticked (or a file dropped) in the note's text can change
+        // its done-when count -- the tree's chip and the cards say it, and
+        // neither rebuilds for a keystroke. Only when the count CHANGED.
+        if (!id.empty() && m_store) {
+            const std::string now_dw = core::done_count(core::done_state(*m_store, id));
+            if (id == m_dw_seen_id && now_dw != m_dw_seen) {
+                queue_tree_rebuild();
+                refresh_tasks(false);
+            }
+            m_dw_seen_id = id;
+            m_dw_seen    = now_dw;
+        }
     });
 }
 
@@ -1522,6 +1614,9 @@ std::string Shell::notice_act(const std::string& param) {  // helper: a notifica
     if (st != core::TargetState::Current) {
         said = "Nothing changed for " + title + ": " + core::target_state_words(st) + ".";
     } else if (act->verb == core::NoticeVerb::Done) {
+        // s054: the button IS the answer to "done?" -- no second question,
+        // and the window may not even be open to ask it in.
+        core::UndoSource::Pass pass(m_undo);
         m_undo.set_done(id, true);          // the one door: repeats roll, the Logbook stamps
         if (m_project) m_project->flush();     // the window may be closed; the disk must not wait
         m_notifier.withdraw(id);
