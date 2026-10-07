@@ -12,6 +12,7 @@
 #include <gtkmm/flowbox.h>
 #include <gtkmm/image.h>
 #include <gtkmm/label.h>
+#include <gtkmm/linkbutton.h>
 #include <gtkmm/listbox.h>
 #include <gtkmm/searchentry.h>
 #include <gtkmm/menubutton.h>
@@ -22,6 +23,7 @@
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/stack.h>
 #include <gtkmm/stacksidebar.h>
+#include <gtkmm/stackswitcher.h>
 #include <gtkmm/separator.h>
 #include <gtkmm/textview.h>
 #include <gtkmm/togglebutton.h>
@@ -41,6 +43,7 @@ using Expander       = Named<Gtk::Expander>;
 using FlowBox        = Named<Gtk::FlowBox>;
 using Image          = Named<Gtk::Image>;
 using Label          = Named<Gtk::Label>;
+using LinkButton     = Named<Gtk::LinkButton>;      // s058b
 using ListBox        = Named<Gtk::ListBox>;
 using MenuButton     = Named<Gtk::MenuButton>;
 using Overlay        = Named<Gtk::Overlay>;   // s053b
@@ -52,6 +55,7 @@ using SearchEntry    = Named<Gtk::SearchEntry>;   // s036
 using Separator      = Named<Gtk::Separator>;
 using Stack          = Named<Gtk::Stack>;
 using StackSidebar   = Named<Gtk::StackSidebar>;
+using StackSwitcher  = Named<Gtk::StackSwitcher>;   // s058b
 using TextView       = Named<Gtk::TextView>;
 using ToggleButton   = Named<Gtk::ToggleButton>;
 

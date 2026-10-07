@@ -256,6 +256,8 @@ add_executable(jot
     src/Log.cpp
 )
 target_include_directories(jot PRIVATE include ${GTKMM_INCLUDE_DIRS})
+# s058b: the About window says the version; project() is the one place it lives.
+target_compile_definitions(jot PRIVATE JOT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(jot     PRIVATE ${GTKMM_LIBRARIES} jot_core spdlog::spdlog)
 
 # s019: a one-file drag source, so a real drop can be tested under Xvfb

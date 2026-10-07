@@ -117,6 +117,8 @@ std::string sheet(bool dark) {
          "box-shadow: inset 0 0 0 1px alpha(" + accent + ", 0.55); border-radius: 8px; }\n";
     // s050b: and the keyboard ring, or a chosen orange wears a blue outline.
     c += ".jot-tree row:focus-visible { outline-color: alpha(" + accent + ", 0.8); }\n";
+    // s058b: the About window's row icons wear the accent.
+    c += ".jot-about-row-icon { color: " + accent + "; }\n";
     // The side pane a shade off the editor -- a Mac source list. A tint of
     // the text colour: darker on a light theme, a touch lighter on a dark one
     // (the way macOS does it in dark mode). Its lists go transparent so the

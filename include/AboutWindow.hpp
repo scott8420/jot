@@ -2,28 +2,23 @@
 #include <gtkmm/window.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AboutWindow -- the DIALOG-LIFETIME exemplar (a stone the README backlog named:
-// "hide-on-close vs transient dialog lifetime"). It carries two paradigms at
-// once so a single running window exercises both:
+// AboutWindow -- what jot is, who made it, and what it stands on.
 //
-//   1. Custom window, NOT Gtk::AboutDialog. That stock dialog is DEPRECATED in
-//      GTK4 -- a custom Gtk::Window is the forward path, and it's what you'd
-//      reach for anyway the moment the About box wants app-specific styling.
+// s058b (Scott: "the about dialog seems weak ... it should describe Jot better
+// and an additional credits"). Three pages behind a switcher in the title bar,
+// the Mac way:
 //
-//   2. Hide-on-close SINGLETON lifetime (CANON: "Lifetime shape is design").
-//      Shell holds one, built once and re-presented; the X hides it, it never
-//      destructs mid-session, so its named children never re-register -- no
-//      self-rebuild registry collision, no leak. This is the born-modern shape;
-//      the older heap-allocated self-deleting dialog is the legacy-rescue shape,
-//      not the default.
+//   About    the pixie, the version, what jot is for, and what it does -- one
+//            row per part of the app, each with that part's own tab icon.
+//   Credits  who made it, the logo, the projects it grew from, the ideas it
+//            borrows, the libraries it is built on (the same three lists as
+//            THIRD_PARTY.md -- keep them in step), and what it is running on.
+//   Licence  the MIT text and the link to the repository.
 //
-// The hero logo is a symbolic icon resolved from the compiled-in gresource
-// bundle (the RESOURCE-PIPELINE paradigm -- App::on_activate registers it), so
-// the window also exercises resource resolution + theme recolour.
-//
-// Deliberately minimal for now: the paradigm it carries is dialog LIFETIME plus
-// resource resolution, so there is no branded chrome (credits, licence, links)
-// yet -- just enough to prove both. See docs/resources-and-dialog-lifetime.md.
+// Still the dialog-lifetime exemplar it was born as: a custom Gtk::Window
+// (Gtk::AboutDialog is deprecated in GTK4), a hide-on-close SINGLETON (CANON:
+// "Lifetime shape is design") -- Shell builds it once and re-presents it, so its
+// named children never re-register. Esc closes it.
 // ─────────────────────────────────────────────────────────────────────────────
 namespace jot {
 
