@@ -128,6 +128,15 @@ std::string sheet(bool dark) {
     c += ".jot-help-try { background-color: alpha(" + accent + ", 0.14); border-radius: 999px; padding: 4px 14px; }\n";
     c += ".jot-help-try:hover { background-color: alpha(" + accent + ", 0.24); }\n";
     c += ".jot-help-link { color: " + accent + "; }\n";
+    // s069: the Keyboard Shortcuts window's keycap -- a little raised key, the
+    // way GNOME draws one -- and the cap found by its keys in the search. In ONE
+    // provider: GTK settles a property provider by provider, so a cap rule in
+    // the dialog's own sheet would beat the lit one whatever its selector.
+    c += ".jot-keycap { font-size: 0.86em; font-weight: 600; min-width: 16px; "
+         "padding: 1px 7px; border-radius: 6px; border: 1px solid alpha(currentColor, 0.22); "
+         "border-bottom-width: 2px; background-color: alpha(currentColor, 0.035); }\n";
+    c += ".jot-keycap.jot-keycap-lit { background-color: alpha(" + accent + ", 0.22); "
+         "border-color: alpha(" + accent + ", 0.7); }\n";
     // s062: the tag chips over a note.
     c += ".jot-glance-errands { color: " + accent + "; }\n";   // s066
     c += ".jot-tagchip { background-color: alpha(" + accent + ", 0.14); }\n";

@@ -1084,7 +1084,12 @@ void Shell::on_shortcuts() {  // handler: open the keyboard reference
     // Same lifetime stone as About: build once, re-present. The window's CONTENT
     // is not written here -- it renders by walking core::shortcut_registry(),
     // the same list bind_accelerators() wires from, so the two can't drift.
-    if (!m_shortcuts) m_shortcuts = std::make_unique<ShortcutsDialog>();
+    if (!m_shortcuts) {
+        m_shortcuts = std::make_unique<ShortcutsDialog>();
+        // s069: its foot links to Help's two pages.
+        m_shortcuts->signal_cheat_sheet().connect(sigc::mem_fun(*this, &Shell::on_cheat_sheet));
+        m_shortcuts->signal_guide().connect(sigc::mem_fun(*this, &Shell::on_help));
+    }
     m_shortcuts->show(*this);
 }
 

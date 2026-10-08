@@ -59,6 +59,43 @@ std::vector<std::string> find_accel_collisions();
 // The registry is checked against it under the selftest, so the rule is a
 // failing test rather than a thing to remember.
 bool steals_text_editing(const std::string& accel);
+
+// ── s069: the Keyboard Shortcuts window's rows ────────────────────────────
+// The window shows KEYS only -- the mouse rows (drags, clicks) are the cheat
+// sheet's. Each row's keys come as KEYCAPS: alternatives, each a list of caps
+// ("Ctrl", "Shift", "L"). Built from the registry, so the window, the accels
+// and the cheat sheet still read one fact.
+struct KeyRow {
+    std::string section;                          // one of key_sections()
+    std::string description;
+    std::string where;                            // "in the tree", "in the note" -- or ""
+    std::vector<std::vector<std::string>> keys;   // alternatives -> caps
+    std::string action;                           // "" for a doc-only row
+};
+
+// "<Ctrl><Shift>l" -> {"Ctrl", "Shift", "L"}. "<Ctrl>plus" -> {"Ctrl", "+"}.
+std::vector<std::string> accel_keycaps(const std::string& accel);
+
+// "Ctrl+Z / Ctrl+Shift+Z" -> {{"Ctrl","Z"}, {"Ctrl","Shift","Z"}}; a "+" key
+// written "Ctrl++" stays a "+". Empty when the text is a gesture, not keys.
+std::vector<std::vector<std::string>> literal_keycaps(const std::string& keys);
+
+// The window's sections, in the order someone learns them: General, Notes,
+// Todos, View, Writing -- Diagnostics last. (The registry itself is A-Z.)
+const std::vector<std::string>& key_sections();
+
+// Every keyed row, grouped by key_sections() order, registry order within.
+std::vector<KeyRow> key_rows();
+
+// 0 = not found; 1 = found by its words (description, where, section);
+// 2 = found by its KEYS ("ctrl+m", "f1", "shift l") -- the window lights the caps.
+// Trimmed, ASCII case-blind, every word must hit. An empty query is 1.
+int key_row_match(const KeyRow& r, const std::string& query);
+
+// Which of the row's alternatives the KEYS in `query` point at -- the ones the
+// window lights. "shift" on Ctrl+Z / Ctrl+Shift+Z lights only the second. All
+// false when the row was not found by its keys.
+std::vector<bool> key_lit_alternatives(const KeyRow& r, const std::string& query);
 std::vector<std::string> find_text_editing_steals();   // registry accels that do
 
 }  // namespace jot::core

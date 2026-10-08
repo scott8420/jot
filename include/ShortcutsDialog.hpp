@@ -1,49 +1,68 @@
 #pragma once
-#include <gtkmm/box.h>
-#include <gtkmm/button.h>
-#include <gtkmm/grid.h>
-#include <gtkmm/scrolledwindow.h>
+#include "core/Shortcuts.hpp"
+#include "widgets/Widgets.hpp"
+
 #include <gtkmm/window.h>
+#include <sigc++/signal.h>
 
 #include <string>
+#include <vector>
 
 namespace jot {
 
-// ShortcutsDialog -- the SHORTCUT-REGISTRY paradigm's GTK consumer, and the
-// second instance of the dialog-lifetime stone AboutWindow names.
+// ShortcutsDialog -- the Keyboard Shortcuts window (Ctrl+?, main menu).
 //
-// Two paradigms in one window:
+// s069 (Scott: "most Gnome apps have a dedicated hotkey dialog for the user to
+// memorize"). s001's plain grid, redone the GNOME way: a card per section,
+// the cards flowing into columns, each row its words on the left and its keys
+// as KEYCAPS on the right ("or" between alternatives); a search in the title
+// bar -- typing anywhere starts it -- that narrows the rows, and lights the
+// caps of a row found by its keys ("ctrl+m", "f1"). Keys only: the drags and
+// clicks stay on the cheat sheet, and the foot links there and to the guide.
 //
-//   1. It renders by WALKING core::shortcut_registry() -- it hand-lists nothing.
-//      The same list App wires accelerators from, so a key and its advertised
-//      row cannot drift. That is the whole point of the registry: declare a
-//      shortcut once, and both consumers read it.
+// Still the SHORTCUT-REGISTRY paradigm's consumer: it renders core::key_rows(),
+// which reads core::shortcut_registry() -- the list the accelerators are wired
+// from -- so a key and its row cannot drift. Custom Gtk::Window, NOT
+// GtkShortcutsWindow (deprecated in GTK 4.18, gone in GTK 5).
 //
-//   2. Custom Gtk::Window, NOT GtkShortcutsWindow -- the stock widget is
-//      deprecated (GTK 4.18, removed in GTK 5, along with ShortcutsSection/
-//      Group/ShortcutLabel and set_help_overlay). The same call AboutWindow
-//      makes about Gtk::AboutDialog, for the same reason: a custom window is
-//      the forward path.
-//
-// Hide-on-close singleton (CANON: "Lifetime shape is design"), like AboutWindow:
-// Shell builds it once and re-presents it, so its named children never
-// re-register.
+// Hide-on-close singleton (CANON: "Lifetime shape is design"): rows built once,
+// filtering only shows and hides them.
 class ShortcutsDialog : public Gtk::Window {
 public:
     ShortcutsDialog();
     ~ShortcutsDialog() override;
-    void show(Gtk::Window& parent);
+    void show(Gtk::Window& parent);   // a fresh look: empty search, at the top
+
+    int visible_rows() const { return m_visible; }   // for the trace channel
+
+    // The foot's links -- the Shell opens Help on that page.
+    sigc::signal<void()>& signal_cheat_sheet() { return m_sig_cheat; }
+    sigc::signal<void()>& signal_guide() { return m_sig_guide; }
 
 private:
-    // Grid helpers (each returns the next free row).
-    int add_heading(Gtk::Grid& grid, const std::string& title, int row);
-    int add_row(Gtk::Grid& grid, const std::string& keys, const std::string& desc, int row);
-    int add_spacer(Gtk::Grid& grid, int row);
+    void build();
+    void filter();
 
-    Gtk::Box            m_root{Gtk::Orientation::VERTICAL};
-    Gtk::ScrolledWindow m_scroll;
-    Gtk::Grid           m_grid;
-    Gtk::Button         m_btn_close{"Close"};
+    struct Row {
+        Gtk::Widget*              widget = nullptr;
+        Gtk::Widget*              sep = nullptr;    // the hairline above it (none for a card's first)
+        std::vector<Gtk::Widget*> caps;
+        std::vector<std::size_t>  cap_alt;          // which alternative each cap is in
+        std::size_t               row = 0;          // index into m_rows_data
+        std::size_t               card = 0;
+    };
+
+    widgets::SearchEntry    m_search;
+    widgets::ScrolledWindow m_scroll;
+    widgets::FlowBox        m_cards;
+    widgets::Label          m_none;
+
+    std::vector<core::KeyRow>  m_rows_data;
+    std::vector<Row>           m_rows;
+    std::vector<Gtk::Widget*>  m_card_widgets;   // the FlowBoxChild of each card
+    int                        m_visible = 0;
+
+    sigc::signal<void()> m_sig_cheat, m_sig_guide;
 };
 
 }  // namespace jot

@@ -264,6 +264,164 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// s069: rows for the Keyboard Shortcuts window
+// ─────────────────────────────────────────────────────────────────────────────
+std::vector<std::string> accel_keycaps(const std::string& accel) {
+    const Parsed p = parse_accel(accel);
+    std::vector<std::string> out;
+    if (p.ctrl)  out.push_back("Ctrl");
+    if (p.alt)   out.push_back("Alt");
+    if (p.shift) out.push_back("Shift");
+    if (p.super) out.push_back("Super");
+    const std::string k = map_key(p.key);
+    if (!k.empty()) out.push_back(k);
+    return out;
+}
+
+std::vector<std::vector<std::string>> literal_keycaps(const std::string& keys) {
+    std::vector<std::vector<std::string>> out;
+    const std::string low = lower(keys);
+    for (const char* g : {"click", "drag", "scroll"})
+        if (low.find(g) != std::string::npos) return {};   // a gesture: the cheat sheet's
+    // Alternatives are split on " / ".
+    std::vector<std::string> alts;
+    std::size_t i = 0;
+    while (true) {
+        const std::size_t j = keys.find(" / ", i);
+        alts.push_back(keys.substr(i, j == std::string::npos ? std::string::npos : j - i));
+        if (j == std::string::npos) break;
+        i = j + 3;
+    }
+    for (std::string a : alts) {
+        while (!a.empty() && a.front() == ' ') a.erase(a.begin());
+        while (!a.empty() && a.back() == ' ') a.pop_back();
+        if (a.empty()) continue;
+        std::vector<std::string> caps;
+        std::string cur;
+        for (std::size_t k = 0; k < a.size(); ++k) {
+            const char c = a[k];
+            // A '+' is a joiner unless it is the key itself ("Ctrl++", or "+").
+            if (c == '+' && !cur.empty()) {
+                caps.push_back(cur);
+                cur.clear();
+                continue;
+            }
+            cur += c;
+        }
+        if (!cur.empty()) caps.push_back(cur);
+        for (const auto& cap : caps)
+            if (cap.find(' ') != std::string::npos) return {};   // words, not a key
+        if (!caps.empty()) out.push_back(std::move(caps));
+    }
+    return out;
+}
+
+const std::vector<std::string>& key_sections() {
+    static const std::vector<std::string> kSections = {
+        "General", "Notes", "Todos", "View", "Writing", "Diagnostics",
+    };
+    return kSections;
+}
+
+std::vector<KeyRow> key_rows() {
+    std::vector<KeyRow> out;
+    for (const auto& sec : key_sections()) {
+        for (const auto& s : shortcut_registry()) {
+            if (s.section != sec) continue;
+            KeyRow r;
+            r.section = s.section;
+            r.action = s.action;
+            r.description = s.description;
+            if (!s.accels.empty()) {
+                for (const auto& a : s.accels) r.keys.push_back(accel_keycaps(a));
+            } else if (!s.keys.empty()) {
+                // "Delete (in the tree)": the note in brackets is WHERE.
+                std::string k = s.keys;
+                if (const auto o = k.rfind(" ("); o != std::string::npos && k.back() == ')') {
+                    r.where = k.substr(o + 2, k.size() - o - 3);
+                    k = k.substr(0, o);
+                }
+                r.keys = literal_keycaps(k);
+            }
+            // "... (in the note)" at the end of a description is WHERE too.
+            if (r.where.empty()) {
+                auto& d = r.description;
+                if (const auto o = d.rfind(" (in the "); o != std::string::npos && d.back() == ')') {
+                    r.where = d.substr(o + 2, d.size() - o - 3);
+                    d = d.substr(0, o);
+                }
+            }
+            if (r.keys.empty()) continue;   // unkeyed verbs and gestures: not here
+            out.push_back(std::move(r));
+        }
+    }
+    return out;
+}
+
+int key_row_match(const KeyRow& r, const std::string& query) {
+    // Words: split on spaces; a word may itself be "ctrl+m".
+    std::vector<std::string> ws;
+    {
+        std::string cur;
+        for (char c : query) {
+            if (std::isspace(static_cast<unsigned char>(c))) {
+                if (!cur.empty()) ws.push_back(lower(cur));
+                cur.clear();
+            } else {
+                cur += c;
+            }
+        }
+        if (!cur.empty()) ws.push_back(lower(cur));
+    }
+    if (ws.empty()) return 1;
+    // The keys, as "ctrl+shift+l" per alternative, and the caps one by one.
+    std::vector<std::string> combos;
+    std::vector<std::string> caps;
+    for (const auto& alt : r.keys) {
+        std::string c;
+        for (const auto& k : alt) {
+            if (!c.empty()) c += "+";
+            c += lower(k);
+            caps.push_back(lower(k));
+        }
+        combos.push_back(c);
+    }
+    auto key_hit = [&](const std::string& w) {
+        if (w.find('+') != std::string::npos && w.size() > 1) {
+            for (const auto& c : combos)
+                if (c == w || c.find(w) == 0) return true;   // "ctrl+shift" is a prefix
+            return false;
+        }
+        for (const auto& k : caps)
+            if (k == w) return true;
+        return false;
+    };
+    const std::string hay = lower(r.section + "\n" + r.description + "\n" + r.where);
+    bool all_keys = true, all_any = true;
+    for (const auto& w : ws) {
+        const bool k = key_hit(w);
+        const bool t = hay.find(w) != std::string::npos;
+        if (!k) all_keys = false;
+        if (!k && !t) all_any = false;
+    }
+    if (all_keys) return 2;
+    return all_any ? 1 : 0;
+}
+
+std::vector<bool> key_lit_alternatives(const KeyRow& r, const std::string& query) {
+    std::vector<bool> out(r.keys.size(), false);
+    if (key_row_match(r, query) != 2) return out;
+    // Each alternative alone, as a row of its own: lit when the query finds it
+    // by its keys.
+    for (std::size_t a = 0; a < r.keys.size(); ++a) {
+        KeyRow one;
+        one.keys = {r.keys[a]};
+        out[a] = key_row_match(one, query) == 2;
+    }
+    return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Collision detection
 // ─────────────────────────────────────────────────────────────────────────────
 std::vector<std::string> find_accel_collisions() {

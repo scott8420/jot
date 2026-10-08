@@ -5029,6 +5029,88 @@ int main() {
     }
 
 
+    // -- s069: the Keyboard Shortcuts window's rows ------------------------------
+    {
+        using V = std::vector<std::string>;
+        check("keys: an accel as caps", core::accel_keycaps("<Ctrl><Shift>l") == V{"Ctrl", "Shift", "L"});
+        check("keys: Ctrl+plus is a + cap", core::accel_keycaps("<Ctrl>plus") == V{"Ctrl", "+"});
+        check("keys: F1 alone", core::accel_keycaps("F1") == V{"F1"});
+        {
+            const auto a = core::literal_keycaps("Ctrl+Z / Ctrl+Shift+Z");
+            check("keys: alternatives split on ' / '",
+                  a.size() == 2 && a[0] == V{"Ctrl", "Z"} && a[1] == V{"Ctrl", "Shift", "Z"});
+            const auto p = core::literal_keycaps("Ctrl++");
+            check("keys: a written '+' key stays a key", p.size() == 1 && p[0] == V{"Ctrl", "+"});
+            check("keys: a gesture is not keys",
+                  core::literal_keycaps("Ctrl+click / Shift+click").empty() &&
+                      core::literal_keycaps("Drag onto a row's middle").empty());
+            check("keys: words are not keys", core::literal_keycaps("Your own key").empty());
+        }
+        const auto rows = core::key_rows();
+        {
+            bool mouse = false, all_keyed = true, ordered = true;
+            std::string missing;
+            for (const auto& r : rows) {
+                if (r.section == "Mouse") mouse = true;
+                if (r.keys.empty()) all_keyed = false;
+            }
+            for (const auto& s2 : core::shortcut_registry()) {
+                if (s2.action.empty() || s2.accels.empty()) continue;
+                bool found = false;
+                for (const auto& r : rows) if (r.action == s2.action) found = true;
+                if (!found) missing += s2.action + " ";
+            }
+            const auto& secs = core::key_sections();
+            std::size_t at = 0;
+            for (const auto& r : rows) {
+                const auto g = static_cast<std::size_t>(std::find(secs.begin(), secs.end(), r.section) - secs.begin());
+                if (g < at) ordered = false;
+                at = g;
+            }
+            check("keys: no mouse rows", !mouse);
+            check("keys: every row has keys", all_keyed);
+            check("keys: every keyed verb has a row", missing.empty(), missing);
+            check("keys: sections in learning order, Diagnostics last",
+                  ordered && !rows.empty() && rows.back().section == "Diagnostics" &&
+                      rows.front().section == "General");
+        }
+        {
+            const core::KeyRow* del = nullptr;
+            const core::KeyRow* bold = nullptr;
+            const core::KeyRow* move = nullptr;
+            const core::KeyRow* help = nullptr;
+            for (const auto& r : rows) {
+                if (r.description.rfind("Delete the selected note", 0) == 0) del = &r;
+                if (r.description.rfind("Bold", 0) == 0) bold = &r;
+                if (r.action == "win.move-to") move = &r;
+                if (r.action == "win.help") help = &r;
+            }
+            check("keys: '(in the tree)' becomes where",
+                  del && del->where == "in the tree" && del->keys.size() == 1 && del->keys[0] == V{"Delete"},
+                  del ? del->where : "none");
+            check("keys: '(in the note)' leaves the words for where",
+                  bold && bold->where == "in the note" && bold->description == "Bold -- or unbold",
+                  bold ? bold->description + " | " + bold->where : "none");
+            check("keys: found by its keys lights them", move && core::key_row_match(*move, "ctrl+m") == 2);
+            check("keys: found by one cap", help && core::key_row_match(*help, "F1") == 2);
+            check("keys: a combo prefix finds", move && core::key_row_match(*move, "CTRL") == 2);
+            check("keys: found by its words", move && core::key_row_match(*move, "move selected") == 1);
+            check("keys: every word must hit", move && core::key_row_match(*move, "move zebra") == 0);
+            check("keys: ctrl+m is not Ctrl+Shift+M",
+                  move && core::key_row_match(*move, "ctrl+shift+m") == 0);
+            check("keys: an empty search shows all", move && core::key_row_match(*move, "  ") == 1);
+            const core::KeyRow* undo = nullptr;
+            for (const auto& r : rows)
+                if (r.description.rfind("Undo / redo", 0) == 0) undo = &r;
+            const auto lit = undo ? core::key_lit_alternatives(*undo, "shift") : std::vector<bool>{};
+            check("keys: 'shift' lights Ctrl+Shift+Z, not Ctrl+Z",
+                  lit.size() == 2 && !lit[0] && lit[1]);
+            const auto none = undo ? core::key_lit_alternatives(*undo, "redo") : std::vector<bool>{};
+            check("keys: found by words lights nothing",
+                  none.size() == 2 && !none[0] && !none[1]);
+        }
+    }
+
     // -- s068: the timeline's view as words (kept in prefs) ----------------------
     {
         check("tl view: the usual Show set as words",
