@@ -36,6 +36,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     add_action("about",         sigc::mem_fun(*this, &Shell::on_about));
     add_action("glance",        sigc::mem_fun(*this, &Shell::on_glance));        // s066
     add_action("cheat-sheet",   sigc::mem_fun(*this, &Shell::on_cheat_sheet));   // s030
+    add_action("help",          sigc::mem_fun(*this, &Shell::on_help));          // s067
     add_action("shortcuts",     sigc::mem_fun(*this, &Shell::on_shortcuts));
     add_action("preferences",   sigc::mem_fun(*this, &Shell::on_preferences));
     // s053b: the note's text size. The editor steps it and says so; the Shell

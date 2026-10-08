@@ -213,14 +213,23 @@ done) or **Dropped** (kept, but out of every list and off the calendar). The
 note menu's **Project** submenu sets the same thing. On a project that is
 itself a todo, Completed is its tick.
 
-## The cheat sheet
+## Help: the guide and the cheat sheet
 
-**Ctrl+H** (or **F1**, or main menu > Cheat sheet) opens one window with
-everything jot does, a line each: the keys, the drags, the markdown marks,
-the views and the command line. Type to narrow it -- "inbox", "due",
-"ctrl+m". Escape clears the search; a second Escape closes it. Its keys are
-read from the same registry jot binds them from, so it cannot show a key
-jot does not answer to.
+**F1** or **Ctrl+Shift+H** (or main menu > jot Help) opens jot Help on its
+**Guide**: a page for each part of jot -- capture, the Inbox, todos,
+projects, Today, tags and places, done-when, packets, deadlines, routines
+and feeders, Find, the timeline, the Glance, jots folders -- saying what it
+is for and how to use it. Pages are listed down the left in reading order
+(or press Next at the foot of each); "Find a page" narrows the list. Each
+page has **Try it** buttons that open the thing it describes, and **Every
+key for this** opens the cheat sheet filtered to that page.
+
+**Ctrl+H** opens the same window on its **Cheat Sheet**: everything jot
+does, a line each -- the keys, the drags, the markdown marks, the views and
+the command line. Type to narrow it -- "inbox", "due", "ctrl+m". Escape
+clears a search; a second Escape closes the window. Keys shown in either
+page are read from the same registry jot binds them from, so neither can
+show a key jot does not answer to.
 
 ## Glance of Today
 

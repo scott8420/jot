@@ -1,13 +1,10 @@
-#include "CheatSheetWindow.hpp"
+#include "CheatSheetPage.hpp"
 #include "core/CheatSheet.hpp"
 #include "Log.hpp"
 #include "Registry.hpp"
 
-#include <gtkmm/eventcontrollerkey.h>
-#include <gtkmm/headerbar.h>
-#include <gdk/gdkkeysyms.h>
 
-// CheatSheetWindow.cpp -- draws core::cheat_sheet(). See the header.
+// CheatSheetPage.cpp -- draws core::cheat_sheet(). See the header.
 
 namespace jot {
 
@@ -45,32 +42,18 @@ private:
 
 }  // namespace
 
-CheatSheetWindow::CheatSheetWindow()
-    : m_search("cheat.search"),
+CheatSheetPage::CheatSheetPage()
+    : widgets::Box("help.cheat", Gtk::Orientation::VERTICAL, 8),
+      m_search("cheat.search"),
       m_scroll("cheat.scroll"),
       m_column("cheat.column", Gtk::Orientation::VERTICAL, 0),
       m_footer("cheat.footer") {
-    set_name("shell.cheatsheet");
-    registry::add("shell.cheatsheet", this);
-
-    set_title("Cheat Sheet");
-    set_modal(false);
-    set_resizable(true);
-    set_default_size(640, 720);
-    set_hide_on_close(true);   // built once by the Shell, re-presented
-
-    auto* hb = Gtk::make_managed<Gtk::HeaderBar>();
-    hb->set_show_title_buttons(true);
-    set_titlebar(*hb);
-
-    auto* page = Gtk::make_managed<widgets::Box>(
-        widgets::unregistered, "cheat.page", Gtk::Orientation::VERTICAL, 8);
-    page->set_margin(14);
+    set_margin(14);
 
     m_search.set_placeholder_text("Type to find a line — “inbox”, “due”, “ctrl+m”");
     m_search.set_icon_from_icon_name("system-search-symbolic", Gtk::Entry::IconPosition::PRIMARY);
     m_search.signal_changed().connect([this]() { filter(); });
-    page->append(m_search);
+    append(m_search);
 
     m_column.set_margin_start(4);
     m_column.set_margin_end(12);
@@ -78,44 +61,38 @@ CheatSheetWindow::CheatSheetWindow()
     m_scroll.set_child(m_column);
     m_scroll.set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
     m_scroll.set_vexpand(true);
-    page->append(m_scroll);
+    append(m_scroll);
 
     m_footer.set_xalign(0.0f);
     m_footer.set_wrap(true);
     m_footer.add_css_class("dim-label");
     m_footer.set_visible(false);
-    page->append(m_footer);
-
-    // Escape: first empties the search, then closes. A reader who typed a
-    // filter and pressed Escape wants the whole sheet back, not the window gone.
-    auto esc = Gtk::EventControllerKey::create();
-    esc->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
-    esc->signal_key_pressed().connect(
-        [this](guint key, guint, Gdk::ModifierType) -> bool {
-            if (key != GDK_KEY_Escape) return false;
-            if (!m_search.get_text().empty()) m_search.set_text("");
-            else set_visible(false);
-            return true;
-        },
-        false);
-    add_controller(esc);
+    append(m_footer);
 
     build();
     filter();
-    set_child(*page);
 }
 
-CheatSheetWindow::~CheatSheetWindow() { registry::remove(this); }
-
-void CheatSheetWindow::show(Gtk::Window& parent) {
-    set_transient_for(parent);
-    m_search.set_text("");   // a fresh look each time; filter() runs off the change
+void CheatSheetPage::reset(const std::string& query) {
+    if (std::string(m_search.get_text()) != query) m_search.set_text(query);   // filter() runs off the change
+    else filter();
     m_scroll.get_vadjustment()->set_value(0.0);
-    present();
-    m_search.grab_focus();
 }
 
-void CheatSheetWindow::build() {
+void CheatSheetPage::focus_search() {
+    m_search.grab_focus();
+    m_search.set_position(-1);   // the cursor at the end, nothing selected
+}
+
+bool CheatSheetPage::clear_search() {
+    // A reader who typed a filter and pressed Escape wants the whole sheet
+    // back, not the window gone.
+    if (m_search.get_text().empty()) return false;
+    m_search.set_text("");
+    return true;
+}
+
+void CheatSheetPage::build() {
     const auto& sections = core::cheat_sections();
     const auto& lines = core::cheat_sheet();
 
@@ -178,7 +155,7 @@ void CheatSheetWindow::build() {
     }
 }
 
-void CheatSheetWindow::filter() {
+void CheatSheetPage::filter() {
     const std::string q = m_search.get_text();
     const auto& lines = core::cheat_sheet();
     std::vector<int> per(m_headings.size(), 0);

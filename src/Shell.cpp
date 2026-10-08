@@ -3,7 +3,7 @@
 #include "AboutWindow.hpp"      // complete type for ~unique_ptr<AboutWindow> in ~Shell()
 #include "TimelinePane.hpp"     // complete type for ~unique_ptr<TimelinePane>
 #include "GlanceWindow.hpp"      // s066
-#include "CheatSheetWindow.hpp"  // s030 -- same singleton shape, same dtor requirement
+#include "HelpWindow.hpp"        // s067 (the cheat sheet is its second page) -- same singleton shape, same dtor requirement
 #include "ShortcutsDialog.hpp"  // ditto -- same singleton shape, same dtor requirement
 #include "PreferencesWindow.hpp" // ditto (s014)
 #include "DrawerPane.hpp"

@@ -1,14 +1,19 @@
 #pragma once
 #include "widgets/Widgets.hpp"
 
-#include <gtkmm/window.h>
+#include <gtkmm/box.h>
 
 #include <string>
 #include <vector>
 
 namespace jot {
 
-// CheatSheetWindow -- core::cheat_sheet()'s GTK consumer (s030, road item 3).
+// CheatSheetPage -- core::cheat_sheet()'s GTK consumer (s030, road item 3).
+//
+// s067: it was a window of its own (CheatSheetWindow); it is now the Cheat
+// Sheet page of the Help window, beside the Guide -- one idea ("how do I ..."),
+// one window, two pages (Scott: controls that share a concept are combined).
+// Nothing about the sheet itself changed.
 //
 // Decides nothing and hand-lists nothing: it walks core::cheat_sheet() in
 // section order, and a line's keys come from the shortcut registry through
@@ -19,14 +24,16 @@ namespace jot {
 // Every row is built ONCE and filtering only shows / hides it: the sheet is a
 // few dozen lines, and a rebuild per keystroke would re-register names for no
 // gain. A heading hides when nothing under it matches.
-//
-// Hide-on-close singleton (CANON: "Lifetime shape is design"), like the
-// shortcuts window and About: Shell builds it once and re-presents it.
-class CheatSheetWindow : public Gtk::Window {
+class CheatSheetPage : public widgets::Box {
 public:
-    CheatSheetWindow();
-    ~CheatSheetWindow() override;
-    void show(Gtk::Window& parent);   // presents with an empty search, cursor in it
+    CheatSheetPage();
+
+    // A fresh look: `query` in the search (usually ""), scrolled to the top.
+    void reset(const std::string& query);
+    void focus_search();
+    // Esc on this page: empties a search and returns true; with nothing typed,
+    // returns false (the window closes).
+    bool clear_search();
 
     // For the trace channel: how many lines the current query shows.
     int visible_lines() const { return m_visible; }

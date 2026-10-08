@@ -404,7 +404,10 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Open in Files, Copy path, Rename or Relocate the jots folder", ""},
 
         // ── Help ────────────────────────────────────────────────────────────
-        {"Help", "win.cheat-sheet", "", "This cheat sheet — type to find a line", ""},
+        {"Help", "win.help", "", "jot Help: a page for each part of jot -- what it is for, how to use it",
+         "Each page has Try it buttons that open the thing it is about. Main menu › jot Help."},
+        {"Help", "win.cheat-sheet", "", "This cheat sheet — type to find a line",
+         "The Cheat Sheet page of the Help window; a guide page's “Every key for this” lands here filtered."},
         {"Help", "win.shortcuts", "", "Every keyboard shortcut in one list", ""},
         {"Help", "win.preferences", "", "Preferences",
          "Capture key, notifications, the calendar, keep running, linking drops."},

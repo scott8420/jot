@@ -7,7 +7,8 @@
 #include "core/Packet.hpp"
 #include "Appearance.hpp"
 #include "AboutWindow.hpp"
-#include "CheatSheetWindow.hpp"
+#include "HelpWindow.hpp"
+#include "core/Help.hpp"
 #include "GlanceWindow.hpp"
 #include "ShortcutsDialog.hpp"
 #include "PreferencesWindow.hpp"
@@ -1028,14 +1029,48 @@ void Shell::on_glance() {  // handler: open the Glance of Today
     m_glance->show(*this);
 }
 
-void Shell::on_cheat_sheet() {  // handler: open the cheat sheet (s030)
-    // Same lifetime stone as the shortcuts window. The content is not written
-    // here either: core::cheat_sheet() is the list, and its keys come from the
-    // shortcut registry, so the sheet cannot advertise a key jot does not bind.
-    if (!m_cheat_sheet) m_cheat_sheet = std::make_unique<CheatSheetWindow>();
-    m_cheat_sheet->show(*this);
+// s067: jot Help. One window, two pages -- the Guide (core::help_topics) and
+// the Cheat Sheet (core::cheat_sheet, s030). Built once, re-presented; neither
+// page's content is written here, and a page's Try comes back as a verb name.
+void Shell::ensure_help() {  // helper: build the Help window once
+    if (m_help) return;
+    m_help = std::make_unique<HelpWindow>();
+    m_help->signal_try().connect(sigc::mem_fun(*this, &Shell::on_help_try));
+}
+
+void Shell::on_help() {  // handler: open jot Help on the Guide (s067)
+    ensure_help();
+    m_help->show_guide(*this);
+}
+
+void Shell::on_cheat_sheet() {  // handler: open the cheat sheet (s030; s067: Help's second page)
+    // The content is not written here: core::cheat_sheet() is the list, and its
+    // keys come from the shortcut registry, so the sheet cannot advertise a key
+    // jot does not bind.
+    ensure_help();
+    m_help->show_keys(*this);
     if (auto lg = log::get(log::Area::Shell))
-        lg->info("cheat sheet: open, {} lines", m_cheat_sheet->visible_lines());
+        lg->info("cheat sheet: open, {} lines", m_help->visible_lines());
+}
+
+// A guide page's Try it: "win.timeline", "win.left-view::inbox". Run on THIS
+// window's action map, as the menu would -- the help window never reaches in.
+// The main window comes forward so the reader sees what happened; the Help
+// window, transient for it, stays above.
+void Shell::on_help_try(const std::string& detailed) {  // handler: run a guide page's verb
+    std::string name, target;
+    core::help_split_action(detailed, name, target);
+    const std::string bare = name.rfind("win.", 0) == 0 ? name.substr(4) : name;
+    auto action = lookup_action(bare);
+    auto lg = log::get(log::Area::Shell);
+    if (!action || !action->get_enabled()) {
+        if (lg) lg->info("help: try '{}' -- {}", detailed, action ? "not available now" : "no such verb");
+        return;
+    }
+    present();
+    if (target.empty()) action->activate();
+    else action->activate(Glib::Variant<Glib::ustring>::create(target));
+    if (lg) lg->info("help: try '{}' ran", detailed);
 }
 
 void Shell::on_shortcuts() {  // handler: open the keyboard reference

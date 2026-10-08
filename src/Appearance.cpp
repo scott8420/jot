@@ -121,6 +121,13 @@ std::string sheet(bool dark) {
     c += ".jot-tree row:focus-visible { outline-color: alpha(" + accent + ", 0.8); }\n";
     // s058b: the About window's row icons wear the accent.
     c += ".jot-about-row-icon { color: " + accent + "; }\n";
+    // s067: the Help window -- each page's icon, the sidebar's selection, the
+    // Try buttons and the links wear the accent.
+    c += ".jot-help-icon { color: " + accent + "; }\n";
+    c += ".jot-help-side row:selected { background-color: alpha(" + accent + ", 0.20); border-radius: 6px; }\n";
+    c += ".jot-help-try { background-color: alpha(" + accent + ", 0.14); border-radius: 999px; padding: 4px 14px; }\n";
+    c += ".jot-help-try:hover { background-color: alpha(" + accent + ", 0.24); }\n";
+    c += ".jot-help-link { color: " + accent + "; }\n";
     // s062: the tag chips over a note.
     c += ".jot-glance-errands { color: " + accent + "; }\n";   // s066
     c += ".jot-tagchip { background-color: alpha(" + accent + ", 0.14); }\n";

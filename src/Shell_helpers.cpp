@@ -170,7 +170,8 @@ void Shell::update_jots_title() {  // helper: repaint the header title + its men
         m_editor->set_blank_hint(m_project
             ? "No note selected. Pick one on the left, or press Ctrl+N to start a new one."
             : "No jots folder open. Ctrl+O opens one, Ctrl+Shift+O starts a new one \u2014 "
-              "or press Ctrl+N and write: notes are kept here until you save them into a folder.");
+              "or press Ctrl+N and write: notes are kept here until you save them into a folder.\n\n"
+              "New to jot? F1 or Ctrl+Shift+H opens the guide.");
     if (m_act_copy_path)     m_act_copy_path->set_enabled(have);
     if (m_act_relocate)      m_act_relocate->set_enabled(have);
     if (m_act_rename)        m_act_rename->set_enabled(have);

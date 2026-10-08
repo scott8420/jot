@@ -126,11 +126,15 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
          "Preferences \u2014 including the global capture shortcut"},
         {"General", "win.shortcuts",     {"<Ctrl>question", "<Ctrl>slash"}, "",
          "Keyboard shortcuts (this window)"},
-        // s030. F1 is GNOME's HELP key -- the reason About lost it in s016c --
-        // and the cheat sheet is jot's help, so it earns it. Ctrl+H is the
-        // letter-row twin (F-keys are not dependable on Asahi), listed first;
-        // no text box binds it.
-        {"General", "win.cheat-sheet",   {"<Ctrl>h", "F1"}, "",
+        // s030. Ctrl+H: the cheat sheet. No text box binds it.
+        // s067: F1 is GNOME's HELP key -- the reason About lost it in s016c --
+        // and now jot has a Help proper (the guide), so F1 moves there. The
+        // cheat sheet keeps Ctrl+H; the guide's letter-row twin is Ctrl+Shift+H
+        // (F-keys are not dependable on Asahi), listed first. Both open the one
+        // Help window, on its Guide or its Cheat Sheet page.
+        {"General", "win.help",          {"<Ctrl><Shift>h", "F1"}, "",
+         "jot Help: what each part of jot is for, and how to use it"},
+        {"General", "win.cheat-sheet",   {"<Ctrl>h"}, "",
          "Cheat sheet: everything jot does, one line each"},
         // No About row: it had F1, which every GNOME app reserves for HELP, and
         // pressing it expecting help and getting a credits window teaches that

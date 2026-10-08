@@ -108,6 +108,7 @@ add_library(jot_core STATIC
     # s030: the running cheat sheet -- every verb, one line each. Keys come
     # from the shortcut registry; the selftest fails on a keyed verb with no line.
     src/core/CheatSheet.cpp
+    src/core/Help.cpp        # s067: the guide's pages -- Try it, See also, every key for this
     # WHAT the desktop is told, decided in core and nowhere else (s009). The
     # backend that writes it is Desktop.cpp, over in the app target with
     # libecal; this half is a pure function of the model and an instant, so it
@@ -249,7 +250,8 @@ add_executable(jot
     src/JotsFolderDialog.cpp
     src/ShortcutsDialog.cpp
     src/GlanceWindow.cpp     # s066: the Glance of Today -- Copy, Email, Save .ics
-    src/CheatSheetWindow.cpp
+    src/CheatSheetPage.cpp   # s067: the Cheat Sheet page of the Help window
+    src/HelpWindow.cpp       # s067: jot Help -- the guide, and the cheat sheet beside it
     # s014: the preferences window, and the GSettings half of the capture hotkey
     # (core/Hotkey.cpp decides what to write; this performs it).
     src/PreferencesWindow.cpp

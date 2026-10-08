@@ -39,6 +39,8 @@
 #include "core/Inbox.hpp"
 #include "core/Filing.hpp"
 #include "core/CheatSheet.hpp"
+#include "core/Help.hpp"
+#include <set>
 #include "core/Tags.hpp"
 #include "core/Cli.hpp"
 #include "core/Review.hpp"
@@ -4985,16 +4987,24 @@ int main() {
                   two.display_how() == "Ctrl+M  or  or here", two.display_how());
         }
 
-        // The sheet's own key: Ctrl+H (the letter twin, first) and F1, GNOME's help.
+        // The sheet's own key: Ctrl+H. s067: F1 (GNOME's Help) went to the guide,
+        // with Ctrl+Shift+H as its letter-row twin, listed first.
         {
-            bool found = false;
-            for (const auto& s2 : core::shortcut_registry())
-                if (s2.action == "win.cheat-sheet" && s2.accels.size() == 2 &&
-                    s2.accels[0] == "<Ctrl>h" && s2.accels[1] == "F1")
-                    found = true;
-            check("cheat: Ctrl+H / F1 open the cheat sheet", found);
+            bool sheet = false, guide = false;
+            for (const auto& s2 : core::shortcut_registry()) {
+                if (s2.action == "win.cheat-sheet" && s2.accels.size() == 1 &&
+                    s2.accels[0] == "<Ctrl>h")
+                    sheet = true;
+                if (s2.action == "win.help" && s2.accels.size() == 2 &&
+                    s2.accels[0] == "<Ctrl><Shift>h" && s2.accels[1] == "F1")
+                    guide = true;
+            }
+            check("cheat: Ctrl+H opens the cheat sheet", sheet);
+            check("help: Ctrl+Shift+H / F1 open the guide", guide);
             check("cheat: Ctrl+H takes nothing from a text box",
                   !core::steals_text_editing("<Ctrl>h"));
+            check("help: Ctrl+Shift+H takes nothing from a text box",
+                  !core::steals_text_editing("<Ctrl><Shift>h"));
         }
 
         // The filter: every word must hit, case-blind, across how / what / where
@@ -5015,6 +5025,136 @@ int main() {
             for (const auto& l : cs)
                 if (core::cheat_matches(l, "due")) ++due;
             check("cheat: 'due' finds more than one line", due >= 2, std::to_string(due));
+        }
+    }
+
+
+    // -- Help: the guide (s067, J6) --------------------------------------------
+    // A page per idea. The stones: every Try names a verb jot has, every See
+    // also a page that exists, every page's cheat query finds a line; the light
+    // marks become markup that parses.
+    {
+        const auto& ts = core::help_topics();
+        const auto& gs = core::help_groups();
+        check("help: the guide has its pages", ts.size() >= 15, std::to_string(ts.size()) + " pages");
+        check("help: the first page is the welcome", !ts.empty() && ts.front().id == "welcome");
+        {
+            std::set<std::string> ids;
+            bool unique = true, filled = true;
+            std::string bad;
+            for (const auto& t : ts) {
+                if (!ids.insert(t.id).second) { unique = false; bad += t.id + " "; }
+                if (t.title.empty() || t.lead.empty() || t.body.empty() || t.icon.empty()) {
+                    filled = false;
+                    bad += t.id + "(empty) ";
+                }
+            }
+            check("help: page ids are unique", unique, bad);
+            check("help: every page has a title, a lead, a body and an icon", filled, bad);
+        }
+        {
+            // Groups: known, contiguous, in reading order, none empty.
+            bool known = true, ordered = true;
+            std::size_t at = 0;
+            std::vector<int> per(gs.size(), 0);
+            for (const auto& t : ts) {
+                auto it = std::find(gs.begin(), gs.end(), t.group);
+                if (it == gs.end()) { known = false; continue; }
+                const std::size_t g = static_cast<std::size_t>(it - gs.begin());
+                if (g < at) ordered = false;
+                at = g;
+                ++per[g];
+            }
+            check("help: every page is in a known group", known);
+            check("help: groups are contiguous and in reading order", ordered);
+            check("help: no group is empty",
+                  std::all_of(per.begin(), per.end(), [](int n) { return n > 0; }));
+        }
+        {
+            std::string all;
+            for (const auto& u : core::help_unknown_actions()) all += u + " ";
+            check("help: every Try names a verb jot has", core::help_unknown_actions().empty(), all);
+            all.clear();
+            for (const auto& u : core::help_bad_links()) all += u + " ";
+            check("help: every See also names another page", core::help_bad_links().empty(), all);
+            all.clear();
+            for (const auto& u : core::help_empty_keys()) all += u + " ";
+            check("help: every page's cheat query finds a line", core::help_empty_keys().empty(), all);
+        }
+        {
+            // A Try's key is the registry's, never spelled here.
+            const core::HelpTopic* tl = core::help_topic("timeline");
+            check("help: the timeline page's Try carries its key",
+                  tl && !tl->tries.empty() && core::help_try_keys(tl->tries[0]) == "Ctrl+Shift+L",
+                  tl && !tl->tries.empty() ? core::help_try_keys(tl->tries[0]) : "");
+            const core::HelpTopic* ib = core::help_topic("inbox");
+            check("help: a tab Try (no key of its own) shows none",
+                  ib && !ib->tries.empty() && core::help_try_keys(ib->tries[0]).empty());
+            std::string n, tg;
+            core::help_split_action("win.left-view::inbox", n, tg);
+            check("help: a detailed action splits into name and target",
+                  n == "win.left-view" && tg == "inbox", n + " | " + tg);
+            core::help_split_action("win.timeline", n, tg);
+            check("help: a plain action has no target", n == "win.timeline" && tg.empty());
+        }
+        {
+            check("help: markup -- bold, italic, code",
+                  core::help_markup("**Inbox** is *a* `mark`") ==
+                      "<b>Inbox</b> is <i>a</i> <tt>mark</tt>",
+                  core::help_markup("**Inbox** is *a* `mark`"));
+            check("help: markup escapes < > & and quotes",
+                  core::help_markup("a < b & \"c\"") == "a &lt; b &amp; &quot;c&quot;",
+                  core::help_markup("a < b & \"c\""));
+            check("help: markup -- inside `code` a * is a *",
+                  core::help_markup("`est:*` x") == "<tt>est:*</tt> x",
+                  core::help_markup("`est:*` x"));
+            check("help: markup -- an unclosed mark is closed",
+                  core::help_markup("**half *way") == "<b>half <i>way</i></b>",
+                  core::help_markup("**half *way"));
+            // Every page's text, run through it, has balanced tags.
+            bool balanced = true;
+            std::string bad;
+            auto ok = [](const std::string& m) {
+                for (const char* tag : {"b", "i", "tt"}) {
+                    const std::string o = std::string("<") + tag + ">", c = std::string("</") + tag + ">";
+                    std::size_t no = 0, nc = 0;
+                    for (auto p = m.find(o); p != std::string::npos; p = m.find(o, p + 1)) ++no;
+                    for (auto p = m.find(c); p != std::string::npos; p = m.find(c, p + 1)) ++nc;
+                    if (no != nc) return false;
+                }
+                return true;
+            };
+            for (const auto& t : ts) {
+                if (!ok(core::help_markup(t.lead))) { balanced = false; bad += t.id + " lead "; }
+                for (const auto& p : t.body)
+                    if (!ok(core::help_markup(p))) { balanced = false; bad += t.id + " "; }
+            }
+            check("help: every page's marks balance", balanced, bad);
+        }
+        {
+            // Finding a page: every word, case-blind, title / lead / body.
+            const core::HelpTopic* pk = core::help_topic("packets");
+            check("help: an empty find shows every page",
+                  std::all_of(ts.begin(), ts.end(),
+                              [](const core::HelpTopic& t) { return core::help_matches(t, " "); }));
+            check("help: found by a body word, any case", pk && core::help_matches(*pk, "ZIP"));
+            check("help: every word must hit", pk && !core::help_matches(*pk, "zip zebra"));
+            int receipts = 0;
+            for (const auto& t : ts)
+                if (core::help_matches(t, "receipts")) ++receipts;
+            check("help: 'receipts' finds the routines page", receipts >= 1 &&
+                      core::help_matches(*core::help_topic("routines"), "receipts"),
+                  std::to_string(receipts));
+            check("help: index walks the pages", core::help_index("welcome") == 0 &&
+                      core::help_index("undo") == static_cast<int>(ts.size()) - 1 &&
+                      core::help_index("nope") == -1);
+        }
+        {
+            // The cheat sheet names the guide's verb too (the coverage rule).
+            bool line = false;
+            for (const auto& l : core::cheat_sheet())
+                if (l.action == "win.help") line = true;
+            check("help: the cheat sheet has a line for the guide", line);
         }
     }
 
