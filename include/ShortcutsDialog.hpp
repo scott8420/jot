@@ -31,17 +31,29 @@ class ShortcutsDialog : public Gtk::Window {
 public:
     ShortcutsDialog();
     ~ShortcutsDialog() override;
-    void show(Gtk::Window& parent);   // a fresh look: empty search, at the top
+    // A fresh look: empty search, at the top. s070: `editing` opens it in Edit.
+    void show(Gtk::Window& parent, bool editing = false);
+    void refresh();   // s070: the keys changed -- draw the cards again
 
     int visible_rows() const { return m_visible; }   // for the trace channel
 
     // The foot's links -- the Shell opens Help on that page.
     sigc::signal<void()>& signal_cheat_sheet() { return m_sig_cheat; }
     sigc::signal<void()>& signal_guide() { return m_sig_guide; }
+    // s070: the reader changed a key -- here are all the changes as they
+    // should now stand. The Shell applies, saves and calls refresh().
+    sigc::signal<void(core::KeyOverrides)>& signal_keys() { return m_sig_keys; }
 
 private:
     void build();
+    void fill_cards();
+    void queue_fill();
     void filter();
+    // s070: Edit.
+    void set_editing(bool on);
+    void begin_capture(const std::string& action);
+    bool on_capture_key(guint keyval, Gdk::ModifierType state);
+    void clear_edit_state();
 
     struct Row {
         Gtk::Widget*              widget = nullptr;
@@ -63,6 +75,18 @@ private:
     int                        m_visible = 0;
 
     sigc::signal<void()> m_sig_cheat, m_sig_guide;
+    sigc::signal<void(core::KeyOverrides)> m_sig_keys;
+
+    // s070: Edit's state. One row at a time waits for a key (m_capture); a key
+    // another verb has waits for Use It Here / Cancel (m_pending_*); a key that
+    // cannot be one leaves a line under its row (m_note*).
+    widgets::ToggleButton m_edit{"shortcuts.edit"};
+    widgets::Label        m_edit_bar{"shortcuts.editbar"};
+    bool        m_editing = false;
+    bool        m_fill_queued = false;
+    std::string m_capture;
+    std::string m_pending_action, m_pending_accel, m_pending_words;
+    std::string m_note_action, m_note;
 };
 
 }  // namespace jot

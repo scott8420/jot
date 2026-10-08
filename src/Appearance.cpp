@@ -137,6 +137,10 @@ std::string sheet(bool dark) {
          "border-bottom-width: 2px; background-color: alpha(currentColor, 0.035); }\n";
     c += ".jot-keycap.jot-keycap-lit { background-color: alpha(" + accent + ", 0.22); "
          "border-color: alpha(" + accent + ", 0.7); }\n";
+    // s070: a changed key wears the accent; a row waiting for a key, too.
+    c += ".jot-keycap.jot-keycap-changed { border-color: " + accent + "; color: " + accent + "; }\n";
+    c += ".jot-keys-editable:hover { background-color: alpha(" + accent + ", 0.08); border-radius: 8px; }\n";
+    c += ".jot-keys-editbar { background-color: alpha(" + accent + ", 0.12); border-radius: 8px; padding: 8px 12px; }\n";
     // s062: the tag chips over a note.
     c += ".jot-glance-errands { color: " + accent + "; }\n";   // s066
     c += ".jot-tagchip { background-color: alpha(" + accent + ", 0.14); }\n";

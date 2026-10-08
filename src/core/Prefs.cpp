@@ -70,6 +70,16 @@ Prefs load_prefs(const std::string& file) {
         p.tl_show       = get_or(j, "tl_show", p.tl_show);
         if (!p.tl_show.empty()) p.tl_show = tl_show_text(tl_show_parse(p.tl_show));
         p.help_page     = get_or(j, "help_page", p.help_page);
+        // s070: an object of string arrays; a wrong-typed entry drops.
+        if (auto it = j.find("key_overrides"); it != j.end() && it->is_object()) {
+            p.key_overrides.clear();
+            for (auto e = it->begin(); e != it->end(); ++e) {
+                if (!e.value().is_array()) continue;
+                auto& list = p.key_overrides[e.key()];
+                for (const auto& a : e.value())
+                    if (a.is_string()) list.push_back(a.get<std::string>());
+            }
+        }
         // A list, not a scalar, so get_or's type deduction does not apply --
         // and a malformed entry must not take the whole prefs file down with
         // it, which is why the element type is checked rather than assumed.
@@ -152,6 +162,7 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     j["tl_group"] = p.tl_group;
     if (!p.tl_show.empty())   j["tl_show"]   = p.tl_show;
     if (!p.help_page.empty()) j["help_page"] = p.help_page;
+    if (!p.key_overrides.empty()) j["key_overrides"] = p.key_overrides;   // s070
     j["announced"]     = p.announced;
     j["snoozed"]       = nlohmann::json::array();
     for (const auto& z : p.snoozed)

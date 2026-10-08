@@ -90,6 +90,10 @@ void Shell::build_ui() {
     m_prefs_file = prefs_file();
     m_prefs      = core::load_prefs(m_prefs_file);
     appearance::set_chosen_accent(m_prefs.accent);   // s050b: before the first frame
+    // s070: the user's keys, before anything reads the registry. The app wired
+    // jot's own at startup; once this window belongs to it, wire them again.
+    core::set_key_overrides(m_prefs.key_overrides);
+    Glib::signal_idle().connect_once([this]() { rewire_accels(); });
     // Named now, created on the first image that needs it -- a scratch buffer
     // nobody drops a picture into never touches the disk.
     m_scratch_attach.dir =

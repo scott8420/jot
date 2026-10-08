@@ -1,4 +1,5 @@
 #include "PreferencesWindow.hpp"
+#include <gtkmm/alertdialog.h>   // s070: Reset All asks once
 #include <gtkmm/colordialog.h>
 #include <gtkmm/stylecontext.h>
 #include <gtkmm/cssprovider.h>
@@ -64,6 +65,7 @@ PreferencesWindow::PreferencesWindow() {
     // what the footer's tooltips were quietly doing instead.
     r = build_running_section(r);
     r = build_enclosure_section(r);
+    r = build_keyboard_section(r);   // s070
 
     m_btn_close.set_halign(Gtk::Align::END);
     m_btn_close.set_margin(8);
@@ -221,6 +223,49 @@ int PreferencesWindow::build_enclosure_section(int row) {
                    "says when it has changed or gone missing. Hold Shift "
                    "while dropping to do the other one.", row);
     return row;
+}
+
+// s070 (Scott's kids: keys "should be programmable"). The count, the way in
+// (the Keyboard Shortcuts window, editing) and the one way back for all of
+// them. One key's way back is the ↺ on its row in that window.
+int PreferencesWindow::build_keyboard_section(int row) {
+    row = add_heading("Keyboard", row);
+    auto* box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 8);
+    m_keys_says.set_xalign(0.0f);
+    m_keys_says.set_hexpand(true);
+    box->append(m_keys_says);
+    m_keys_edit.signal_clicked().connect([this]() { m_sig_edit_keys.emit(); });
+    box->append(m_keys_edit);
+    m_keys_reset.signal_clicked().connect([this]() {
+        auto alert = Gtk::AlertDialog::create(
+            "Put back jot's own keys for " +
+            (m_keys_changed == 1 ? std::string("1 shortcut") : std::to_string(m_keys_changed) + " shortcuts") +
+            "?");
+        alert->set_detail("Every shortcut you changed goes back to the key jot came with.");
+        alert->set_buttons({"Cancel", "Reset All"});
+        alert->set_cancel_button(0);
+        alert->set_default_button(1);
+        alert->choose(*this, [this, alert](Glib::RefPtr<Gio::AsyncResult>& res) {
+            try {
+                if (alert->choose_finish(res) == 1) m_sig_reset_keys.emit();
+            } catch (const Glib::Error&) {}
+        });
+    });
+    box->append(m_keys_reset);
+    m_grid.attach(*box, 1, row++, 1, 1);
+    row = add_note("Change any shortcut in the Keyboard Shortcuts window (Ctrl+?): Edit, "
+                   "click it, press the new key. The menus, the cheat sheet and the guide "
+                   "show your keys. The global capture key is under Capture.", row);
+    set_keys_changed(0);
+    return row;
+}
+
+void PreferencesWindow::set_keys_changed(int n) {
+    m_keys_changed = n;
+    m_keys_says.set_text(n == 0 ? "All shortcuts are jot's own"
+                                : (n == 1 ? std::string("1 shortcut changed")
+                                          : std::to_string(n) + " shortcuts changed"));
+    m_keys_reset.set_sensitive(n > 0);
 }
 
 // s050b (Scott: "allow the user to choose their highlight colors ... use

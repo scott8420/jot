@@ -1,4 +1,5 @@
 #pragma once
+#include "core/Shortcuts.hpp"   // s070: KeyOverrides
 #include "core/Import.hpp"
 #include "JotsFolderDialog.hpp"
 #include "MoveDialog.hpp"
@@ -232,6 +233,8 @@ private:
     void on_glance();                            // category: handler: the Glance of Today (s066)
     void on_cheat_sheet();                       // category: handler: the cheat sheet (s030; s067: the Help window's Cheat Sheet page)
     void on_help();                              // category: handler: jot Help, the guide (s067; renders from core::help_topics)
+    void apply_keys(const core::KeyOverrides& o);   // category: helper: s070 -- the user's keys, everywhere (prefs, accels, the windows)
+    void rewire_accels();                        // category: helper: s070 -- the app's accelerators from the registry as it now stands
     void ensure_help();                          // category: helper: build the Help window once (s067)
     void on_help_try(const std::string& detailed);   // category: handler: a guide page's Try it -- run that verb here (s067)
     void on_shortcuts();                         // category: handler: keyboard reference (renders from core::shortcut_registry)

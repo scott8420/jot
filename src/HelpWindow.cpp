@@ -161,6 +161,11 @@ bool HelpWindow::on_escape() {
     return true;
 }
 
+void HelpWindow::refresh_keys() {
+    if (m_cheat) m_cheat->rebuild();
+    fill_page(m_topic);
+}
+
 int HelpWindow::visible_lines() const { return m_cheat ? m_cheat->visible_lines() : 0; }
 
 // ── The guide: a source list of pages, and the page ─────────────────────────

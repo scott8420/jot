@@ -1,4 +1,5 @@
 #include "core/Shortcuts.hpp"
+#include "core/Hotkey.hpp"   // s070: canonical_accel, accels_equal, parse_accel_parts
 
 #include <algorithm>
 #include <cctype>
@@ -101,7 +102,7 @@ std::string ShortcutSpec::display_keys() const {
 // ─────────────────────────────────────────────────────────────────────────────
 // The registry  (authored section [A-Z] -> row)
 // ─────────────────────────────────────────────────────────────────────────────
-const std::vector<ShortcutSpec>& shortcut_registry() {
+const std::vector<ShortcutSpec>& shortcut_defaults() {
     // Fields: {section, action, accels, keys, description}
     // action non-empty => wired via set_accels_for_action. keys empty => derived.
     // Deliberately small -- a seed proves the SHAPE, not a product's key set. It
@@ -264,6 +265,208 @@ const std::vector<ShortcutSpec>& shortcut_registry() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// s070: the registry is the defaults with the user's changes over them
+// ─────────────────────────────────────────────────────────────────────────────
+namespace {
+
+KeyOverrides& overrides_store() {
+    static KeyOverrides o;
+    return o;
+}
+
+std::vector<ShortcutSpec>& effective_store() {
+    static std::vector<ShortcutSpec> v = shortcut_defaults();
+    return v;
+}
+
+const ShortcutSpec* default_for(const std::string& action) {
+    for (const auto& s : shortcut_defaults())
+        if (s.action == action) return &s;
+    return nullptr;
+}
+
+bool same_accels(const std::vector<std::string>& a, const std::vector<std::string>& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i)
+        if (!accels_equal(a[i], b[i])) return false;
+    return true;
+}
+
+bool is_fkey(const std::string& key) {
+    if (key.size() < 2 || key[0] != 'F') return false;
+    for (std::size_t i = 1; i < key.size(); ++i)
+        if (!std::isdigit(static_cast<unsigned char>(key[i]))) return false;
+    return true;
+}
+
+// A written key ("Alt", "Up") against an accel ("<Alt>Up"): the same chord?
+// Compared by parts, case-blind, with the written names GTK spells otherwise.
+bool caps_are(const std::vector<std::string>& caps, const std::string& accel) {
+    if (caps.empty()) return false;
+    const AccelParts p = parse_accel_parts(accel);
+    bool ctrl = false, alt = false, shift = false, super = false;
+    for (std::size_t i = 0; i + 1 < caps.size(); ++i) {
+        const std::string m = lower(caps[i]);
+        if (m == "ctrl") ctrl = true;
+        else if (m == "alt") alt = true;
+        else if (m == "shift") shift = true;
+        else if (m == "super") super = true;
+        else return false;
+    }
+    std::string k = lower(caps.back());
+    if (k == "enter") k = "return";
+    if (k == "del") k = "delete";
+    return ctrl == p.ctrl && alt == p.alt && shift == p.shift && super == p.super &&
+           k == lower(p.key);
+}
+
+// Fit to be an app key at all (who else has it is checked separately).
+KeyCheck::Kind fitness(const std::string& accel) {
+    const AccelParts p = parse_accel_parts(accel);
+    if (p.key.empty()) return KeyCheck::NotAKey;
+    if (steals_text_editing(accel)) return KeyCheck::TextEditing;
+    if (!p.qualifying_modifier() && !is_fkey(p.key)) return KeyCheck::NeedsModifier;
+    return KeyCheck::Ok;
+}
+
+}  // namespace
+
+const std::vector<ShortcutSpec>& shortcut_registry() { return effective_store(); }
+
+const KeyOverrides& key_overrides() { return overrides_store(); }
+
+KeyOverrides clean_overrides(const KeyOverrides& o) {
+    KeyOverrides out;
+    for (const auto& [action, accels] : o) {
+        const ShortcutSpec* d = default_for(action);
+        if (!d || d->section == "Diagnostics") continue;
+        std::vector<std::string> keep;
+        for (const auto& a : accels)
+            if (fitness(a) == KeyCheck::Ok) keep.push_back(canonical_accel(a));
+        if (keep.empty() && !accels.empty()) continue;   // all junk: not a deliberate "no key"
+        if (same_accels(keep, d->accels)) continue;      // the default: not a change
+        out[action] = keep;
+    }
+    return out;
+}
+
+void set_key_overrides(const KeyOverrides& o) {
+    overrides_store() = clean_overrides(o);
+    auto& v = effective_store();
+    v = shortcut_defaults();
+    for (auto& s : v)
+        if (auto it = overrides_store().find(s.action); !s.action.empty() && it != overrides_store().end())
+            s.accels = it->second;
+}
+
+KeyCheck check_new_key(const std::string& action, const std::string& accel) {
+    KeyCheck c;
+    const std::string pretty = format_accel(accel);
+    c.kind = fitness(accel);
+    switch (c.kind) {
+        case KeyCheck::NotAKey:
+            c.words = "That isn't a key jot can use.";
+            return c;
+        case KeyCheck::TextEditing:
+            c.words = pretty + " belongs to the text boxes (typing, moving, copy and paste) -- pick another.";
+            return c;
+        case KeyCheck::NeedsModifier:
+            c.words = pretty + " alone would be typed, not obeyed -- add Ctrl or Alt (an F-key can stand alone).";
+            return c;
+        default: break;
+    }
+    // A key the NOTE or the TREE keeps for itself (Bold, Italic, Link; Alt+Up,
+    // Enter, Delete in the tree): a doc-only row that names keys. An app key is
+    // heard before the focused widget (s016c), so it would take the key away.
+    for (const auto& s : shortcut_registry()) {
+        if (!s.action.empty() || s.keys.empty()) continue;
+        // "Alt+Up / Alt+Down (in the tree)": the bracket says where, not a key.
+        std::string written = s.keys;
+        if (const auto o2 = written.rfind(" ("); o2 != std::string::npos && written.back() == ')')
+            written = written.substr(0, o2);
+        std::string what = s.description;
+        if (const auto o3 = what.rfind(" (in the "); o3 != std::string::npos && what.back() == ')')
+            what = what.substr(0, o3);
+        for (const auto& alt : literal_keycaps(written)) {
+            if (caps_are(alt, accel)) {
+                c.kind = KeyCheck::Reserved;
+                c.other_words = what;
+                c.words = pretty + " is kept for: " + what + ". Pick another.";
+                return c;
+            }
+        }
+    }
+    for (const auto& s : shortcut_registry()) {
+        if (s.action.empty()) continue;
+        for (const auto& a : s.accels) {
+            if (!accels_equal(a, accel)) continue;
+            if (s.action == action) {
+                c.kind = KeyCheck::Same;
+                c.words = pretty + " is already its key.";
+                return c;
+            }
+            c.kind = KeyCheck::Taken;
+            c.other = s.action;
+            c.other_words = s.description;
+            c.words = pretty + " is already: " + s.description + ".";
+            return c;
+        }
+    }
+    c.kind = KeyCheck::Ok;
+    return c;
+}
+
+KeyOverrides with_key(const KeyOverrides& o, const std::string& action,
+                      const std::string& accel, bool swap) {
+    KeyOverrides out = o;
+    out[action] = accel.empty() ? std::vector<std::string>{}
+                                : std::vector<std::string>{canonical_accel(accel)};
+    if (swap && !accel.empty()) {
+        for (const auto& s : shortcut_registry()) {
+            if (s.action.empty() || s.action == action) continue;
+            std::vector<std::string> left;
+            bool had = false;
+            for (const auto& a : s.accels) {
+                if (accels_equal(a, accel)) had = true;
+                else left.push_back(a);
+            }
+            if (had) out[s.action] = left;
+        }
+    }
+    return clean_overrides(out);
+}
+
+KeyOverrides without_override(const KeyOverrides& o, const std::string& action) {
+    KeyOverrides out = o;
+    out.erase(action);
+    return out;
+}
+
+KeyOverrides reset_key(const KeyOverrides& o, const std::string& action,
+                       std::vector<std::string>* took_from) {
+    KeyOverrides out = without_override(o, action);
+    const ShortcutSpec* d = default_for(action);
+    if (!d) return clean_overrides(out);
+    for (const auto& [other, accels] : o) {
+        if (other == action) continue;
+        std::vector<std::string> left;
+        bool had = false;
+        for (const auto& a : accels) {
+            bool clash = false;
+            for (const auto& mine : d->accels)
+                if (accels_equal(a, mine)) clash = true;
+            if (clash) had = true;
+            else left.push_back(a);
+        }
+        if (had) {
+            out[other] = left;
+            if (took_from) took_from->push_back(other);
+        }
+    }
+    return clean_overrides(out);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // s069: rows for the Keyboard Shortcuts window
 // ─────────────────────────────────────────────────────────────────────────────
 std::vector<std::string> accel_keycaps(const std::string& accel) {
@@ -323,7 +526,7 @@ const std::vector<std::string>& key_sections() {
     return kSections;
 }
 
-std::vector<KeyRow> key_rows() {
+std::vector<KeyRow> key_rows(bool unkeyed) {
     std::vector<KeyRow> out;
     for (const auto& sec : key_sections()) {
         for (const auto& s : shortcut_registry()) {
@@ -351,7 +554,11 @@ std::vector<KeyRow> key_rows() {
                     d = d.substr(0, o);
                 }
             }
-            if (r.keys.empty()) continue;   // unkeyed verbs and gestures: not here
+            // Unkeyed verbs (s070: shown while editing, to be given one) and
+            // gestures (never: the cheat sheet's).
+            if (r.keys.empty() &&
+                !(unkeyed && !s.action.empty() && s.section != "Diagnostics"))
+                continue;
             out.push_back(std::move(r));
         }
     }

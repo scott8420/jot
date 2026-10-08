@@ -119,6 +119,9 @@ struct Prefs {
     std::string tl_show;              // "" = the usual set; see tl_show_text
     // s068: the Help guide's page, as it was left ("" = Welcome).
     std::string help_page;
+    // s070: keys the user changed -- action -> its keys ([] = no key). Only
+    // the changes; core::clean_overrides decides what stands when it is read.
+    std::map<std::string, std::vector<std::string>> key_overrides;
 
     // ── the second fingerprint, and why it is a LIST ───────────────────────
     // m_desktop_sig remembers what the desktop was last SENT -- one string,

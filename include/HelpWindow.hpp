@@ -48,6 +48,8 @@ public:
     // The reader turned to another page -- the Shell keeps it in prefs.
     sigc::signal<void(std::string)>& signal_page() { return m_sig_page; }
     int visible_lines() const;   // the cheat sheet's, for the trace channel
+    // s070: keys changed -- the Cheat Sheet's rows and the page's Try keys.
+    void refresh_keys();
 
     // A Try was pressed: "win.timeline", "win.left-view::inbox" ...
     sigc::signal<void(std::string)>& signal_try() { return m_sig_try; }

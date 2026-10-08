@@ -231,6 +231,19 @@ clears a search; a second Escape closes the window. Keys shown in either
 page are read from the same registry jot binds them from, so neither can
 show a key jot does not answer to.
 
+## Keyboard shortcuts -- and changing them
+
+**Ctrl+?** (main menu > Keyboard shortcuts) shows every key as keycaps, a
+card per section; type to search by words or by keys ("flag", "ctrl+m").
+Press **Edit** to change one: click it, press the new key. A key another
+verb already has asks first -- **Use It Here** takes it from there.
+Backspace leaves a verb with no key; the ↺ on a changed row puts back
+jot's own. **Preferences > Keyboard** counts the changes and has **Reset
+All to Defaults**. jot refuses keys that typing needs (Ctrl+C, Ctrl+Z ...),
+keys the note or the tree keep (Ctrl+B, Alt+Up ...) and plain letters.
+The menus, the cheat sheet and the guide show your keys. Changes live in
+prefs.json under `key_overrides`.
+
 ## Glance of Today
 
 **Ctrl+Shift+G** (or View › Glance of Today) opens the day on one card:

@@ -21,6 +21,7 @@
 //
 // (Adapted from Sudoku's registry, itself from Folio's s98. jot carries the
 // shape, not the content -- these bindings are the seed's own.)
+#include <map>
 #include <string>
 #include <vector>
 
@@ -42,7 +43,46 @@ std::string format_accel(const std::string& accel);
 
 // The registry -- authored section (A-Z) -> row, so a consumer walks it linearly
 // and starts a heading whenever the section changes.
+//
+// s070: what jot SHIPS is shortcut_defaults(); shortcut_registry() is those
+// with the user's changes laid over them (set_key_overrides). Every reader --
+// the accelerators, the menus, the cheat sheet, the shortcuts window, the
+// guide's Try keys -- reads the registry, so a changed key shows everywhere.
 const std::vector<ShortcutSpec>& shortcut_registry();
+const std::vector<ShortcutSpec>& shortcut_defaults();
+
+// ── s070: keys you can change ─────────────────────────────────────────────
+// action -> the accels it has instead of jot's own. An EMPTY list means "no
+// key". Only changes are kept, so a later jot's new defaults still arrive.
+using KeyOverrides = std::map<std::string, std::vector<std::string>>;
+
+void set_key_overrides(const KeyOverrides& o);   // takes clean_overrides(o)
+const KeyOverrides& key_overrides();
+
+// Drops what cannot stand: an action jot does not have (or a Diagnostics one),
+// a key that is not fit (key_problem), an entry equal to the default.
+KeyOverrides clean_overrides(const KeyOverrides& o);
+
+// Can `accel` be `action`'s key?
+struct KeyCheck {
+    enum Kind { Ok, Same, NotAKey, NeedsModifier, TextEditing, Reserved, Taken };
+    Kind        kind = Ok;
+    std::string other;        // Taken: the action that has it
+    std::string other_words;  // Taken / Reserved: what it does there
+    std::string words;        // a sentence for the window
+};
+KeyCheck check_new_key(const std::string& action, const std::string& accel);
+
+// The overrides with `action`'s key set to `accel` alone ("" = no key). With
+// `swap`, whoever had `accel` loses it (keeping any other key it had).
+KeyOverrides with_key(const KeyOverrides& o, const std::string& action,
+                      const std::string& accel, bool swap);
+// The overrides with `action` back to jot's own key.
+KeyOverrides without_override(const KeyOverrides& o, const std::string& action);
+// The same, but safe: if another verb has since been given one of `action`'s
+// own keys, that verb gives it up (its other keys stay). `took_from` names them.
+KeyOverrides reset_key(const KeyOverrides& o, const std::string& action,
+                       std::vector<std::string>* took_from = nullptr);
 
 // An accel collides when two+ specs claim it and at least one is a wired
 // GAction (a GAction accel fires regardless of focus, so anything else on that
@@ -85,7 +125,9 @@ std::vector<std::vector<std::string>> literal_keycaps(const std::string& keys);
 const std::vector<std::string>& key_sections();
 
 // Every keyed row, grouped by key_sections() order, registry order within.
-std::vector<KeyRow> key_rows();
+// s070: with `unkeyed`, also the verbs with no key (they can be given one) --
+// never Diagnostics' unkeyed or a doc-only row's.
+std::vector<KeyRow> key_rows(bool unkeyed = false);
 
 // 0 = not found; 1 = found by its words (description, where, section);
 // 2 = found by its KEYS ("ctrl+m", "f1", "shift l") -- the window lights the caps.

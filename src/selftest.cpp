@@ -5111,6 +5111,127 @@ int main() {
         }
     }
 
+    // -- s070: keys you can change --------------------------------------------
+    {
+        core::set_key_overrides({});
+        auto accels_of = [](const std::string& action) {
+            for (const auto& s2 : core::shortcut_registry())
+                if (s2.action == action) return s2.accels;
+            return std::vector<std::string>{};
+        };
+        auto default_of = [](const std::string& action) {
+            for (const auto& s2 : core::shortcut_defaults())
+                if (s2.action == action) return s2.accels;
+            return std::vector<std::string>{};
+        };
+        check("keys edit: with no changes the registry is the defaults",
+              core::shortcut_registry().size() == core::shortcut_defaults().size() &&
+                  accels_of("win.move-to") == default_of("win.move-to"));
+        // What can be a key.
+        using K = core::KeyCheck;
+        check("keys edit: a text-box chord is refused",
+              core::check_new_key("win.find", "<Ctrl>c").kind == K::TextEditing);
+        check("keys edit: a bare letter is refused",
+              core::check_new_key("win.find", "m").kind == K::NeedsModifier &&
+                  core::check_new_key("win.find", "<Shift>m").kind == K::NeedsModifier);
+        check("keys edit: an F-key may stand alone", core::check_new_key("win.find", "F7").kind == K::Ok,
+              core::check_new_key("win.find", "F7").words);
+        check("keys edit: the note's Bold is kept",
+              core::check_new_key("win.find", "<Ctrl>b").kind == K::Reserved,
+              core::check_new_key("win.find", "<Ctrl>b").words);
+        check("keys edit: the tree's Alt+Up is kept",
+              core::check_new_key("win.find", "<Alt>Up").kind == K::Reserved);
+        check("keys edit: its own key is Same",
+              core::check_new_key("win.move-to", "<Control>m").kind == K::Same);
+        {
+            const auto t = core::check_new_key("win.find", "<Ctrl>m");
+            check("keys edit: another's key is Taken, and says whose",
+                  t.kind == K::Taken && t.other == "win.move-to" && !t.words.empty(), t.words);
+        }
+        check("keys edit: a free chord is Ok", core::check_new_key("win.find", "<Ctrl><Alt>q").kind == K::Ok);
+        // Setting one.
+        auto o = core::with_key({}, "win.move-to", "<Ctrl><Alt>m", false);
+        core::set_key_overrides(o);
+        check("keys edit: a changed key is the registry's",
+              accels_of("win.move-to").size() == 1 &&
+                  core::format_accel(accels_of("win.move-to")[0]) == "Ctrl+Alt+M");
+        check("keys edit: ... and the defaults keep jot's",
+              default_of("win.move-to").size() == 1 && default_of("win.move-to")[0] == "<Ctrl>m");
+        {
+            const core::CheatLine* mv = nullptr;
+            for (const auto& l : core::cheat_sheet()) if (l.action == "win.move-to") mv = &l;
+            check("keys edit: the cheat sheet shows the changed key",
+                  mv && mv->display_how() == "Ctrl+Alt+M", mv ? mv->display_how() : "");
+            bool row = false;
+            for (const auto& r : core::key_rows())
+                if (r.action == "win.move-to" && r.keys.size() == 1 &&
+                    r.keys[0] == std::vector<std::string>{"Ctrl", "Alt", "M"}) row = true;
+            check("keys edit: the shortcuts window shows it", row);
+            check("keys edit: the old key is free now",
+                  core::check_new_key("win.find", "<Ctrl>m").kind == K::Ok);
+        }
+        // A swap.
+        o = core::with_key(core::key_overrides(), "win.find", "<Ctrl><Alt>m", true);
+        core::set_key_overrides(o);
+        check("keys edit: a swap takes the key from its holder",
+              accels_of("win.find").size() == 1 && accels_of("win.move-to").empty() &&
+                  core::key_overrides().size() == 2);
+        check("keys edit: no collisions after a swap", core::find_accel_collisions().empty());
+        // ↺ on Move while Find holds Move's own key: Move gets it back, Find gives it up.
+        {
+            std::vector<std::string> took;
+            // Find given Ctrl+M (Move's own), Move left with none -- then ↺ on Move.
+            const auto o2 = core::with_key({}, "win.find", "<Ctrl>m", true);
+            const auto r = core::reset_key(o2, "win.move-to", &took);
+            check("keys edit: a reset takes its own key back, and says from whom",
+                  !r.count("win.move-to") && r.count("win.find") && r.at("win.find").empty() &&
+                      took.size() == 1 && took[0] == "win.find");
+        }
+        // Back.
+        o = core::without_override(core::key_overrides(), "win.find");
+        o = core::with_key(o, "win.move-to", "<Ctrl>m", false);
+        core::set_key_overrides(o);
+        check("keys edit: set back to its default is no change at all",
+              core::key_overrides().empty() && accels_of("win.find") == default_of("win.find") &&
+                  accels_of("win.move-to") == default_of("win.move-to"));
+        // A key-less verb.
+        o = core::with_key({}, "win.toggle-flag", "", false);
+        check("keys edit: no key is a change of its own",
+              o.count("win.toggle-flag") && o.at("win.toggle-flag").empty());
+        // Clean.
+        core::KeyOverrides junk{{"win.nope", {"<Ctrl>1"}},
+                                {"win.dump-nodes", {"<Ctrl>2"}},
+                                {"win.glance", {"<Ctrl>c"}},
+                                {"win.timeline", {"<Ctrl><Alt>t"}}};
+        const auto clean = core::clean_overrides(junk);
+        check("keys edit: clean drops unknown, Diagnostics and unfit keys",
+              clean.size() == 1 && clean.count("win.timeline"), std::to_string(clean.size()));
+        // Unkeyed verbs, while editing.
+        bool plain = false, editing = false;
+        for (const auto& r : core::key_rows()) if (r.action == "win.toggle-project") plain = true;
+        for (const auto& r : core::key_rows(true)) if (r.action == "win.toggle-project") editing = true;
+        check("keys edit: a verb with no key is listed only while editing", !plain && editing);
+        bool diag_unkeyed = false;
+        for (const auto& r : core::key_rows(true))
+            if (r.section == "Diagnostics" && r.keys.empty()) diag_unkeyed = true;
+        check("keys edit: never Diagnostics' unkeyed", !diag_unkeyed);
+        // Prefs.
+        {
+            const auto dir = std::filesystem::temp_directory_path() / "jot_s070_prefs";
+            std::filesystem::create_directories(dir);
+            const std::string file = (dir / "prefs.json").string();
+            core::Prefs a;
+            a.key_overrides = {{"win.timeline", {"<Control><Alt>t"}}, {"win.toggle-flag", {}}};
+            core::save_prefs(file, a);
+            const auto b = core::load_prefs(file);
+            check("keys edit: changes round trip in prefs, no-key included",
+                  b.key_overrides.size() == 2 && b.key_overrides.at("win.toggle-flag").empty() &&
+                      b.key_overrides.at("win.timeline").size() == 1);
+            std::filesystem::remove_all(dir);
+        }
+        core::set_key_overrides({});
+    }
+
     // -- s068: the timeline's view as words (kept in prefs) ----------------------
     {
         check("tl view: the usual Show set as words",

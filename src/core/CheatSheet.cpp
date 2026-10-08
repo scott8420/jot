@@ -411,6 +411,10 @@ const std::vector<CheatLine>& cheat_sheet() {
          "The Cheat Sheet page of the Help window; a guide page's “Every key for this” lands here filtered."},
         {"Help", "win.shortcuts", "", "Keyboard Shortcuts: every key, drawn as keycaps, a card per section",
          "Type words or keys to find one -- \u201cflag\u201d, \u201cctrl+m\u201d; the keys found light up. Main menu \u203a Keyboard shortcuts."},
+        {"Help", "", "Keyboard Shortcuts \u203a Edit", "Change any shortcut: click it, press the new key",
+         "A key another verb has asks first (Use It Here takes it from there). Backspace: no key. \u21ba puts "
+         "back one; Preferences \u203a Keyboard \u203a Reset All to Defaults puts back all. Menus, this sheet "
+         "and the guide show your keys."},
         {"Help", "win.preferences", "", "Preferences",
          "Capture key, notifications, the calendar, keep running, linking drops."},
         {"Help", "win.quit", "", "Quit",

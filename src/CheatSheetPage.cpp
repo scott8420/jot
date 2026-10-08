@@ -84,6 +84,14 @@ void CheatSheetPage::focus_search() {
     m_search.set_position(-1);   // the cursor at the end, nothing selected
 }
 
+void CheatSheetPage::rebuild() {
+    while (auto* c = m_column.get_first_child()) m_column.remove(*c);
+    m_headings.clear();
+    m_rows.clear();
+    build();
+    filter();
+}
+
 bool CheatSheetPage::clear_search() {
     // A reader who typed a filter and pressed Escape wants the whole sheet
     // back, not the window gone.

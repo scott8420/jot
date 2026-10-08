@@ -60,11 +60,18 @@ public:
     sigc::signal<void(bool)>& signal_drop_links_toggled() { return m_sig_drop_links; }
     sigc::signal<void(std::string)>& signal_accent_chosen() { return m_sig_accent; }   // s050b
 
+    // s070: Keyboard -- how many shortcuts are changed; Edit opens the
+    // Keyboard Shortcuts window editing; Reset All asks once, then signals.
+    void set_keys_changed(int n);
+    sigc::signal<void()>& signal_edit_keys()  { return m_sig_edit_keys; }
+    sigc::signal<void()>& signal_reset_keys() { return m_sig_reset_keys; }
+
 private:
     int  build_hotkey_section(int row);
     int  build_running_section(int row);
     int  build_enclosure_section(int row);
     int  build_look_section(int row);          // s050b
+    int  build_keyboard_section(int row);      // s070
     void choose_accent(const std::string& hex);   // a swatch or the picker -> the Shell
     void show_accent();                           // swatches + the line, from m_accent
 
@@ -115,6 +122,13 @@ private:
     std::string                m_accent;            // "" or "#rrggbb"
     std::string                m_desktop_accent;
     sigc::signal<void(std::string)> m_sig_accent;
+
+    // ── s070: Keyboard ─────────────────────────────────────────────────────
+    widgets::Label  m_keys_says{"prefs.keys.says"};
+    widgets::Button m_keys_edit{"prefs.keys.edit", "Edit Shortcuts\u2026"};
+    widgets::Button m_keys_reset{"prefs.keys.reset", "Reset All to Defaults"};
+    int             m_keys_changed = 0;
+    sigc::signal<void()> m_sig_edit_keys, m_sig_reset_keys;
 
     Glib::RefPtr<Gtk::EventControllerKey> m_keys;
     bool m_grabbing  = false;   // the window is swallowing keys, waiting for a chord

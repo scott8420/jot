@@ -1029,6 +1029,31 @@ void Shell::on_glance() {  // handler: open the Glance of Today
     m_glance->show(*this);
 }
 
+// s070: the user's keys. Saved as changes only; the registry takes them, and
+// every reader follows -- the accelerators here, the menus (GTK reads the
+// accels), the cheat sheet, the guide's Try keys, the shortcuts window.
+void Shell::apply_keys(const core::KeyOverrides& o) {  // helper: the user's keys, everywhere
+    core::set_key_overrides(o);
+    m_prefs.key_overrides = core::key_overrides();   // what stood after cleaning
+    core::save_prefs(m_prefs_file, m_prefs);
+    rewire_accels();
+    if (m_shortcuts) m_shortcuts->refresh();
+    if (m_help) m_help->refresh_keys();
+    if (m_preferences) m_preferences->set_keys_changed(static_cast<int>(core::key_overrides().size()));
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("keys: {} changed", core::key_overrides().size());
+}
+
+void Shell::rewire_accels() {  // helper: the accelerators from the registry as it stands
+    auto app = get_application();
+    if (!app) return;
+    for (const auto& s : core::shortcut_registry()) {
+        if (s.action.empty()) continue;
+        std::vector<Glib::ustring> accels(s.accels.begin(), s.accels.end());
+        app->set_accels_for_action(s.action, accels);   // an empty list takes the key away
+    }
+}
+
 // s067: jot Help. One window, two pages -- the Guide (core::help_topics) and
 // the Cheat Sheet (core::cheat_sheet, s030). Built once, re-presented; neither
 // page's content is written here, and a page's Try comes back as a verb name.
@@ -1089,6 +1114,7 @@ void Shell::on_shortcuts() {  // handler: open the keyboard reference
         // s069: its foot links to Help's two pages.
         m_shortcuts->signal_cheat_sheet().connect(sigc::mem_fun(*this, &Shell::on_cheat_sheet));
         m_shortcuts->signal_guide().connect(sigc::mem_fun(*this, &Shell::on_help));
+        m_shortcuts->signal_keys().connect(sigc::mem_fun(*this, &Shell::apply_keys));   // s070
     }
     m_shortcuts->show(*this);
 }
@@ -1114,6 +1140,13 @@ void Shell::on_preferences() {  // handler: open the preferences window
         // the only writer, and the Shell just keeps and saves it.
         // s050b: the highlight colour. Like drop_links, the row is its only
         // writer; the Shell keeps it and Appearance repaints.
+        // s070: Keyboard.
+        m_preferences->set_keys_changed(static_cast<int>(core::key_overrides().size()));
+        m_preferences->signal_edit_keys().connect([this]() {
+            if (!m_shortcuts) on_shortcuts();
+            m_shortcuts->show(*this, true);
+        });
+        m_preferences->signal_reset_keys().connect([this]() { apply_keys({}); });
         m_preferences->signal_accent_chosen().connect([this](std::string hex) {
             m_prefs.accent = hex;
             core::save_prefs(m_prefs_file, m_prefs);

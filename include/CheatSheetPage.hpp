@@ -35,6 +35,9 @@ public:
     // returns false (the window closes).
     bool clear_search();
 
+    // s070: keys changed -- the rows say them again (the search stays).
+    void rebuild();
+
     // For the trace channel: how many lines the current query shows.
     int visible_lines() const { return m_visible; }
 
