@@ -43,6 +43,10 @@ public:
     void show_keys(Gtk::Window& parent, const std::string& query = "");
 
     const std::string& current_topic() const { return m_topic; }
+    // s068: start on this page (the one kept in prefs); unknown ids are ignored.
+    void set_topic(const std::string& id) { if (!id.empty()) show_topic(id); }
+    // The reader turned to another page -- the Shell keeps it in prefs.
+    sigc::signal<void(std::string)>& signal_page() { return m_sig_page; }
     int visible_lines() const;   // the cheat sheet's, for the trace channel
 
     // A Try was pressed: "win.timeline", "win.left-view::inbox" ...
@@ -75,6 +79,7 @@ private:
     bool                 m_selecting = false;   // a programmatic select, not the reader
 
     sigc::signal<void(std::string)> m_sig_try;
+    sigc::signal<void(std::string)> m_sig_page;
 };
 
 }  // namespace jot

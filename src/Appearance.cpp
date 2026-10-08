@@ -132,7 +132,9 @@ std::string sheet(bool dark) {
     c += ".jot-glance-errands { color: " + accent + "; }\n";   // s066
     c += ".jot-tagchip { background-color: alpha(" + accent + ", 0.14); }\n";
     // s065: the timeline's Show button when it is not showing the usual set.
-    c += ".jot-tl-filtered { color: " + accent + "; }\n";
+    // s068: and the button INSIDE the MenuButton -- the theme colours that one
+    // itself, so the outer colour never reached the icon (s065 shipped unseen).
+    c += ".jot-tl-filtered, .jot-tl-filtered > button { color: " + accent + "; }\n";
     // s062e: the "older build" line.
     c += ".jot-stale-bar { background-color: alpha(" + accent + ", 0.16); border-radius: 8px; padding: 4px 4px 4px 10px; }\n";
     c += ".jot-tagchip .jot-tagchip-name { color: mix(" + accent + ", currentColor, 0.25); }\n";

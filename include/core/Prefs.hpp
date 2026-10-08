@@ -111,6 +111,14 @@ struct Prefs {
     // app asks) and where Save .ics last put the file ("" = Downloads).
     std::string glance_to;
     std::string glance_dir;
+    // s068: the timeline's view, as it was left (Scott's sweep: "zoom and
+    // grouping not kept"). Words, read through core/Timeline's parsers, so a
+    // hand-edited file cannot put the timeline in a state it has no button for.
+    std::string tl_zoom  = "month";   // week | month | season
+    std::string tl_group = "day";     // day | place | purpose
+    std::string tl_show;              // "" = the usual set; see tl_show_text
+    // s068: the Help guide's page, as it was left ("" = Welcome).
+    std::string help_page;
 
     // ── the second fingerprint, and why it is a LIST ───────────────────────
     // m_desktop_sig remembers what the desktop was last SENT -- one string,

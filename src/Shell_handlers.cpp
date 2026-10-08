@@ -1036,6 +1036,13 @@ void Shell::ensure_help() {  // helper: build the Help window once
     if (m_help) return;
     m_help = std::make_unique<HelpWindow>();
     m_help->signal_try().connect(sigc::mem_fun(*this, &Shell::on_help_try));
+    // s068: the guide opens on the page it was left at, across restarts.
+    m_help->set_topic(m_prefs.help_page);
+    m_help->signal_page().connect([this](std::string id) {
+        if (id == m_prefs.help_page) return;
+        m_prefs.help_page = std::move(id);
+        core::save_prefs(m_prefs_file, m_prefs);
+    });
 }
 
 void Shell::on_help() {  // handler: open jot Help on the Guide (s067)

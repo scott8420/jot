@@ -1,4 +1,5 @@
 #include "core/Prefs.hpp"
+#include "core/Timeline.hpp"   // s068: the timeline view's words
 #include "core/Zoom.hpp"
 #include "core/RowLook.hpp"
 
@@ -64,6 +65,11 @@ Prefs load_prefs(const std::string& file) {
         p.open_from     = get_or(j, "open_from", p.open_from);           // s057b
         p.glance_to     = get_or(j, "glance_to", p.glance_to);           // s066
         p.glance_dir    = get_or(j, "glance_dir", p.glance_dir);         // s066
+        p.tl_zoom       = tl_zoom_clean(get_or(j, "tl_zoom", p.tl_zoom));  // s068
+        p.tl_group      = tl_group_word(tl_group_parse(get_or(j, "tl_group", p.tl_group)));
+        p.tl_show       = get_or(j, "tl_show", p.tl_show);
+        if (!p.tl_show.empty()) p.tl_show = tl_show_text(tl_show_parse(p.tl_show));
+        p.help_page     = get_or(j, "help_page", p.help_page);
         // A list, not a scalar, so get_or's type deduction does not apply --
         // and a malformed entry must not take the whole prefs file down with
         // it, which is why the element type is checked rather than assumed.
@@ -142,6 +148,10 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     if (!p.open_from.empty()) j["open_from"] = p.open_from;   // s057b
     if (!p.glance_to.empty())  j["glance_to"]  = p.glance_to;   // s066
     if (!p.glance_dir.empty()) j["glance_dir"] = p.glance_dir;  // s066
+    j["tl_zoom"]  = p.tl_zoom;    // s068
+    j["tl_group"] = p.tl_group;
+    if (!p.tl_show.empty())   j["tl_show"]   = p.tl_show;
+    if (!p.help_page.empty()) j["help_page"] = p.help_page;
     j["announced"]     = p.announced;
     j["snoozed"]       = nlohmann::json::array();
     for (const auto& z : p.snoozed)

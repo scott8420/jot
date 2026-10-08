@@ -230,6 +230,50 @@ const char* tl_group_word(TlGroup g) {
     return "?";
 }
 
+TlGroup tl_group_parse(const std::string& word) {
+    if (word == "place") return TlGroup::Place;
+    if (word == "purpose") return TlGroup::Purpose;
+    return TlGroup::Day;
+}
+
+std::string tl_zoom_clean(const std::string& word) {
+    return (word == "week" || word == "season") ? word : std::string("month");
+}
+
+std::string tl_show_text(const TlShow& s) {
+    std::string out;
+    auto add = [&](bool on, const char* w) {
+        if (!on) return;
+        if (!out.empty()) out += ",";
+        out += w;
+    };
+    add(s.projects, "projects");
+    add(s.todos, "todos");
+    add(s.notes, "notes");
+    add(s.someday, "someday");
+    add(s.links, "links");
+    return out.empty() ? std::string("none") : out;   // "" means "never set"
+}
+
+TlShow tl_show_parse(const std::string& text) {
+    if (text == "none") return TlShow{false, false, false, false, false};
+    TlShow s{false, false, false, false, false};
+    bool any = false;
+    std::size_t i = 0;
+    while (i <= text.size()) {
+        std::size_t j = text.find(',', i);
+        if (j == std::string::npos) j = text.size();
+        const std::string w = text.substr(i, j - i);
+        if (w == "projects") { s.projects = true; any = true; }
+        else if (w == "todos") { s.todos = true; any = true; }
+        else if (w == "notes") { s.notes = true; any = true; }
+        else if (w == "someday") { s.someday = true; any = true; }
+        else if (w == "links") { s.links = true; any = true; }
+        i = j + 1;
+    }
+    return any ? s : TlShow{};
+}
+
 namespace {
 
 // What a node's work is FOR: the goal it feeds; else, walking up from it,

@@ -262,6 +262,15 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
         if (m_timeline_on) on_toggle_timeline();
     });
     m_timeline->signal_close().connect([this]() { if (m_timeline_on) on_toggle_timeline(); });
+    // s068: the timeline opens as it was left -- zoom, group, the Show set.
+    m_timeline->set_view(m_prefs.tl_zoom, m_prefs.tl_group, m_prefs.tl_show);
+    m_timeline->signal_view().connect([this](std::string zoom, std::string group, std::string show) {
+        if (zoom == m_prefs.tl_zoom && group == m_prefs.tl_group && show == m_prefs.tl_show) return;
+        m_prefs.tl_zoom = std::move(zoom);
+        m_prefs.tl_group = std::move(group);
+        m_prefs.tl_show = std::move(show);
+        core::save_prefs(m_prefs_file, m_prefs);
+    });
     m_search->signal_open().connect(sigc::mem_fun(*this, &Shell::on_search_open));   // s038
     m_projects->signal_new().connect(sigc::mem_fun(*this, &Shell::on_new_project));  // s037b
     m_drawer->signal_reviewed().connect([this]() { on_mark_reviewed(); });          // s037

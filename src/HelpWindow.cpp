@@ -306,6 +306,7 @@ void HelpWindow::show_topic(const std::string& id) {
         sel->grab_focus();
     fill_page(id);
     log_info("page '" + id + "'");
+    m_sig_page.emit(id);
 }
 
 void HelpWindow::fill_page(const std::string& id) {

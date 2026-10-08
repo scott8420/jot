@@ -5029,6 +5029,31 @@ int main() {
     }
 
 
+    // -- s068: the timeline's view as words (kept in prefs) ----------------------
+    {
+        check("tl view: the usual Show set as words",
+              core::tl_show_text(core::TlShow{}) == "projects,todos,notes,links",
+              core::tl_show_text(core::TlShow{}));
+        core::TlShow some{false, true, false, true, false};
+        check("tl view: a Show set round trips",
+              core::tl_show_text(core::tl_show_parse(core::tl_show_text(some))) == "todos,someday");
+        core::TlShow none{false, false, false, false, false};
+        check("tl view: everything off round trips (not the usual set)",
+              core::tl_show_text(none) == "none" &&
+                  core::tl_show_text(core::tl_show_parse("none")) == "none");
+        check("tl view: an empty or unknown Show reads as the usual set",
+              core::tl_show_text(core::tl_show_parse("")) == "projects,todos,notes,links" &&
+                  core::tl_show_text(core::tl_show_parse("cats,dogs")) == "projects,todos,notes,links");
+        check("tl view: group words both ways",
+              core::tl_group_parse("place") == core::TlGroup::Place &&
+                  core::tl_group_parse("purpose") == core::TlGroup::Purpose &&
+                  core::tl_group_parse("mood") == core::TlGroup::Day &&
+                  std::string(core::tl_group_word(core::tl_group_parse("purpose"))) == "purpose");
+        check("tl view: zoom words, junk is month",
+              core::tl_zoom_clean("week") == "week" && core::tl_zoom_clean("season") == "season" &&
+                  core::tl_zoom_clean("decade") == "month");
+    }
+
     // -- Help: the guide (s067, J6) --------------------------------------------
     // A page per idea. The stones: every Try names a verb jot has, every See
     // also a page that exists, every page's cheat query finds a line; the light
@@ -7701,6 +7726,31 @@ int main() {
             a.accent = "";
             core::save_prefs(file, a);
             check("accent pref: '' (follow the desktop) round trips", core::load_prefs(file).accent.empty());
+            // s068: the timeline's view and the guide's page, kept.
+            a.tl_zoom = "season";
+            a.tl_group = "place";
+            a.tl_show = "todos,someday";
+            a.help_page = "packets";
+            core::save_prefs(file, a);
+            {
+                const auto b = core::load_prefs(file);
+                check("tl view pref: zoom, group and show round trip",
+                      b.tl_zoom == "season" && b.tl_group == "place" && b.tl_show == "todos,someday",
+                      b.tl_zoom + " " + b.tl_group + " " + b.tl_show);
+                check("help pref: the guide's page round trips", b.help_page == "packets");
+            }
+            check("tl view pref: defaults month / day / usual / welcome",
+                  core::Prefs{}.tl_zoom == "month" && core::Prefs{}.tl_group == "day" &&
+                  core::Prefs{}.tl_show.empty() && core::Prefs{}.help_page.empty());
+            { std::ofstream f(file); f << "{\"tl_zoom\": \"decade\", \"tl_group\": \"mood\", \"tl_show\": \"cats\"}"; }
+            {
+                const auto b = core::load_prefs(file);
+                check("tl view pref: junk reads as the defaults",
+                      b.tl_zoom == "month" && b.tl_group == "day" &&
+                          core::tl_show_text(core::tl_show_parse(b.tl_show)) == core::tl_show_text(core::TlShow{}),
+                      b.tl_zoom + " " + b.tl_group + " " + b.tl_show);
+            }
+            a.tl_zoom = "month"; a.tl_group = "day"; a.tl_show.clear(); a.help_page.clear();
             a.jots_closed = true;   // s062b
             core::save_prefs(file, a);
             check("jots_closed pref: round trips, and defaults off",

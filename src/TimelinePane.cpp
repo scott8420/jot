@@ -1560,6 +1560,7 @@ TimelinePane::TimelinePane(std::string_view name)
             sync_group_and_show();
             m_canvas.set_group(b == &m_g_day ? core::TlGroup::Day
                                : b == &m_g_place ? core::TlGroup::Place : core::TlGroup::Purpose);
+            emit_view();
         });
 
     // Show: what is on the line -- the filter icon, with a dot when it is not
@@ -1615,7 +1616,10 @@ TimelinePane::TimelinePane(std::string_view name)
                               : b == &m_month ? TimelineCanvas::Zoom::Month
                                               : TimelineCanvas::Zoom::Season);
         });
-    m_canvas.signal_zoomed().connect([this](TimelineCanvas::Zoom) { sync_zoom_buttons(); });
+    m_canvas.signal_zoomed().connect([this](TimelineCanvas::Zoom) {
+        sync_zoom_buttons();
+        emit_view();   // s068: a key or Ctrl+scroll zooms too
+    });
     m_canvas.signal_move().connect(sigc::mem_fun(*this, &TimelinePane::on_move));   // s063
     for (auto* b : {&m_chip_projects, &m_chip_todos, &m_chip_notes, &m_chip_someday, &m_chip_links})
         b->signal_toggled().connect([this]() {
@@ -1626,6 +1630,7 @@ TimelinePane::TimelinePane(std::string_view name)
             m_show.links    = m_chip_links.get_active();   // s064
             sync_group_and_show();
             refresh();
+            emit_view();
         });
     m_today.signal_clicked().connect([this]() { m_canvas.go_today(); });
 
@@ -1646,6 +1651,36 @@ TimelinePane::TimelinePane(std::string_view name)
             return false;
         }, false);
     m_find.add_controller(keys);
+}
+
+// s068: the view as words, for prefs.
+void TimelinePane::emit_view() {
+    if (m_applying) return;
+    const auto z = m_canvas.zoom();
+    const std::string zoom = z == TimelineCanvas::Zoom::Week ? "week"
+                           : z == TimelineCanvas::Zoom::Season ? "season" : "month";
+    m_sig_view.emit(zoom, core::tl_group_word(m_canvas.group()), core::tl_show_text(m_show));
+}
+
+void TimelinePane::set_view(const std::string& zoom, const std::string& group,
+                            const std::string& show) {
+    m_applying = true;
+    const std::string z = core::tl_zoom_clean(zoom);
+    m_canvas.set_zoom(z == "week" ? TimelineCanvas::Zoom::Week
+                      : z == "season" ? TimelineCanvas::Zoom::Season : TimelineCanvas::Zoom::Month);
+    sync_zoom_buttons();
+    const core::TlGroup g = core::tl_group_parse(group);
+    (g == core::TlGroup::Place ? m_g_place : g == core::TlGroup::Purpose ? m_g_purpose : m_g_day)
+        .set_active(true);
+    const core::TlShow s = show.empty() ? core::TlShow{} : core::tl_show_parse(show);
+    m_chip_projects.set_active(s.projects);
+    m_chip_todos.set_active(s.todos);
+    m_chip_notes.set_active(s.notes);
+    m_chip_someday.set_active(s.someday);
+    m_chip_links.set_active(s.links);
+    m_applying = false;
+    if (auto lg = log::get(log::Area::Shell))
+        lg->info("timeline: view kept -- {} · {} · {}", z, core::tl_group_word(g), core::tl_show_text(s));
 }
 
 void TimelinePane::sync_zoom_buttons() {

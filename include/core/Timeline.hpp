@@ -152,6 +152,15 @@ struct TlLane {
 std::vector<TlLane> timeline_lanes(const NodeSource& src, const Timeline& t, TlGroup g,
                                    std::int64_t now);
 const char* tl_group_word(TlGroup g);   // "day" "place" "purpose"
+// s068: the timeline's view kept across restarts (prefs). Parse is forgiving:
+// an unknown word reads as the default (Day / Month / the usual Show set).
+TlGroup tl_group_parse(const std::string& word);
+// "week" "month" "season" -- anything else is "month".
+std::string tl_zoom_clean(const std::string& word);
+// The Show set as words: "projects,todos,notes,links" (+ "someday"). "" or junk
+// reads as the usual set; a known word missing means that kind is off.
+std::string tl_show_text(const TlShow& s);
+TlShow tl_show_parse(const std::string& text);
 
 // The head line: "34 on the line · 5 late · 9 in the next 7 days".
 std::string timeline_summary(const Timeline& t, std::int64_t now);

@@ -204,7 +204,17 @@ public:
     sigc::signal<void(core::NodeId)>& signal_open() { return m_canvas.signal_open(); }
     sigc::signal<void()>&              signal_close() { return m_canvas.signal_close(); }
 
+    // s068: the view kept across restarts -- zoom, group and the Show set as
+    // words (core/Timeline's tl_zoom_clean / tl_group_word / tl_show_text).
+    // set_view applies them through the buttons, as a click would, and says
+    // nothing; signal_view fires when the READER changes any of the three.
+    void set_view(const std::string& zoom, const std::string& group, const std::string& show);
+    sigc::signal<void(std::string, std::string, std::string)>& signal_view() { return m_sig_view; }
+
 private:
+    void emit_view();
+    sigc::signal<void(std::string, std::string, std::string)> m_sig_view;
+    bool m_applying = false;   // set_view at work: not the reader
     void run_find(bool scroll);
     void step(int dir);
     void say_count();
