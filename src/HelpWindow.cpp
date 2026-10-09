@@ -379,13 +379,22 @@ void HelpWindow::fill_page(const std::string& id) {
     // Try it: the verbs this page is about, each with its key.
     if (!t->tries.empty()) {
         m_page.append(*small_head(base + ".try.head", "TRY IT"));
-        auto* tries = Gtk::make_managed<widgets::Box>(widgets::unregistered, base + ".tries",
-                                                      Gtk::Orientation::HORIZONTAL, 8);
+        // s071: a FlowBox -- three pills (Writing's) wrap rather than widen the page.
+        auto* tries = Gtk::make_managed<Gtk::FlowBox>();
+        tries->set_name(base + ".tries");
+        tries->set_selection_mode(Gtk::SelectionMode::NONE);
+        tries->set_column_spacing(8);
+        tries->set_row_spacing(6);
+        tries->set_min_children_per_line(2);
+        tries->set_max_children_per_line(3);
+        tries->set_homogeneous(false);
+        tries->set_halign(Gtk::Align::START);
         for (const auto& tr : t->tries) {
             auto* b = Gtk::make_managed<widgets::Button>(widgets::unregistered,
                                                          base + ".try." + tr.action);
             b->add_css_class("flat");
             b->add_css_class("jot-help-try");
+            b->set_halign(Gtk::Align::START);   // s071: its own width in the FlowBox
             auto* box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 8);
             box->append(*Gtk::make_managed<Gtk::Label>(tr.label));
             const std::string keys = core::help_try_keys(tr);

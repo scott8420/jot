@@ -230,13 +230,16 @@ private:
     void on_test_notify();                       // category: handler: four notifications, one field apart (log mode)
     void on_about();                             // category: handler: open the About window (dialog-lifetime exemplar)
     void on_preferences();                       // category: handler: open the preferences window
-    void on_glance();                            // category: handler: the Glance of Today (s066)
+    void on_glance();                            // category: handler: the Glance at Today (s066)
     void on_cheat_sheet();                       // category: handler: the cheat sheet (s030; s067: the Help window's Cheat Sheet page)
     void on_help();                              // category: handler: jot Help, the guide (s067; renders from core::help_topics)
     void apply_keys(const core::KeyOverrides& o);   // category: helper: s070 -- the user's keys, everywhere (prefs, accels, the windows)
     void rewire_accels();                        // category: helper: s070 -- the app's accelerators from the registry as it now stands
     void ensure_help();                          // category: helper: build the Help window once (s067)
     void on_help_try(const std::string& detailed);   // category: handler: a guide page's Try it -- run that verb here (s067)
+    void on_help_on(const std::string& page, Gtk::Window* parent = nullptr);   // category: handler: the guide on one page -- a view's "?" (s071)
+    void on_help_here();                         // category: handler: the left pane's "?" -- the page for the tab on show (s071)
+    void on_markdown_tour();                     // category: handler: jot Help's Writing Try -- the tour as a note (s071)
     void on_shortcuts();                         // category: handler: keyboard reference (renders from core::shortcut_registry)
     void on_toggle_tree();                       // category: handler: show/hide the tree
     void on_toggle_drawer();                     // category: handler: show/hide the metadata drawer
@@ -247,6 +250,10 @@ private:
     void queue_timeline_refresh();               // category: helper: s059 the timeline follows the model, debounced, only while showing
     void build_view_modes(Gtk::HeaderBar& header);  // category: zone: s034 the three-way view control
     void on_import_markdown();                   // category: handler: s021b Notes -> Import Markdown Files...
+    void on_export_notes();                      // category: handler: s071d the selected notes, each an outline file
+    void on_export_all();                        // category: handler: s071d every top-level note, into a new dated folder
+    void export_into(const std::vector<core::NodeId>& roots, const std::string& dest,
+                     const std::vector<std::string>& names);   // category: helper: s071d write, report, show
     void on_import_folder();                     // category: handler: s021c Notes -> Import Markdown Folder...
     core::NodeId import_file(const std::string& path, const core::NodeId& parent,
                              std::vector<std::string>& failed);  // category: helper: s021c one file -> one note

@@ -279,14 +279,14 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Its due moves (the time of day kept), or its start if it only starts there; a Someday "
          "one gets a due. The day lights up in the strip. Esc puts it back; Ctrl+Z undoes. "
          "Notes and done work stay on their day."},
-        // ── Glance of Today (s066) ──────────────────────────────────────────
-        {"Today", "win.glance", "", "The Glance of Today: the day on one card, to take away",
+        // ── Glance at Today (s066) ──────────────────────────────────────────
+        {"Today", "win.glance", "", "The Glance at Today: the day on one card, to take away",
          "Late, due today, running short, starting today, flagged, then errands by place -- each "
          "thing once. Copy (Keep, Notes, a message), Email (to the address at the foot; Gmail "
          "works as the browser's mail), Save .ics (Google Calendar \u203a Import, or attach it to "
          "a mail and the iPhone offers Add to Calendar). Drag the .ics chip at the foot onto a mail "
-         "you are writing to attach it. Click a line to show its note. Also View "
-         "\u203a Glance of Today."},
+         "you are writing to attach it. Click a line to show its note. Also the card-and-sun "
+         "button in the header, and the top of the main menu."},
         // ── Forecast (s039) ─────────────────────────────────────────────────
         {"Today", "", "Today tab › Forecast", "The days ahead: what is due, and what starts, day by day",
          "A strip of today and the next six days with a count on each, then Later. Pick a day. "
@@ -388,10 +388,20 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Quote the line; \"\" for no line. Or jot NAME -a some words -l milk eggs -- each flag takes the "
          "words after it. The Jot tile takes both too."},
         {"Command line", "", "jot --capture", "Open jot on the capture line", ""},
+        {"Command line", "", "jot --glance", "Print the Glance at Today and exit",
+         "jot --glance ics prints the day as a calendar file. Works with jot closed -- a cron job "
+         "at 7:00 can mail it to you."},
         {"Command line", "", "JOT_DEBUG=info:all jot", "A talkative console, for chasing a problem",
          "Quiet (warnings only) without it."},
 
         // ── Jots folders ────────────────────────────────────────────────────
+        {"Jots folders", "", "Note menu \u203a Export\u2026", "Export the selected notes as markdown, each one file",
+         "One note: name the file (its title to start). Several: pick a folder, each named for its note. "
+         "Each top-level note is one file: its facts in front matter, the notes under it "
+         "as headings, todos as boxes with their dates on the line. Pictures go too. Also the tree's "
+         "right-click."},
+        {"Jots folders", "", "Main menu \u203a Export All\u2026", "Every note out as markdown, into a new folder you name",
+         "One file per top-level note, an attachments folder beside them, links between notes kept."},
         {"Jots folders", "win.new-jots", "", "Start a new jots folder", ""},
         {"Jots folders", "win.open-jots", "", "Open a jots folder",
          "Main menu › Recent jots for the ones you have used."},
@@ -407,6 +417,12 @@ const std::vector<CheatLine>& cheat_sheet() {
         // ── Help ────────────────────────────────────────────────────────────
         {"Help", "win.help", "", "jot Help: a page for each part of jot -- what it is for, how to use it",
          "Each page has Try it buttons that open the thing it is about. Main menu › jot Help."},
+        {"Help", "", "The ? in a view", "Its page in the guide",
+         "Beside the side pane's tabs (the page for the tab on show), at the top right of the "
+         "timeline, at the top left of the Glance."},
+        {"Help", "", "jot Help › Writing in markdown", "Make the markdown tour a note",
+         "Every mark in one note -- read it in Source, then in Reading. An ordinary note: "
+         "Ctrl+Z takes it back."},
         {"Help", "win.cheat-sheet", "", "This cheat sheet — type to find a line",
          "The Cheat Sheet page of the Help window; a guide page's “Every key for this” lands here filtered."},
         {"Help", "win.shortcuts", "", "Keyboard Shortcuts: every key, drawn as keycaps, a card per section",

@@ -74,6 +74,19 @@ void Shell::build_shell() {  // zone: window + header + paned body
     m_note_menu_button.set_menu_model(menus::note_menu(true));   // s053c: with View
     header->pack_end(m_note_menu_button);
 
+    // s071c: Glance at Today, on its own between the view modes and the menus
+    // (Scott: "it will be used more than we are presenting it"). Not in the
+    // joined group: that group changes what the middle shows; this opens a
+    // window of its own.
+    {
+        auto* g = Gtk::make_managed<widgets::Button>(widgets::unregistered, "shell.glance_button");
+        g->set_icon_name("jot-glance-symbolic");
+        g->set_tooltip_text("Glance at Today: the day on one card (Ctrl+Shift+G)");
+        g->set_action_name("win.glance");
+        g->set_margin_start(6);
+        header->pack_end(*g);
+    }
+
     // s021 / s034: Source | Live | Reading. It stays at the right where the
     // eye was: it is about the note, not the panes.
     build_view_modes(*header);
@@ -351,7 +364,24 @@ void Shell::build_left_pane() {  // zone: Notes | Today
     m_left_stack.set_transition_duration(120);
 
     m_left.add_css_class("jot-side");   // s050: the source-list shade (Appearance.cpp)
-    m_left.append(m_left_tabs);
+    // s071: the tabs and a "?" beside them -- the guide's page for the tab on
+    // show (Today's lens, Find when it has words). Outside the linked row: it
+    // is not a sixth tab.
+    {
+        auto* row = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.left_tabs_row",
+                                                    Gtk::Orientation::HORIZONTAL, 6);
+        row->set_margin(8);
+        m_left_tabs.set_margin(0);
+        m_left_tabs.set_hexpand(true);
+        row->append(m_left_tabs);
+        auto* q = Gtk::make_managed<widgets::Button>(widgets::unregistered, "shell.left_help", "?");
+        q->add_css_class("jot-help-q");
+        q->set_valign(Gtk::Align::CENTER);
+        q->set_action_name("win.help-here");
+        q->set_tooltip_text("Help for this view -- its page in the jot guide");
+        row->append(*q);
+        m_left.append(*row);
+    }
     m_left.append(m_left_stack);
 }
 
@@ -499,6 +529,12 @@ void Shell::build_jots_title() {  // zone: header title menu button
 Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto menu = Gio::Menu::create();
 
+    // s071c: the Glance first -- found by looking, not by knowing the View
+    // submenu is there (Scott: "in the menu for easy discovery").
+    auto glance = Gio::Menu::create();
+    glance->append("Glance at Today", "win.glance");
+    menu->append_section(glance);
+
     auto file = Gio::Menu::create();
     // "New" and "Open" are the same operation on disk -- a jots folder is just
     // a folder -- but they are different intentions, and collapsing them into
@@ -514,6 +550,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     auto imp = Gio::Menu::create();
     imp->append("Import Markdown Files\u2026", "win.import-md");
     imp->append("Import Markdown Folder\u2026", "win.import-md-folder");
+    imp->append("Export All\u2026", "win.export-all");   // s071d
     file->append_section(imp);
     menu->append_section(file);
 
@@ -552,7 +589,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     mode->append("Reading view", "win.toggle-reading");   // s021
     mode->append("Live preview", "win.toggle-live");      // s022
     mode->append("Timeline", "win.timeline");             // s059
-    mode->append("Glance of Today", "win.glance");        // s066
+    mode->append("Glance at Today", "win.glance");        // s066
     view->append_section(mode);
     view->append_section(menus::zoom_menu());             // s053b
 

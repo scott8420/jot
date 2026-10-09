@@ -128,6 +128,7 @@ add_library(jot_core STATIC
     src/core/Routine.cpp     # s057 (J3): a repeating todo's record
     src/core/Feeders.cpp     # s058 (J4): the small repeating steps that feed a goal
     src/core/Glance.cpp      # s066: the day on one card -- text, html, ics, mailto
+    src/core/Export.cpp      # s071d: notes out as markdown -- one outline file per top-level note
     src/core/Timeline.cpp    # s059 (J5): the running calendar -- what lands on which day, stacked down
     src/core/Gather.cpp
     src/core/Nudge.cpp
@@ -197,6 +198,7 @@ add_custom_command(
             jot.gresource.xml
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/resources"
     DEPENDS "${JOT_GRESOURCE_XML}" ${JOT_RESOURCE_FILES}
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/markdown-tour.md"
     COMMENT "Compiling gresource bundle (jot-resources.c)"
     VERBATIM)
 

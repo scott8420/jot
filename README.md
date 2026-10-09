@@ -213,6 +213,28 @@ done) or **Dropped** (kept, but out of every list and off the calendar). The
 note menu's **Project** submenu sets the same thing. On a project that is
 itself a todo, Completed is its tick.
 
+## Export -- your notes as markdown anyone can read
+
+jot's own files are named by number, with the tree and every date in
+`jot.json` -- they are for jot. **Export** is the copy for everything else
+(Obsidian, a text editor, GitHub):
+
+- **Export…** in a note's ⋮ menu (or the tree's right-click) writes the
+  selected notes. One note: a Save dialog, its title as the starting name --
+  call it what you like. Several: pick a folder; each is named for its note.
+  **Export All…** in the main menu writes every top-level note into a new
+  folder you name ("Home export 2026-10-08" to start).
+- Each top-level note is ONE file named for it, shaped like an outline: its
+  facts in front matter (`todo`, `due`, `defer`, `flagged`, `estimate`,
+  `repeat`, `project`, `tags`, `created`, `jot-id`), the notes under it as
+  headings, its todos as boxes with their facts on the line --
+  `- [ ] book the van — due Fri 9 Oct 17:00 · ⚑ · ~30m · #errands` -- and
+  their text indented under them.
+- Links between notes point at the file that holds the other note (or
+  become plain words when it was not exported). Pictures and files are
+  copied into an `attachments` folder beside, so their links still work.
+- A name already taken in the folder is never overwritten: "Ideas 2.md".
+
 ## Help: the guide and the cheat sheet
 
 **F1** or **Ctrl+Shift+H** (or main menu > jot Help) opens jot Help on its
@@ -223,6 +245,12 @@ is for and how to use it. Pages are listed down the left in reading order
 (or press Next at the foot of each); "Find a page" narrows the list. Each
 page has **Try it** buttons that open the thing it describes, and **Every
 key for this** opens the cheat sheet filtered to that page.
+
+A small round **?** opens the page for what you are looking at: beside the
+side pane's tabs (the Inbox, Today's lens, Tags, Projects, or Find while it
+has words), at the top right of the timeline, and at the foot of the Glance.
+New to markdown? The Writing page's **Make the markdown tour a note** puts
+every mark in one note (Ctrl+Z takes it back).
 
 **Ctrl+H** opens the same window on its **Cheat Sheet**: everything jot
 does, a line each -- the keys, the drags, the markdown marks, the views and
@@ -244,9 +272,10 @@ keys the note or the tree keep (Ctrl+B, Alt+Up ...) and plain letters.
 The menus, the cheat sheet and the guide show your keys. Changes live in
 prefs.json under `key_overrides`.
 
-## Glance of Today
+## Glance at Today
 
-**Ctrl+Shift+G** (or View › Glance of Today) opens the day on one card:
+**Ctrl+Shift+G** -- or the card-and-sun button in the header, or the top
+of the main menu -- opens the day on one card:
 what is late, due today, running short on a deadline, starting today,
 flagged, then errands by place -- each thing once. Click a line to show its
 note. Three ways to take it with you, in the title bar:
@@ -264,6 +293,17 @@ note. Three ways to take it with you, in the title bar:
   Email, drag it onto the mail you are writing (Gmail in the browser too)
   to attach it. Click it to see the file in Files. On the iPhone, open the
   mail in Mail and tap the attachment -- **Add All**.
+
+From a terminal, `jot --glance` prints the same card as text and
+`jot --glance ics` prints the calendar file -- with jot running or not, and
+with no display, so a cron job can mail it to you each morning:
+
+```
+# crontab -e   (7:00 every day; needs a working `mail`)
+0 7 * * * /path/to/jot --glance | mail -s "jot today" you@gmail.com
+```
+
+It reads the last jots folder jot had open.
 
 ## Dated todos on the desktop
 

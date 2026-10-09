@@ -3,6 +3,10 @@
 #include "core/Deadline.hpp"
 #include "core/Errands.hpp"
 #include "core/Forecast.hpp"
+#include "core/Prefs.hpp"
+#include "core/Project.hpp"
+#include "core/Recents.hpp"   // s071: glance_of_folder
+#include "core/Tasks.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -352,7 +356,7 @@ std::string glance_ics(const Glance& g, std::int64_t stamp) {
     auto line = [&](const std::string& l) { o += ics_fold(l); };
     line("BEGIN:VCALENDAR");
     line("VERSION:2.0");
-    line("PRODID:-//jot//Glance of Today//EN");
+    line("PRODID:-//jot//Glance at Today//EN");
     line("CALSCALE:GREGORIAN");
     line("METHOD:PUBLISH");
 
@@ -401,6 +405,64 @@ std::string glance_mailto(const Glance& g, const std::string& to) {
     std::string addr;
     for (char c : to) if (!std::isspace(static_cast<unsigned char>(c))) addr += c;   // an address, as typed
     return "mailto:" + addr + "?subject=" + pct(g.title) + "&body=" + pct(crlf);
+}
+
+// ── s071: jot --glance ─────────────────────────────────────────────────────
+
+std::string glance_cli(const Glance& g, bool ics, std::int64_t now) {
+    if (ics) return glance_ics(g, now);
+    std::string t = glance_text(g);
+    if (!t.empty() && t.back() != '\n') t += '\n';
+    return t;
+}
+
+bool glance_of_folder(const std::string& dir, std::int64_t now, bool ics,
+                      std::string& out, std::string& err) {
+    out.clear();
+    err.clear();
+    Project jots;
+    if (!jots.open(dir)) {
+        err = "cannot open the jots folder " + dir;
+        return false;
+    }
+    TaskIndex tasks;
+    tasks.rebuild(jots);
+    out = glance_cli(glance(jots, tasks, now), ics, now);
+    return true;
+}
+
+bool glance_command(const std::vector<std::string>& argv, const std::string& data_dir,
+                    std::int64_t now, std::string& out, std::string& err, int& rc) {
+    out.clear();
+    err.clear();
+    rc = 0;
+    bool asked = false, ics = false;
+    std::vector<std::string> rest;
+    for (std::size_t i = 1; i < argv.size(); ++i) {
+        if (argv[i] == "--glance") asked = true;
+        else if (argv[i] == "ics" || argv[i] == "--ics") ics = true;
+        else rest.push_back(argv[i]);
+    }
+    if (!asked) return false;
+    if (!rest.empty()) {
+        err = "usage: jot --glance [ics]\n"
+              "  the day on one card, as text -- or, with ics, as a calendar file\n";
+        rc = 2;
+        return true;
+    }
+    const std::string base = data_dir + "/jot/";
+    const Prefs prefs = load_prefs(base + "prefs.json");
+    const std::vector<std::string> recents = load_recents(base + "recent.json");
+    if (recents.empty() || prefs.jots_closed) {
+        err = "jot: no jots folder open -- nothing to glance at.\n";
+        rc = 1;
+        return true;
+    }
+    if (!glance_of_folder(recents.front(), now, ics, out, err)) {
+        err = "jot: " + err + "\n";
+        rc = 1;
+    }
+    return true;
 }
 
 }  // namespace jot::core

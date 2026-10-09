@@ -37,6 +37,14 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     add_action("glance",        sigc::mem_fun(*this, &Shell::on_glance));        // s066
     add_action("cheat-sheet",   sigc::mem_fun(*this, &Shell::on_cheat_sheet));   // s030
     add_action("help",          sigc::mem_fun(*this, &Shell::on_help));          // s067
+    // s071: a view's "?" -- the guide on that view's page; the tour as a note.
+    add_action_with_parameter(
+        "help-on", Glib::Variant<Glib::ustring>::variant_type(),
+        [this](const Glib::VariantBase& param) {
+            on_help_on(Glib::VariantBase::cast_dynamic<Glib::Variant<Glib::ustring>>(param).get());
+        });
+    add_action("help-here",     sigc::mem_fun(*this, &Shell::on_help_here));
+    add_action("markdown-tour", sigc::mem_fun(*this, &Shell::on_markdown_tour));
     add_action("shortcuts",     sigc::mem_fun(*this, &Shell::on_shortcuts));
     add_action("preferences",   sigc::mem_fun(*this, &Shell::on_preferences));
     // s053b: the note's text size. The editor steps it and says so; the Shell
@@ -52,6 +60,8 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     add_action("quit",          sigc::mem_fun(*this, &Shell::request_quit));
     add_action("import-md",     sigc::mem_fun(*this, &Shell::on_import_markdown));   // s021b
     add_action("import-md-folder", sigc::mem_fun(*this, &Shell::on_import_folder));  // s021c
+    add_action("export-notes",  sigc::mem_fun(*this, &Shell::on_export_notes));   // s071d
+    add_action("export-all",    sigc::mem_fun(*this, &Shell::on_export_all));     // s071d
     add_action("copy-link",     [this]() { on_copy_link(m_editor->current()); });
     // Capture has no handler of its own: the accel and the menu item both mean
     // "put the cursor in the box", and Enter in the box is what captures.

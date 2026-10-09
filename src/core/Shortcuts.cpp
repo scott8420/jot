@@ -237,7 +237,7 @@ const std::vector<ShortcutSpec>& shortcut_defaults() {
          "Timeline: your work along the days, in the note's place (again: back to the note)"},
         // s066: G for Glance. Nothing in a text box binds it.
         {"View", "win.glance",          {"<Ctrl><Shift>g"}, "",
-         "Glance of Today: the day on one card -- Copy, Email, Save .ics"},
+         "Glance at Today: the day on one card -- Copy, Email, Save .ics"},
         {"View", "win.toggle-drawer",   {"<Ctrl>bracketright", "F10"}, "",
          "Show or hide note details"},
         // s021: Obsidian's key for the same flip. No F-key twin needed.

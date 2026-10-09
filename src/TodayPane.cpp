@@ -829,3 +829,17 @@ void TodayPane::fill_errands(std::int64_t now) {
 }
 
 }  // namespace jot
+
+namespace jot {
+std::string TodayPane::view_name() const {  // s071: for the "?" -- the page for this lens
+    switch (m_view) {
+        case View::Today:     return "today";
+        case View::Available: return "available";
+        case View::Flagged:   return "flagged";
+        case View::Logbook:   return "logbook";
+        case View::Forecast:  return "forecast";
+        case View::Errands:   return "errands";
+    }
+    return "today";
+}
+}  // namespace jot

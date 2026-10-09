@@ -29,6 +29,8 @@
 #include "Registry.hpp"
 #include "core/Recents.hpp"
 #include "core/Import.hpp"
+#include "core/Export.hpp"   // s071d
+#include "core/Search.hpp"   // s071: query_active, for the "?" on Find
 
 #include <gtkmm/filedialog.h>
 #include <gtkmm/filefilter.h>
@@ -39,6 +41,7 @@
 #include <gtkmm/urilauncher.h>
 #include <giomm/appinfo.h>
 #include <giomm/asyncresult.h>
+#include <giomm/resource.h>   // s071: the markdown tour
 #include <giomm/file.h>
 #include <glibmm/miscutils.h>
 #include <glibmm/main.h>
@@ -1009,14 +1012,15 @@ void Shell::on_recent_clear() {  // handler: empty the recents list
 
 // ── windows ─────────────────────────────────────────────────────────────────
 
-// s066: the Glance of Today. Built once, re-presented; it reads the same
+// s066: the Glance at Today. Built once, re-presented; it reads the same
 // store and index Today does, and core/Glance decides every line.
-void Shell::on_glance() {  // handler: open the Glance of Today
+void Shell::on_glance() {  // handler: open the Glance at Today
     if (!m_glance) {
         m_glance = std::make_unique<GlanceWindow>();
         m_glance->set_mail_to(m_prefs.glance_to);
         m_glance->set_save_dir(m_prefs.glance_dir);
         m_glance->signal_goto().connect(sigc::mem_fun(*this, &Shell::on_goto_note));
+        m_glance->signal_help().connect([this]() { on_help_on("glance", m_glance.get()); });
         m_glance->signal_prefs().connect([this](std::string to, std::string dir) {
             if (to == m_prefs.glance_to && dir == m_prefs.glance_dir) return;
             m_prefs.glance_to = std::move(to);
@@ -1073,6 +1077,59 @@ void Shell::ensure_help() {  // helper: build the Help window once
 void Shell::on_help() {  // handler: open jot Help on the Guide (s067)
     ensure_help();
     m_help->show_guide(*this);
+}
+
+// s071: a view's "?" -- the guide, open on the page for that view. Not F1:
+// F1 opens where the reader left off (s068); the "?" is where you ARE.
+void Shell::on_help_on(const std::string& page, Gtk::Window* parent) {  // handler
+    ensure_help();
+    const std::string id = core::help_topic(page) ? page : core::help_page_for(page);
+    m_help->show_guide(parent ? *parent : static_cast<Gtk::Window&>(*this), id);
+    if (auto lg = log::get(log::Area::Shell)) lg->info("help: '?' -> page '{}'", id);
+}
+
+void Shell::on_help_here() {  // handler: the left pane's "?" -- the tab on show
+    std::string view = m_left_stack.get_visible_child_name();
+    if (view == "notes" && core::query_active(m_find.get_text().raw())) view = "find";
+    else if (view == "today" && m_today) view = m_today->view_name();
+    if (auto lg = log::get(log::Area::Shell)) lg->info("help: '?' on the {} view", view);
+    on_help_on(core::help_page_for(view));
+}
+
+// s071: jot Help › Writing in markdown › "Make the markdown tour a note".
+// The tour rides in the binary (gresource), so there is no file to find; it
+// becomes an ordinary top-level note, one Ctrl+Z, shown at once.
+void Shell::on_markdown_tour() {  // handler
+    auto lg = log::get(log::Area::Shell);
+    if (!m_store) return;
+    std::string body;
+    try {
+        auto bytes = Gio::Resource::lookup_data_global("/io/github/scott8420/Jot/text/markdown-tour.md");
+        gsize n = 0;
+        const auto* p = static_cast<const char*>(bytes->get_data(n));
+        body.assign(p, n);
+    } catch (const Glib::Error& e) {
+        if (lg) lg->error("markdown tour: not in the binary ({})", e.what());
+        return;
+    }
+    const std::string title = core::import_title(body, "markdown-tour.md");
+    core::NodeId id;
+    {
+        core::Gesture step(m_undo, "Markdown tour");
+        id = m_undo.create("", title);
+        if (!id.empty()) m_undo.set_body(id, body);
+    }
+    if (id.empty()) {
+        if (lg) lg->info("markdown tour: the note could not be made");
+        return;
+    }
+    present();
+    // On the Notes tab, out of any Find, so the new note is seen where it sits.
+    end_search();
+    if (auto lv = lookup_action("left-view"))
+        lv->activate(Glib::Variant<Glib::ustring>::create("notes"));
+    on_goto_note(id);
+    if (lg) lg->info("markdown tour: made '{}' ({} byte(s))", title, body.size());
 }
 
 void Shell::on_cheat_sheet() {  // handler: open the cheat sheet (s030; s067: Help's second page)
@@ -1742,6 +1799,89 @@ void Shell::on_import_markdown() {  // handler
         for (const auto& f : picked)
             if (f && !f->get_path().empty()) paths.push_back(f->get_path());
         import_files(paths, "");   // top level, like New note
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// s071d -- Export. Scott: "top levels are files and included notes and tasks
+// are inside. Think of an outline of the object." core/Export writes every
+// byte; this picks the notes and the folder, then shows what was made.
+// ─────────────────────────────────────────────────────────────────────────────
+void Shell::on_export_notes() {  // handler: the selected notes, each its own outline file
+    if (!m_store) return;
+    std::vector<core::NodeId> sel = m_tree->selection();
+    if (sel.empty() && m_editor && !m_editor->current().empty()) sel.push_back(m_editor->current());
+    const auto roots = core::export_roots(*m_store, sel);
+    if (roots.empty()) return;
+    auto dialog = Gtk::FileDialog::create();
+    if (roots.size() == 1) {
+        // One note: a Save dialog, its title as the starting name -- yours to
+        // change (Scott: "allow a new name and not always use its title").
+        const core::Node* n = m_store->find(roots.front());
+        dialog->set_title("Export the Note");
+        dialog->set_initial_name(core::export_file_name(n ? n->title : std::string{}));
+        dialog->save(*this, [this, dialog, roots](Glib::RefPtr<Gio::AsyncResult>& r) {
+            Glib::RefPtr<Gio::File> file;
+            try { file = dialog->save_finish(r); } catch (const Glib::Error&) { return; }
+            if (!file || file->get_path().empty()) return;
+            const std::filesystem::path p(file->get_path());
+            export_into(roots, p.parent_path().string(), {p.filename().string()});
+        });
+        return;
+    }
+    // Several: a folder, each file named for its note ("Name 2.md" if taken).
+    dialog->set_title("Export " + std::to_string(roots.size()) + " Notes To");
+    dialog->select_folder(*this, [this, dialog, roots](Glib::RefPtr<Gio::AsyncResult>& r) {
+        Glib::RefPtr<Gio::File> dir;
+        try { dir = dialog->select_folder_finish(r); } catch (const Glib::Error&) { return; }
+        if (dir && !dir->get_path().empty()) export_into(roots, dir->get_path(), {});
+    });
+}
+
+void Shell::on_export_all() {  // handler: every top-level note, into a new folder you name
+    if (!m_store) return;
+    const auto roots = m_store->children("");
+    if (roots.empty()) return;
+    const std::string stem = m_project ? core::jots_display_name(m_project->dir()) : std::string("jot");
+    std::string initial = core::export_file_name(stem + " export " + Glib::DateTime::create_now_local().format("%Y-%m-%d").raw());
+    initial.resize(initial.size() - 3);   // a folder, not a .md
+    auto dialog = Gtk::FileDialog::create();
+    dialog->set_title("Export All -- Name the New Folder");
+    dialog->set_initial_name(initial);
+    dialog->save(*this, [this, dialog, roots](Glib::RefPtr<Gio::AsyncResult>& r) {
+        Glib::RefPtr<Gio::File> file;
+        try { file = dialog->save_finish(r); } catch (const Glib::Error&) { return; }
+        if (!file || file->get_path().empty()) return;
+        std::filesystem::path dest(file->get_path());
+        std::error_code ec;
+        // A folder that is already there and has things in it is never mixed
+        // into: the next free name beside it.
+        if (std::filesystem::exists(dest, ec) && !std::filesystem::is_empty(dest, ec))
+            dest = dest.parent_path() / core::export_free_name(dest.parent_path().string(),
+                                                               dest.filename().string());
+        export_into(roots, dest.string(), {});
+    });
+}
+
+void Shell::export_into(const std::vector<core::NodeId>& roots, const std::string& dest,
+                        const std::vector<std::string>& names) {  // helper
+    if (m_editor) lift_typed_tags(m_editor->current());   // what is on screen, as it will be kept
+    const core::AttachStore* store = attach_store();
+    const auto now = static_cast<std::int64_t>(std::time(nullptr));
+    const core::ExportResult r = core::export_to(*m_store, roots, dest, store ? store->dir : std::string{}, now, names);
+    if (auto lg = log::get(log::Area::Io))
+        lg->info("export: {} file(s), {} note(s), {} attachment(s) -> '{}'{}", r.files.size(), r.notes,
+                 r.attachments, dest, r.problems.empty() ? "" : fmt::format(" -- {} problem(s)", r.problems.size()));
+    if (!r.problems.empty()) {
+        std::string detail;
+        for (const auto& p : r.problems) detail += p + "\n";
+        report_problem(r.files.empty() ? "Nothing was exported" : "Some of the export did not go", detail);
+    }
+    if (r.files.empty()) return;
+    // Show it: the folder in Files, the way Gather does (s051).
+    auto launcher = Gtk::FileLauncher::create(Gio::File::create_for_path(dest));
+    launcher->launch(*this, [launcher](Glib::RefPtr<Gio::AsyncResult>& res) {
+        try { launcher->launch_finish(res); } catch (const Glib::Error&) {}
     });
 }
 

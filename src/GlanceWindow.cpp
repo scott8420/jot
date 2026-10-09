@@ -76,7 +76,7 @@ GlanceWindow::GlanceWindow()
       m_chip_name("glance.chip.name") {
     set_name("shell.glance");
     registry::add("shell.glance", this);
-    set_title("Glance of Today");
+    set_title("Glance at Today");
     set_modal(false);
     set_resizable(true);
     set_default_size(460, 720);
@@ -176,6 +176,18 @@ void GlanceWindow::build() {
     chip_hint->add_css_class("caption");
     chips->append(m_chip);
     chips->append(*chip_hint);
+    // s071: the "?" -- the guide's Glance page. In the foot, at the right: the
+    // title bar is too narrow to spare it (the title was cut to "Glance of T...").
+    {
+        chip_hint->set_hexpand(true);
+        chip_hint->set_xalign(0);
+        auto* q = Gtk::make_managed<widgets::Button>(widgets::unregistered, "glance.help", "?");
+        q->add_css_class("jot-help-q");
+        q->set_valign(Gtk::Align::CENTER);
+        q->set_tooltip_text("Help for the Glance -- its page in the jot guide");
+        q->signal_clicked().connect([this]() { m_sig_help.emit(); });
+        chips->append(*q);
+    }
     foot->append(*chips);
 
     auto drag = Gtk::DragSource::create();

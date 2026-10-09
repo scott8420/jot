@@ -77,6 +77,12 @@ App::App()
                           "Add a line of text to a note: jot NAME -a words... Grows the note "
                           "called NAME, or makes it. Both at once: jot NAME -al \"a line\" "
                           "item [item...], or jot NAME -a words -l items.");
+    // s071: answered in main.cpp before GTK starts (core::glance_command);
+    // registered here only so `jot --help` lists it.
+    add_main_option_entry(Gtk::Application::OptionType::BOOL, "glance", '\0',
+                          "Print the Glance at Today -- late, due, flagged, errands -- and "
+                          "exit; jot --glance ics prints it as a calendar file. Works with "
+                          "jot closed, from cron too.");
     // s061e: written by core::cli_join_append_list (main.cpp), not typed --
     // hidden from --help, which shows -al instead.
     add_main_option_entry(Gtk::Application::OptionType::BOOL, "both", '\0',

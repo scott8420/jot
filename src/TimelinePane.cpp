@@ -1600,6 +1600,16 @@ TimelinePane::TimelinePane(std::string_view name)
 
     m_head.append(m_find_count);
     m_head.append(m_find);
+    // s071: the "?" -- the guide's timeline page.
+    {
+        auto* q = Gtk::make_managed<widgets::Button>(widgets::unregistered, "shell.timeline.help", "?");
+        q->add_css_class("jot-help-q");
+        q->set_valign(Gtk::Align::CENTER);
+        q->set_action_name("win.help-on");
+        q->set_action_target_value(Glib::Variant<Glib::ustring>::create("timeline"));
+        q->set_tooltip_text("Help for the timeline -- its page in the jot guide");
+        m_head.append(*q);
+    }
     m_head.set_margin_top(12);
     m_head.set_margin_bottom(10);
     m_head.set_margin_start(18);

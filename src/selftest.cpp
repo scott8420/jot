@@ -56,6 +56,7 @@
 #include "core/Feeders.hpp"
 #include "core/Timeline.hpp"
 #include "core/Glance.hpp"
+#include "core/Export.hpp"   // s071d
 #include "core/Repeat.hpp"
 
 #include <algorithm>
@@ -5309,6 +5310,29 @@ int main() {
             for (const auto& u : core::help_empty_keys()) all += u + " ";
             check("help: every page's cheat query finds a line", core::help_empty_keys().empty(), all);
         }
+        // s071: the "?" in each view -- a real page for every view, welcome for none
+        {
+            bool all_real = true;
+            std::string bad;
+            for (const auto& v : core::help_views())
+                if (!core::help_topic(core::help_page_for(v))) { all_real = false; bad += v + " "; }
+            check("help ?: every view's page exists", all_real, bad);
+            check("help ?: the tabs land on their pages",
+                  core::help_page_for("inbox") == "inbox" && core::help_page_for("notes") == "notes" &&
+                  core::help_page_for("tags") == "tags" && core::help_page_for("projects") == "projects");
+            check("help ?: Today's lenses -- errands are places, available is todos, forecast is today",
+                  core::help_page_for("errands") == "tags" && core::help_page_for("available") == "todos" &&
+                  core::help_page_for("forecast") == "today");
+            check("help ?: find, the timeline and the glance",
+                  core::help_page_for("find") == "find" && core::help_page_for("timeline") == "timeline" &&
+                  core::help_page_for("glance") == "glance");
+            check("help ?: an unknown view opens the welcome",
+                  core::help_page_for("") == "welcome" && core::help_page_for("bogus") == "welcome");
+            const core::HelpTopic* w = core::help_topic("writing");
+            check("help: the Writing page's first Try makes the markdown tour a note",
+                  w && !w->tries.empty() && w->tries[0].action == "win.markdown-tour" &&
+                  core::help_try_keys(w->tries[0]).empty());
+        }
         {
             // A Try's key is the registry's, never spelled here.
             const core::HelpTopic* tl = core::help_topic("timeline");
@@ -6240,7 +6264,154 @@ int main() {
                   core::capture(m, "   ").empty() && m.count() == 2);
         }
 
-        // s066: the Glance of Today
+        // s071d: Export -- one outline file per top-level note
+        {
+            namespace fs = std::filesystem;
+            core::MemoryNodes m;
+            const std::int64_t today = core::day_start(1'791'400'000);
+            const std::int64_t now = today + 10 * 3600;
+            const auto house = m.create("", "Move house");
+            m.make_task(house, true);
+            m.set_due(house, core::day_end(today + 20 * 86400));
+            m.set_tags(house, {"home"});
+            m.set_body(house, "# Move house\nThe big one.\n## Notes\nkeep receipts\n");
+            const auto packing = m.create(house, "Packing");
+            m.set_body(packing, "boxes first\n```\n# not a heading\n```\n");
+            const auto van = m.create(packing, "book the van");
+            m.make_task(van, true);
+            m.set_due(van, today + 17 * 3600);
+            m.set_flagged(van, true);
+            m.set_estimate(van, 30);
+            m.set_tags(van, {"errands"});
+            m.set_body(van, "ring first\n![map](attachments/map.png)\n");
+            const auto boxes = m.create(packing, "order boxes");
+            m.make_task(boxes, true);
+            m.set_done(boxes, true);
+            const auto util = m.create(house, "Utilities: water/power");
+            const auto water = m.create(util, "transfer the water");
+            m.make_task(water, true);
+            m.set_defer(water, core::day_start(today + 4 * 86400));
+            const auto ideas = m.create("", "Ideas");
+            m.set_body(ideas, "see [the van](jot:" + van + ") and [old](jot:00000000-0000-4000-8000-000000000000)\n");
+
+            check("export: file names -- unsafe characters, empty, dots",
+                  core::export_file_name("Utilities: water/power") == "Utilities- water-power.md" &&
+                  core::export_file_name("") == "Untitled.md" && core::export_file_name("..hidden.") == "hidden.md");
+            check("export: a note under another selected one is already inside it",
+                  core::export_roots(m, {van, house, ideas, packing}) == std::vector<core::NodeId>{house, ideas});
+
+            std::map<core::NodeId, std::string> file_of;
+            for (const auto& id : {house, packing, van, boxes, util, water}) file_of[id] = "Move house.md";
+            file_of[ideas] = "Ideas.md";
+            const std::string t = core::export_outline(m, house, file_of, now);
+            auto has = [&](const std::string& x) { return t.find(x) != std::string::npos; };
+            check("export: front matter -- todo, due, tags, id",
+                  t.rfind("---\ntodo: true\n", 0) == 0 && has("tags: [home]\n") && has("jot-id: " + house) &&
+                  has("due: ") && !has("done: true"));
+            check("export: the title is the one top heading; the body's copy of it is gone",
+                  has("---\n# Move house\n\nThe big one.\n") && t.find("# Move house") == t.rfind("# Move house"));
+            check("export: the body's own headings go under the title",
+                  has("\n### Notes\n") && !has("\n## Notes\n"));
+            check("export: a note under it is a heading; a code fence is left alone",
+                  has("\n## Packing\n\nboxes first\n") && has("```\n# not a heading\n```"));
+            check("export: a todo is a box with its facts on the line",
+                  has("- [ ] book the van \u2014 due ") && has("17:00 \u00b7 \u2691 \u00b7 ~30m \u00b7 #errands\n"));
+            check("export: a todo's text is indented under it",
+                  has("  ring first\n  ![map](attachments/map.png)\n"));
+            check("export: done is ticked, with when", has("- [x] order boxes \u2014 done"));
+            check("export: a later-starting todo says so", has("## Utilities: water/power\n") &&
+                  has("- [ ] transfer the water \u2014 starts "));
+            const std::string it = core::export_outline(m, ideas, file_of, now);
+            if (std::getenv("JOT_SHOW_EXPORT")) std::cout << t << "\n=====\n";
+            check("export: a link points at the file holding it; a link to nothing becomes its words",
+                  it.find("[the van](Move%20house.md)") != std::string::npos &&
+                  it.find("and old\n") != std::string::npos && it.find("jot:") == std::string::npos);
+            check("export: the attachments a text uses",
+                  core::export_attachment_refs("x ![a](attachments/a.png) attachments/b.png [c](attachments/c.pdf)") ==
+                  std::vector<std::string>{"a.png", "c.pdf"});
+
+            const fs::path tmp = fs::temp_directory_path() / "jot_selftest_export";
+            std::error_code ec;
+            fs::remove_all(tmp, ec);
+            fs::create_directories(tmp / "src_attach");
+            { std::ofstream(tmp / "src_attach" / "map.png") << "png"; }
+            fs::create_directories(tmp / "out");
+            { std::ofstream(tmp / "out" / "Ideas.md") << "already here"; }
+            const auto r = core::export_to(m, {house, ideas}, (tmp / "out").string(),
+                                           (tmp / "src_attach").string(), now);
+            check("export: files written, a taken name never overwritten",
+                  r.files == std::vector<std::string>{"Move house.md", "Ideas 2.md"} && r.problems.empty() &&
+                  r.notes == 7 && fs::exists(tmp / "out" / "Move house.md"));
+            {
+                std::ifstream f(tmp / "out" / "Ideas.md");
+                std::string old((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                check("export: the file that was there is untouched", old == "already here");
+            }
+            check("export: the picture is copied beside the files",
+                  r.attachments == 1 && fs::exists(tmp / "out" / "attachments" / "map.png"));
+            {
+                const auto r2 = core::export_to(m, {house}, (tmp / "out").string(), (tmp / "src_attach").string(),
+                                                now, {"Our move"});
+                check("export: a name you chose is the file's name, .md added",
+                      r2.files == std::vector<std::string>{"Our move.md"} && fs::exists(tmp / "out" / "Our move.md"));
+                check("export: a free folder name beside a taken one",
+                      core::export_free_name((tmp / "out").string(), "attachments") == "attachments 2" &&
+                      core::export_free_name((tmp / "out").string(), "fresh") == "fresh");
+            }
+            check("export: a folder name for Export All, free and dated",
+                  core::export_folder_name((tmp / "out").string(), "jot", now).rfind("jot ", 0) == 0);
+            fs::remove_all(tmp, ec);
+        }
+
+        // s071: jot --glance -- the whole command, GTK-free, against a real folder
+        {
+            namespace fs = std::filesystem;
+            const fs::path data = fs::temp_directory_path() / "jot_selftest_glance_data";
+            const fs::path jdir = fs::temp_directory_path() / "jot_selftest_glance.jots";
+            std::error_code ec;
+            fs::remove_all(data, ec);
+            fs::remove_all(jdir, ec);
+            const std::int64_t today = core::day_start(1'791'400'000);
+            const std::int64_t now = today + 10 * 3600;
+            {
+                core::Project v;
+                v.open(jdir.string());
+                const auto vet = v.create("", "ring the vet");
+                v.make_task(vet, true);
+                v.set_due(vet, today + 16 * 3600);
+                v.flush();
+            }
+            std::string out, err;
+            int rc = -1;
+            check("glance cli: not asked -> not taken",
+                  !core::glance_command({"jot", "--capture", "milk"}, data.string(), now, out, err, rc));
+            check("glance cli: junk after it -> usage, rc 2",
+                  core::glance_command({"jot", "--glance", "tomorrow"}, data.string(), now, out, err, rc) &&
+                  rc == 2 && err.rfind("usage: jot --glance", 0) == 0 && out.empty());
+            check("glance cli: no folder ever opened -> says so, rc 1",
+                  core::glance_command({"jot", "--glance"}, data.string(), now, out, err, rc) &&
+                  rc == 1 && err.find("no jots folder") != std::string::npos);
+            fs::create_directories(data / "jot");
+            core::save_recents((data / "jot" / "recent.json").string(), {jdir.string()});
+            check("glance cli: the last folder's day, as text",
+                  core::glance_command({"jot", "--glance"}, data.string(), now, out, err, rc) &&
+                  rc == 0 && err.empty() && out.find("ring the vet") != std::string::npos &&
+                  out.back() == '\n');
+            check("glance cli: ics -> a calendar file",
+                  core::glance_command({"jot", "--glance", "ics"}, data.string(), now, out, err, rc) &&
+                  rc == 0 && out.rfind("BEGIN:VCALENDAR", 0) == 0 &&
+                  out.find("ring the vet") != std::string::npos);
+            core::Prefs closed;
+            closed.jots_closed = true;
+            core::save_prefs((data / "jot" / "prefs.json").string(), closed);
+            check("glance cli: jots closed on purpose -> nothing to glance at",
+                  core::glance_command({"jot", "--glance"}, data.string(), now, out, err, rc) &&
+                  rc == 1 && out.empty());
+            fs::remove_all(data, ec);
+            fs::remove_all(jdir, ec);
+        }
+
+        // s066: the Glance at Today
         {
             core::MemoryNodes m;
             core::TaskIndex ti;

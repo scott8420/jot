@@ -119,6 +119,14 @@ std::string sheet(bool dark) {
          "box-shadow: inset 0 0 0 1px alpha(" + accent + ", 0.55); border-radius: 8px; }\n";
     // s050b: and the keyboard ring, or a chosen orange wears a blue outline.
     c += ".jot-tree row:focus-visible { outline-color: alpha(" + accent + ", 0.8); }\n";
+    // s071: the "?" in a view -- a small round help button, the Mac's, quiet
+    // until the pointer is on it; then the accent.
+    c += "button.jot-help-q { min-width: 20px; min-height: 20px; padding: 0; "
+         "border-radius: 999px; font-weight: 800; font-size: 0.85em; "
+         "background: none; box-shadow: inset 0 0 0 1px alpha(currentColor, 0.28); "
+         "color: alpha(currentColor, 0.7); }\n";
+    c += "button.jot-help-q:hover { color: " + accent + "; "
+         "box-shadow: inset 0 0 0 1px " + accent + "; background-color: alpha(" + accent + ", 0.10); }\n";
     // s058b: the About window's row icons wear the accent.
     c += ".jot-about-row-icon { color: " + accent + "; }\n";
     // s067: the Help window -- each page's icon, the sidebar's selection, the

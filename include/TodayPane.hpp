@@ -44,6 +44,9 @@ namespace jot {
 
 class TodayPane : public widgets::Box {
 public:
+    // s071: which lens is on show -- "today", "available", "flagged",
+    // "logbook", "forecast", "errands" (core::help_page_for reads it).
+    std::string view_name() const;
     explicit TodayPane(std::string_view name);
 
     void set_source(core::NodeSource* src, const core::TaskIndex* tasks);

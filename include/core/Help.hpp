@@ -76,6 +76,15 @@ std::string help_try_keys(const HelpTry& t);
 // Try may still name. Kept short on purpose.
 const std::vector<std::string>& help_bound_actions();
 
+// s071: the "?" in a view -- the guide page for what is on screen. `view` is
+// a left-pane tab ("notes", "inbox", "today", "tags", "projects"), a Today
+// sub-view ("available", "flagged", "logbook", "forecast", "errands"), "find"
+// (Find has words), or a window of its own ("timeline", "glance").
+// Unknown -> "welcome", so a "?" always opens somewhere.
+std::string help_page_for(const std::string& view);
+// Every view name help_page_for knows -- the selftest walks them.
+const std::vector<std::string>& help_views();
+
 // The stones, as data -- each empty when all is well.
 std::vector<std::string> help_unknown_actions();   // Tries naming no verb jot has
 std::vector<std::string> help_bad_links();         // See also naming no page

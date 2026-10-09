@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- jot s071c: Glance at Today, the day on one card. A card, a small sun
+       in its corner, the day's lines beside and under it. A stand-in: Scott's
+       Curvz drawing replaces it under the same name. -->
+  <path fill="currentColor" fill-rule="evenodd" d="M 3 1.5 L 13 1.5 A 2 2 0 0 1 15 3.5 L 15 12.5 A 2 2 0 0 1 13 14.5 L 3 14.5 A 2 2 0 0 1 1 12.5 L 1 3.5 A 2 2 0 0 1 3 1.5 Z M 3.2 3 A 0.7 0.7 0 0 0 2.5 3.7 L 2.5 12.3 A 0.7 0.7 0 0 0 3.2 13 L 12.8 13 A 0.7 0.7 0 0 0 13.5 12.3 L 13.5 3.7 A 0.7 0.7 0 0 0 12.8 3 Z"/>
+  <circle fill="currentColor" cx="5.4" cy="6.2" r="1.25"/>
+  <circle fill="currentColor" cx="7.95" cy="6.20" r="0.55"/>
+  <circle fill="currentColor" cx="7.20" cy="8.00" r="0.55"/>
+  <circle fill="currentColor" cx="5.40" cy="8.75" r="0.55"/>
+  <circle fill="currentColor" cx="3.60" cy="8.00" r="0.55"/>
+  <circle fill="currentColor" cx="2.85" cy="6.20" r="0.55"/>
+  <circle fill="currentColor" cx="3.60" cy="4.40" r="0.55"/>
+  <circle fill="currentColor" cx="5.40" cy="3.65" r="0.55"/>
+  <circle fill="currentColor" cx="7.20" cy="4.40" r="0.55"/>
+  <rect fill="currentColor" x="9.2" y="5.6" width="3.1" height="1.2" rx="0.6"/>
+  <rect fill="currentColor" x="3.9" y="9.9" width="8.4" height="1.2" rx="0.6"/>
+</svg>

@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // core/Glance -- s066: the day on one card, to take away.
 //
-// Scott, Oct 7: "a 'Glance of Today' view that is the day's activities. A
+// Scott, Oct 7: "a 'Glance at Today' view that is the day's activities. A
 // quick listing that could be emailed to my iphone as a note or calendar
 // event." His phone does not sync with this machine; he reaches it through
 // Gmail, Keep and the iCloud website. So the Glance is a SMALL, PORTABLE
@@ -80,6 +80,24 @@ std::string glance_mailto(const Glance& g, const std::string& to);
 
 // The iCalendar TEXT escape (RFC 5545 3.3.11) and line folding (3.1) -- public
 // for the selftest.
+// s071: `jot --glance` -- the Glance as the terminal gets it. `ics` false:
+// glance_text; true: glance_ics (stamped `now`), for a script to attach.
+std::string glance_cli(const Glance& g, bool ics, std::int64_t now);
+
+// s071: the same, read straight from a jots folder on disk -- the path a
+// `jot --glance` takes when no jot is running (a cron job at 7:00). False, with
+// `err`, if the folder cannot be opened.
+bool glance_of_folder(const std::string& dir, std::int64_t now, bool ics,
+                      std::string& out, std::string& err);
+
+// s071: the whole `jot --glance [ics]` command, GTK-free so it runs from cron
+// with no display and no session (main.cpp calls it before any GTK). True when
+// argv asks for a glance; then `rc` is the exit code and `out` / `err` what to
+// print. The folder is jot's last one (data_dir/jot/recent.json) unless jot
+// was left with no folder (prefs' jots_closed).
+bool glance_command(const std::vector<std::string>& argv, const std::string& data_dir,
+                    std::int64_t now, std::string& out, std::string& err, int& rc);
+
 std::string ics_escape(const std::string& s);
 std::string ics_fold(const std::string& line);
 

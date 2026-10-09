@@ -1,8 +1,8 @@
 # The jot markdown tour
 
-(Got here by **Import Markdown…** — Ctrl+Shift+M, or drag a .md file from Files onto the tree. Dropped on a note, it lands under that note.)
+(Made by **jot Help › Writing in markdown › Make the markdown tour a note** — or brought in by **Import Markdown…**, Ctrl+Shift+M. It is an ordinary note: change it, or delete it when you are done.)
 
-Read this note twice: once as it is (**Source**, every code on screen), then press **Ctrl+E** for **Reading** (the codes gone). Press Ctrl+E again to come back. Double-click any word in Reading to jump here to that spot.
+Read this note twice: once in **Source** (the `</>` button at the top right — every code on screen), then press **Ctrl+E** for **Reading** (the codes gone). Press Ctrl+E again to come back. Double-click any word in Reading to jump here to that spot.
 
 ---
 

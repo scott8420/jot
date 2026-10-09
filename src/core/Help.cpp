@@ -171,6 +171,8 @@ const std::vector<HelpTopic>& help_topics() {
              "writing, but tidy.",
              "- **Reading** shows the note finished. Double-click to go back to "
              "writing at that spot.",
+             "New to the marks? **Make the markdown tour a note**, below: every mark "
+             "in one note, to read in Source and then in Reading.",
              "The **format bar** above the note writes the marks for you; every button "
              "toggles. Lists carry on when you press Enter, and Tab nests an item.",
              "Drop a **picture or any file** on the note and it lands where you let go "
@@ -183,7 +185,8 @@ const std::vector<HelpTopic>& help_topics() {
              "note to self. It ticks, but it is not a todo: todos are notes, and only "
              "they reach Today.",
          },
-         {{"Live Preview on or off", "win.toggle-live"}, {"Reading view", "win.toggle-reading"}},
+         {{"Make the markdown tour a note", "win.markdown-tour"},
+          {"Live Preview on or off", "win.toggle-live"}, {"Reading view", "win.toggle-reading"}},
          "writing",
          {"notes", "packets"}},
 
@@ -257,7 +260,7 @@ const std::vector<HelpTopic>& help_topics() {
              "with its window closed so the clock keeps ticking, and can put dated todos "
              "in GNOME's top-bar calendar — both in Preferences.",
          },
-         {{"Open Today", "win.left-view::today"}, {"Glance of Today", "win.glance"}},
+         {{"Open Today", "win.left-view::today"}, {"Glance at Today", "win.glance"}},
          "today",
          {"todos", "tags", "glance", "timeline"}},
 
@@ -417,9 +420,11 @@ const std::vector<HelpTopic>& help_topics() {
          "timeline",
          {"today", "deadlines", "tags"}},
 
-        {"glance", "Seeing it", "Glance of Today", "jot-view-today-symbolic",
+        {"glance", "Seeing it", "Glance at Today", "jot-glance-symbolic",
          "The day on one card, to carry away from the desk.",
          {
+             "Open it with the card-and-sun button at the top right of jot, the top of "
+             "the main menu, or **Ctrl+Shift+G**.",
              "The Glance is the day in the order it matters: what is late, what is due "
              "today, what is running short, what starts today, what is flagged, then "
              "errands by place. Each thing once.",
@@ -433,6 +438,9 @@ const std::vector<HelpTopic>& help_topics() {
              "A mail link cannot carry an attachment, so the foot holds the day's .ics "
              "as a chip: drag it onto the mail you are writing.",
              "Click any line to show its note.",
+             "Want it without opening jot? `jot --glance` prints the day in a terminal "
+             "(`jot --glance ics` as a calendar file) — jot closed or not, so a cron job "
+             "at 7:00 can mail it to you.",
          },
          {{"Open the Glance", "win.glance"}},
          "glance",
@@ -456,6 +464,7 @@ const std::vector<HelpTopic>& help_topics() {
              "- `jot NAME -l milk eggs` — todos in the note NAME.",
              "- `jot NAME -a some words` — a line of text in it.",
              "- `jot NAME -al \"a line\" milk eggs` — both at once.",
+             "- `jot --glance` — print the Glance at Today.",
              "With jot closed, all of these are kept and filed when it next opens. "
              "`jot --help` lists them.",
          },
@@ -479,9 +488,18 @@ const std::vector<HelpTopic>& help_topics() {
              "- **The folder's name in the header** opens it in Files, copies its path, "
              "renames it or moves it.",
              "- **Import** brings markdown files, or a whole folder of them, in as notes.",
+             "- **Export** takes them out as markdown anyone can read — Obsidian, a text "
+             "editor, GitHub. Each top-level note is one file named for it: its facts at "
+             "the top, the notes under it as headings, its todos as boxes with their "
+             "dates on the line, like an outline. **Export…** in a note's menu does the "
+             "selected notes (one note: you name the file, its title to start); "
+             "**Export All…** in the main menu does everything, into a new folder you name.",
+             "jot's own files are for jot — named by number, the tree kept in `jot.json`. "
+             "Export is the copy for everything else.",
              "jot saves as you go; Ctrl+S only makes it this instant.",
          },
-         {{"Open a jots folder", "win.open-jots"}, {"Import markdown", "win.import-md"}},
+         {{"Open a jots folder", "win.open-jots"}, {"Import markdown", "win.import-md"},
+          {"Export all", "win.export-all"}},
          "jots folder",
          {"notes", "undo"}},
 
@@ -589,10 +607,41 @@ std::string help_try_keys(const HelpTry& t) {
     return "";
 }
 
+namespace {
+// view -> page. One table, so the "?" buttons and the selftest read the same.
+const std::vector<std::pair<std::string, std::string>>& view_pages() {
+    static const std::vector<std::pair<std::string, std::string>> kMap = {
+        {"notes", "notes"},       {"find", "find"},         {"inbox", "inbox"},
+        {"today", "today"},       {"available", "todos"},   {"flagged", "todos"},
+        {"logbook", "today"},     {"forecast", "today"},    {"errands", "tags"},
+        {"tags", "tags"},         {"projects", "projects"}, {"timeline", "timeline"},
+        {"glance", "glance"},
+    };
+    return kMap;
+}
+}  // namespace
+
+std::string help_page_for(const std::string& view) {
+    for (const auto& [v, page] : view_pages())
+        if (v == view) return page;
+    return "welcome";
+}
+
+const std::vector<std::string>& help_views() {
+    static const std::vector<std::string> kViews = [] {
+        std::vector<std::string> v;
+        for (const auto& [name, page] : view_pages()) v.push_back(name);
+        return v;
+    }();
+    return kViews;
+}
+
 const std::vector<std::string>& help_bound_actions() {
     // Bound in Shell_bindings.cpp with no key of their own. The tab buttons and
-    // the View menu use left-view; a Try may too.
-    static const std::vector<std::string> kBound = {"win.left-view"};
+    // the View menu use left-view; a Try may too. s071: markdown-tour makes the
+    // tour a note (the Writing page's Try).
+    static const std::vector<std::string> kBound = {"win.left-view", "win.markdown-tour",
+                                                     "win.export-all"};
     return kBound;
 }
 

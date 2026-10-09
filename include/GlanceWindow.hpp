@@ -13,10 +13,10 @@ namespace jot {
 
 // GlanceWindow -- s066: core::glance()'s GTK consumer, and the way it leaves.
 //
-// Scott: "a 'Glance of Today' view that is the day's activities. A quick
+// Scott: "a 'Glance at Today' view that is the day's activities. A quick
 // listing that could be emailed to my iphone as a note or calendar event."
 // It is a CARD to take away, so it is its own small window (Ctrl+Shift+G,
-// View › Glance of Today), not one more view in the side pane: what you see is
+// View › Glance at Today), not one more view in the side pane: what you see is
 // what goes out. Three ways out, in the title bar:
 //
 //   Copy        plain text AND html on the clipboard -- Keep takes the text,
@@ -52,6 +52,8 @@ public:
     sigc::signal<void(core::NodeId)>& signal_goto() { return m_sig_goto; }
     // The address or the save folder changed -- the Shell keeps them in prefs.
     sigc::signal<void(std::string, std::string)>& signal_prefs() { return m_sig_prefs; }
+    // s071: the "?" in the title bar was pressed.
+    sigc::signal<void()>& signal_help() { return m_sig_help; }
 
 private:
     void build();
@@ -84,6 +86,7 @@ private:
 
     sigc::signal<void(core::NodeId)>             m_sig_goto;
     sigc::signal<void(std::string, std::string)> m_sig_prefs;
+    sigc::signal<void()> m_sig_help;   // s071
 };
 
 }  // namespace jot

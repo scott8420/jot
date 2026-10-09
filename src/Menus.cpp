@@ -10,6 +10,7 @@ Glib::RefPtr<Gio::Menu> note_menu(bool with_view) {
     make->append("New child note", "win.new-child");
     make->append("Import Markdown Files\u2026", "win.import-md");            // s021b
     make->append("Import Markdown Folder\u2026", "win.import-md-folder");    // s021c
+    make->append("Export\u2026", "win.export-notes");                         // s071d
     menu->append_section(make);
 
     // A todo IS a note (D2), so its three states are note verbs and live here,

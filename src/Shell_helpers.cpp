@@ -1903,7 +1903,11 @@ void Shell::show_desktop_status(const std::string& s) {  // helper: the footer's
 // release too many takes the count negative under a window that is still open.
 // m_holding is the mirror that makes calling this twice harmless.
 void Shell::apply_background_hold() {  // helper: ONE writer for the application hold
-    auto app = get_application();
+    // s071b: get_default(), never get_application() -- s012's lesson, missed
+    // here: a hidden window has no application, so a quit while resident
+    // skipped the release and the process outlived its "quitting" (Scott: a
+    // relaunch after a rebuild hung until force quit).
+    auto app = Gio::Application::get_default();
     if (!app) return;
     const bool want = m_prefs.background && !m_quitting;
     if (want == m_holding) return;
@@ -1968,6 +1972,15 @@ void Shell::finish_quit() {  // helper: past the prompt -- flush, release, go
     // it (ensure_shell already does that for the resident case).
     if (!get_realized()) {
         if (auto app = get_application()) app->remove_window(*this);
+        return;
+    }
+    // s071b: a window closed with the X while jot stays resident is HIDDEN
+    // and no longer the application's, so closing it ends nothing. Nothing is
+    // on screen to take down, the disk is flushed and the hold released above:
+    // end the run here; main() then returns -- or execs the new build.
+    if (!get_visible()) {
+        if (auto lg = log::get(log::Area::Shell)) lg->info("quitting -- window hidden, ending the run");
+        if (auto app = Gio::Application::get_default()) app->quit();
         return;
     }
     close();
