@@ -1,6 +1,7 @@
 #include "Shell.hpp"
 #include "App.hpp"
 #include "TimelinePane.hpp"   // s059
+#include "GraphPane.hpp"      // s071f
 #include "DrawerPane.hpp"
 #include "EditorPane.hpp"
 #include "TreePane.hpp"
@@ -109,6 +110,7 @@ void Shell::build_shell() {  // zone: window + header + paned body
     // s059: the centre is a stack -- the note, or the timeline in its place.
     m_center.add(*m_editor, "note");
     m_center.add(*m_timeline, "timeline");
+    m_center.add(*m_graph, "graph");   // s071f
     m_center.set_transition_type(Gtk::StackTransitionType::CROSSFADE);
     m_center.set_transition_duration(120);
     m_paned_right.set_start_child(m_center);
@@ -471,7 +473,22 @@ void Shell::build_view_modes(Gtk::HeaderBar& header) {  // zone: Source | Live |
     auto* both = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.view_modes_and_timeline",
                                                  Gtk::Orientation::HORIZONTAL, 0);
     both->append(*trio);
-    both->append(m_mode_timeline);
+    // s071f: the fifth, joined to the timeline -- the two pictures of the
+    // whole folder sit together, the three note views beside them.
+    m_mode_graph.set_icon_name("jot-view-graph-symbolic");
+    m_mode_graph.set_tooltip_text("Graph: every note a bubble, the lines between them (Ctrl+Shift+B)");
+    m_mode_graph.set_action_name("win.view-mode");
+    m_mode_graph.set_action_target_value(Glib::Variant<Glib::ustring>::create("graph"));
+    {
+        auto* pics = Gtk::make_managed<widgets::Box>(widgets::unregistered, "shell.view_pictures",
+                                                     Gtk::Orientation::HORIZONTAL, 0);
+        pics->add_css_class("linked");
+        pics->set_margin_start(6);
+        m_mode_timeline.set_margin_start(0);
+        pics->append(m_mode_timeline);
+        pics->append(m_mode_graph);
+        both->append(*pics);
+    }
     header.pack_end(*both);
 }
 
@@ -589,6 +606,7 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     mode->append("Reading view", "win.toggle-reading");   // s021
     mode->append("Live preview", "win.toggle-live");      // s022
     mode->append("Timeline", "win.timeline");             // s059
+    mode->append("Graph", "win.graph");                   // s071f
     mode->append("Glance at Today", "win.glance");        // s066
     view->append_section(mode);
     view->append_section(menus::zoom_menu());             // s053b

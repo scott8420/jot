@@ -1,6 +1,7 @@
 #include <algorithm>
 #include "Shell.hpp"
 #include "TimelinePane.hpp"   // s059
+#include "GraphPane.hpp"      // s071f
 #include "TaskCard.hpp"
 #include "core/DoneWhen.hpp"
 #include "core/Gather.hpp"
@@ -211,6 +212,10 @@ void Shell::on_left_view(const Glib::ustring& which) {  // handler: Notes | Inbo
 void Shell::on_find() {  // handler: Ctrl+F
     if (m_timeline_on) {   // s059: the timeline's own find takes it
         m_timeline->focus_find();
+        return;
+    }
+    if (m_graph_on) {      // s071f: and the graph's
+        m_graph->focus_find();
         return;
     }
     if (!m_prefs.show_tree) {
@@ -696,6 +701,7 @@ void Shell::on_selection_changed(const core::NodeId& id) {  // handler: tree row
     // s057b: the note on show is marked in every list, not only the tree.
     set_current_note(id);
     if (m_timeline) m_timeline->set_current(id);   // s059
+    if (m_graph) m_graph->set_current(id);         // s071f
     for (Gtk::Widget* w : {static_cast<Gtk::Widget*>(m_today.get()), static_cast<Gtk::Widget*>(m_inbox.get()),
                            static_cast<Gtk::Widget*>(m_tags.get()), static_cast<Gtk::Widget*>(m_projects.get()),
                            static_cast<Gtk::Widget*>(m_search.get())})
@@ -739,6 +745,7 @@ void Shell::on_model_changed(core::NodeSource::Change what, const core::NodeId& 
     // s037: a tick, a move, a state, a new child -- not a keystroke.
     if (what != C::Body) queue_projects_refresh();
     queue_timeline_refresh();   // s059: a word typed can change a find match, a title its row
+    queue_graph_refresh();      // s071f
     queue_search_refresh();   // s038: a word typed can make or break a match
     // s052: a packet's nudge set, or a folder opened, speaks within the second
     // rather than at the next minute tick. The outbox keeps a burst of these
@@ -1286,6 +1293,7 @@ void Shell::on_toggle_drawer() {  // handler: show/hide the metadata drawer
 void Shell::on_toggle_reading() {  // handler
     if (m_applying_layout) return;
     m_timeline_on = false;   // s059: a note view asked for brings the note back
+    m_graph_on = false;      // s071f
     m_prefs.reading = !m_prefs.reading;
     apply_layout_state();
 }
@@ -1296,6 +1304,7 @@ void Shell::on_toggle_reading() {  // handler
 void Shell::on_toggle_live() {  // handler
     if (m_applying_layout) return;
     m_timeline_on = false;   // s059
+    m_graph_on = false;      // s071f
     m_prefs.live_preview = !m_prefs.live_preview;
     apply_layout_state();
 }
@@ -1309,8 +1318,13 @@ void Shell::on_view_mode(const Glib::ustring& m) {  // handler
         if (!m_timeline_on) on_toggle_timeline();
         return;
     }
-    const bool was_timeline = m_timeline_on;
+    if (m == "graph") {      // s071f: the fifth
+        if (!m_graph_on) on_toggle_graph();
+        return;
+    }
+    const bool was_timeline = m_timeline_on || m_graph_on;
     m_timeline_on = false;
+    m_graph_on = false;
     if (m == "reading") {
         m_prefs.reading = true;
     } else {
@@ -1325,6 +1339,7 @@ void Shell::on_view_mode(const Glib::ustring& m) {  // handler
 // restarts: jot opens on the note, where capture lands.
 void Shell::on_toggle_timeline() {  // handler: Ctrl+Shift+L
     m_timeline_on = !m_timeline_on;
+    if (m_timeline_on) m_graph_on = false;   // s071f: one picture at a time
     apply_layout_state();
     if (m_timeline_on) {
         m_timeline->set_current(m_editor->current());
@@ -1333,6 +1348,21 @@ void Shell::on_toggle_timeline() {  // handler: Ctrl+Shift+L
         m_editor->focus_capture();
     }
     if (auto lg = log::get(log::Area::Shell)) lg->info("timeline: {}", m_timeline_on ? "shown" : "hidden");
+}
+
+// s071f. The graph in the note's place, or the note back -- the timeline's
+// shape. Not kept across restarts: jot opens on the note.
+void Shell::on_toggle_graph() {  // handler: Ctrl+Shift+B
+    m_graph_on = !m_graph_on;
+    if (m_graph_on) m_timeline_on = false;
+    apply_layout_state();
+    if (m_graph_on) {
+        m_graph->set_current(m_editor->current());
+        m_graph->opened();
+    } else {
+        m_editor->focus_capture();
+    }
+    if (auto lg = log::get(log::Area::Shell)) lg->info("graph: {}", m_graph_on ? "shown" : "hidden");
 }
 
 // A double-click in Reading, or a capture, wants to type. Place the cursor

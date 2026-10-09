@@ -235,6 +235,9 @@ const std::vector<ShortcutSpec>& shortcut_defaults() {
         // s059: L for timeLine (Ctrl+T is the new todo). Nothing in a text box binds it.
         {"View", "win.timeline",        {"<Ctrl><Shift>l"}, "",
          "Timeline: your work along the days, in the note's place (again: back to the note)"},
+        // s071f: B for Bubbles (Ctrl+B is bold, Ctrl+Shift+B is free in a text box).
+        {"View", "win.graph",           {"<Ctrl><Shift>b"}, "",
+         "Graph: every note a bubble, links and the tree as lines, in the note's place (again: back)"},
         // s066: G for Glance. Nothing in a text box binds it.
         {"View", "win.glance",          {"<Ctrl><Shift>g"}, "",
          "Glance at Today: the day on one card -- Copy, Email, Save .ics"},

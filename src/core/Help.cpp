@@ -329,7 +329,8 @@ const std::vector<HelpTopic>& help_topics() {
              "one folder or one zip, each named for its item, with a contents list. The "
              "packet is stamped Sent.",
              "- **Do it again** makes next year's copy: the same items, nothing in, due "
-             "a year on, with a link back to last time. The old one stays as the record.",
+             "a year on, with a link back to last time. The old one stays as the record. "
+             "Its routines (\"scan receipts\", every week) feed the new one from then on.",
          },
          {},
          "packet",
@@ -368,7 +369,8 @@ const std::vector<HelpTopic>& help_topics() {
              "receipts\" feeds \"Taxes 2027\". Set it in the step's Note details › "
              "Todo › **Feeds**. The goal then adds it up under Done when: "
              "\"Fed by 2 feeders · ~9h before the due · ~20m a week\" — "
-             "in red when one has slipped.",
+             "in red when one has slipped — and jot sends a notification the morning a "
+             "feeder slips (\"“scan receipts” has slipped\"), once until it is caught up.",
              "So a big job is done the easy way: a little, often, and you can see whether "
              "the little is keeping up.",
          },
@@ -445,6 +447,33 @@ const std::vector<HelpTopic>& help_topics() {
          {{"Open the Glance", "win.glance"}},
          "glance",
          {"today", "timeline"}},
+
+        {"graph", "Seeing it", "The graph", "jot-view-graph-symbolic",
+         "Every note a bubble, and the lines between them.",
+         {
+             "The graph draws your whole jots folder at once: each note a bubble, "
+             "bigger the more lines meet it. The lines are your **links** "
+             "(`[label](jot:...)`), the **tree** (a note to the notes under it) and, "
+             "if you ask in Show, **shared tags**. Todos wear their state's colour — "
+             "late red, today orange, flagged amber, done green — like the cards.",
+             "Bubbles push apart and lines pull together, so what belongs together "
+             "gathers by itself.",
+             "- **Click** a bubble to pick it (Note details follows); **double-click** "
+             "to open the note.",
+             "- **Drag** a bubble to put it somewhere — it stays (pinned) until you "
+             "unpin it. Scroll, or drag the space, to move around; **Ctrl+scroll** "
+             "or **Ctrl+=** / **Ctrl+-** zooms; **Ctrl+0** shows it all. When some of it is off screen, the **map** in the corner "
+             "shows it all — press or drag in it to go there.",
+             "- **Right-click** a bubble: **Center Here** gathers the graph to it — what "
+             "is within two lines of it, the rest faded. Center Here on another to walk "
+             "on; **Show Everything** (or Esc) goes back.",
+             "- **Group** pulls each tag, place or project into its own clump, with a "
+             "halo and its name: what goes together, at a glance.",
+             "- The find field lights the bubbles that match: words, #tag, is:, due:.",
+         },
+         {{"Show the graph", "win.graph"}},
+         "graph",
+         {"timeline", "tags", "notes"}},
 
         // ── Around jot ──────────────────────────────────────────────────────
         {"outside", "Around jot", "jot outside its window", "utilities-terminal-symbolic",
@@ -615,7 +644,7 @@ const std::vector<std::pair<std::string, std::string>>& view_pages() {
         {"today", "today"},       {"available", "todos"},   {"flagged", "todos"},
         {"logbook", "today"},     {"forecast", "today"},    {"errands", "tags"},
         {"tags", "tags"},         {"projects", "projects"}, {"timeline", "timeline"},
-        {"glance", "glance"},
+        {"glance", "glance"},       {"graph", "graph"},
     };
     return kMap;
 }

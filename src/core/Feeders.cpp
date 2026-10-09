@@ -168,4 +168,53 @@ std::vector<FeedTarget> feed_targets(const NodeSource& src, const NodeId& feeder
     return all;
 }
 
+// ── s072: a slipped feeder speaks ───────────────────────────────────────────
+std::string slip_key(const NodeId& id, std::int64_t due) {
+    return std::string(kSlipPrefix) + id + "@" + std::to_string(due);
+}
+
+bool is_slip_key(const std::string& key) { return key.rfind(kSlipPrefix, 0) == 0; }
+
+AnnounceResult feeder_slips(const NodeSource& src, std::int64_t now,
+                            const std::vector<std::string>& announced,
+                            const std::vector<Snoozed>& parked) {
+    AnnounceResult r;
+    std::tm tm{};
+    const std::time_t t = static_cast<std::time_t>(now);
+    localtime_r(&t, &tm);
+    const bool hour_ok = tm.tm_hour >= 9;
+    std::function<void(const NodeId&)> walk = [&](const NodeId& parent) {
+        for (const auto& id : src.children(parent)) {
+            const Node* n = src.find(id);
+            if (!n) continue;
+            walk(id);
+            if (!n->task.is_task || n->task.done || n->task.feeds.empty()) continue;
+            const Node* goal = src.find(n->task.feeds);
+            if (!goal || (goal->task.is_task && goal->task.done)) continue;
+            const RoutineState rs = routine_state(src, id, now);
+            if (!rs.on || !rs.slipped()) continue;
+            const std::string key = slip_key(id, rs.due);
+            r.live.push_back(key);
+            if (std::find(announced.begin(), announced.end(), key) != announced.end()) {
+                r.keep.push_back(key);
+                continue;
+            }
+            const bool held = std::any_of(parked.begin(), parked.end(), [&](const Snoozed& z) {
+                return z.key == key && z.until > now;
+            });
+            if (!hour_ok || held) continue;
+            Announcement a;
+            a.id = id;
+            a.key = key;
+            a.summary = "\u201c" + (n->title.empty() ? std::string("Untitled") : n->title) + "\u201d has slipped";
+            a.detail = "It feeds " + (goal->title.empty() ? std::string("Untitled") : goal->title) +
+                       " \u00b7 " + slipped_line(rs);
+            a.due = rs.due;
+            r.to_show.push_back(std::move(a));
+        }
+    };
+    walk("");
+    return r;
+}
+
 }  // namespace jot::core

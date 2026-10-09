@@ -1,6 +1,7 @@
 #include "Shell.hpp"
 #include "Appearance.hpp"
 #include "AboutWindow.hpp"      // complete type for ~unique_ptr<AboutWindow> in ~Shell()
+#include "GraphPane.hpp"        // s071f
 #include "TimelinePane.hpp"     // complete type for ~unique_ptr<TimelinePane>
 #include "GlanceWindow.hpp"      // s066
 #include "HelpWindow.hpp"        // s067 (the cheat sheet is its second page) -- same singleton shape, same dtor requirement
@@ -64,7 +65,8 @@ Shell::Shell()
       m_mode_live("shell.mode_live"),
       m_mode_reading("shell.mode_reading"),
       m_center("shell.center"),
-      m_mode_timeline("shell.mode_timeline") {
+      m_mode_timeline("shell.mode_timeline"),
+      m_mode_graph("shell.mode_graph") {
     set_name("shell.window");
     m_tree   = std::make_unique<TreePane>("shell.tree");
     m_editor = std::make_unique<EditorPane>("shell.editor");
@@ -75,6 +77,7 @@ Shell::Shell()
     m_projects = std::make_unique<ProjectsPane>("shell.projects");   // s037
     m_search   = std::make_unique<SearchPane>("shell.search");       // s038
     m_timeline = std::make_unique<TimelinePane>("shell.timeline");   // s059
+    m_graph = std::make_unique<GraphPane>("shell.graph");             // s071f
 }
 
 Shell::~Shell() = default;
@@ -137,6 +140,7 @@ void Shell::build_ui() {
     m_projects->set_source(&m_undo);   // s037
     m_search->set_source(&m_undo);     // s038
     m_timeline->set_source(&m_undo);   // s059
+    m_graph->set_source(&m_undo);      // s071f
     m_search->set_perspectives(&m_prefs.perspectives);   // s038b: the summary names a saved view
     queue_inbox_refresh();   // the tab's count and Clean Up's greying
 

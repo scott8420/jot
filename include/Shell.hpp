@@ -81,6 +81,7 @@ class TagsPane;
 class ProjectsPane;
 class SearchPane;
 class TimelinePane;
+class GraphPane;      // s071f
 class PerspectiveDialog;
 
 class Shell : public Gtk::ApplicationWindow {
@@ -246,6 +247,8 @@ private:
     void on_toggle_reading();                    // category: handler: s021 Source <-> Reading
     void on_toggle_live();                       // category: handler: s022 Live Preview on/off
     void on_view_mode(const Glib::ustring& m);   // category: handler: s034 Source | Live | Reading, the joined control
+    void on_toggle_graph();                      // category: handler: s071f Ctrl+Shift+B -- the graph in the note's place, or back
+    void queue_graph_refresh();                  // category: helper: s071f the graph follows the model, debounced, only while showing
     void on_toggle_timeline();                   // category: handler: s059 Ctrl+Shift+L -- the timeline in the note's place, or back
     void queue_timeline_refresh();               // category: helper: s059 the timeline follows the model, debounced, only while showing
     void build_view_modes(Gtk::HeaderBar& header);  // category: zone: s034 the three-way view control
@@ -399,6 +402,9 @@ private:
     std::unique_ptr<ProjectsPane> m_projects; // s037
     std::unique_ptr<SearchPane> m_search;     // s038
     std::unique_ptr<TimelinePane> m_timeline; // s059: the centre's other view
+    std::unique_ptr<GraphPane>    m_graph;    // s071f: the centre's third view
+    bool                          m_graph_on = false;   // s071f: not kept -- jot opens on the note
+    sigc::connection              m_graph_refresh;      // s071f
     widgets::Stack              m_center;     // s059: "note" (the editor) | "timeline"
     bool                        m_timeline_on = false;   // s059: not kept -- jot opens on the note
     sigc::connection            m_timeline_refresh;      // s059
@@ -415,6 +421,7 @@ private:
     widgets::ToggleButton m_mode_live;
     widgets::ToggleButton m_mode_reading;
     widgets::ToggleButton m_mode_timeline;   // s059: the fourth -- the centre shows the timeline
+    widgets::ToggleButton m_mode_graph;      // s071f: the fifth -- the centre shows the graph
     bool m_applying_layout = false;
 
     // Layout state, persisted. A pane you can hide has to come back the way you

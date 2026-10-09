@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- jot s071f: the graph. Bubbles and the lines between them (lines as
+       filled shapes: GTK fills every path of a symbolic icon). -->
+  <path fill="currentColor" d="M 2.96 4.64 L 7.16 8.84 L 8.04 7.96 L 3.84 3.76 Z M 12.15 2.77 L 7.15 7.97 L 8.05 8.83 L 13.05 3.63 Z M 7.21 8.89 L 12.01 12.69 L 12.79 11.71 L 7.99 7.91 Z M 12.34 11.58 L 3.54 12.38 L 3.66 13.62 L 12.46 12.82 Z M 3.47 4.82 L 12.67 3.82 L 12.53 2.58 L 3.33 3.58 Z"/>
+  <circle fill="currentColor" cx="3.4" cy="4.2" r="1.7"/>
+  <circle fill="currentColor" cx="12.6" cy="3.2" r="1.5"/>
+  <circle fill="currentColor" cx="7.6" cy="8.4" r="2.4"/>
+  <circle fill="currentColor" cx="3.6" cy="13.0" r="1.5"/>
+  <circle fill="currentColor" cx="12.4" cy="12.2" r="1.9"/>
+</svg>

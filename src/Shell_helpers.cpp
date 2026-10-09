@@ -1,6 +1,8 @@
 #include "core/Tags.hpp"
 #include "Shell.hpp"
-#include "GlanceWindow.hpp"   // s066
+#include "GlanceWindow.hpp"
+#include "core/Feeders.hpp"   // s072
+#include "GraphPane.hpp"   // s071f   // s066
 #include "TimelinePane.hpp"   // s059
 #include "core/DoneWhen.hpp"
 #include "core/Nudge.hpp"
@@ -534,6 +536,7 @@ void Shell::repoint_surfaces() {  // helper
     end_search();                            // s038: a query over the old folder means nothing here
     m_search->set_source(&m_undo);
     if (m_timeline) m_timeline->set_source(&m_undo);   // s059
+    if (m_graph) m_graph->set_source(&m_undo);         // s071f
     if (m_glance) m_glance->set_source(&m_undo, &m_tasks);   // s066
     queue_inbox_refresh();
     queue_desktop_sync();
@@ -805,6 +808,15 @@ void Shell::queue_projects_refresh() {  // helper: Projects pane, debounced, onl
     }, 150);
 }
 
+void Shell::queue_graph_refresh() {  // helper: s071f the graph, debounced, only while showing
+    if (!m_graph || !m_graph_on) return;
+    m_graph_refresh.disconnect();
+    m_graph_refresh = Glib::signal_timeout().connect([this]() {
+        if (m_graph && m_graph_on) m_graph->refresh();
+        return false;
+    }, 400);
+}
+
 void Shell::queue_timeline_refresh() {  // helper: s059 the timeline, debounced, only while showing
     if (!m_timeline || !m_timeline_on) return;
     m_timeline_refresh.disconnect();
@@ -874,9 +886,9 @@ void Shell::apply_layout_state() {  // helper: the one place layout changes
     // s034: the three-way control is a view of the two flags above.
     if (m_act_view_mode)
         m_act_view_mode->set_state(Glib::Variant<Glib::ustring>::create(
-            m_timeline_on ? "timeline"
+            m_graph_on ? "graph" : m_timeline_on ? "timeline"
                           : m_prefs.reading ? "reading" : (m_prefs.live_preview ? "live" : "source")));
-    m_center.set_visible_child(m_timeline_on ? "timeline" : "note");   // s059
+    m_center.set_visible_child(m_graph_on ? "graph" : m_timeline_on ? "timeline" : "note");   // s059, s071f
 
     m_tree_toggle.set_tooltip_text(m_prefs.show_tree ? "Hide the side pane (Ctrl+[ or F9)"
                                                      : "Show the side pane (Ctrl+[ or F9)");
@@ -1415,6 +1427,10 @@ void Shell::check_due_notifications() {  // helper: announce what has just come 
     const auto nudges = core::packet_nudges(*m_store, now, m_prefs.announced, m_prefs.snoozed);
     r.keep.insert(r.keep.end(), nudges.keep.begin(), nudges.keep.end());
     r.live.insert(r.live.end(), nudges.live.begin(), nudges.live.end());
+    // s072: a feeder that has slipped -- the same rules, a third key shape.
+    const auto slips = core::feeder_slips(*m_store, now, m_prefs.announced, m_prefs.snoozed);
+    r.keep.insert(r.keep.end(), slips.keep.begin(), slips.keep.end());
+    r.live.insert(r.live.end(), slips.live.begin(), slips.live.end());
 
     // The announced set is rewritten even when nothing is shown, because
     // PRUNING is half of what it does: a todo that was ticked off or
@@ -1496,6 +1512,24 @@ void Shell::check_due_notifications() {  // helper: announce what has just come 
         n.buttons.push_back({"Open", "app.goto-node", a.id});
         if (auto lg = log::get(log::Area::Shell))
             lg->info("nudge: asking for '{}' -- {} key={} try={}", a.summary, a.detail, a.key,
+                     m_outbox.tries(a.key) + 1);
+        m_notifier.send(n);
+    }
+
+    // s072: the feeders that have slipped. Open goes to it; the tick is there.
+    for (const auto& a : slips.to_show) {
+        if (!m_outbox.begin(a.key)) continue;
+        Notice n;
+        n.key     = a.key;
+        n.tray_id = std::string(core::kSlipPrefix) + a.id;
+        n.title   = a.summary;
+        n.body    = a.detail;
+        n.icon    = "jot-logo-symbolic";
+        n.action  = "app.goto-node";
+        n.target  = a.id;
+        n.buttons.push_back({"Open", "app.goto-node", a.id});
+        if (auto lg = log::get(log::Area::Shell))
+            lg->info("slip: asking for '{}' -- {} key={} try={}", a.summary, a.detail, a.key,
                      m_outbox.tries(a.key) + 1);
         m_notifier.send(n);
     }

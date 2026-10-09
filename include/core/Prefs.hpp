@@ -117,6 +117,10 @@ struct Prefs {
     std::string tl_zoom  = "month";   // week | month | season
     std::string tl_group = "day";     // day | place | purpose
     std::string tl_show;              // "" = the usual set; see tl_show_text
+    // s071f: the graph's Group and Show, as they were left (core/Graph's
+    // words; junk is the default).
+    std::string gr_group = "none";    // none | tag | place | project
+    std::string gr_show;              // "" = the usual set; see graph_show_words
     // s068: the Help guide's page, as it was left ("" = Welcome).
     std::string help_page;
     // s070: keys the user changed -- action -> its keys ([] = no key). Only

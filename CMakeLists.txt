@@ -129,6 +129,7 @@ add_library(jot_core STATIC
     src/core/Feeders.cpp     # s058 (J4): the small repeating steps that feed a goal
     src/core/Glance.cpp      # s066: the day on one card -- text, html, ics, mailto
     src/core/Export.cpp      # s071d: notes out as markdown -- one outline file per top-level note
+    src/core/Graph.cpp       # s071f: the graph view -- bubbles, lines, groups, a force layout
     src/core/Timeline.cpp    # s059 (J5): the running calendar -- what lands on which day, stacked down
     src/core/Gather.cpp
     src/core/Nudge.cpp
@@ -235,6 +236,7 @@ add_executable(jot
     src/ProjectsPane.cpp
     # s059 (J5): the running calendar -- core/Timeline places, this draws.
     src/TimelinePane.cpp
+    src/GraphPane.cpp        # s071f: the graph view
     src/SearchPane.cpp
     # s029. "Move to...": a picker you type into, over core/Filing.
     src/MoveDialog.cpp

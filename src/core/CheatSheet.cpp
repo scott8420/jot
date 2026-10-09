@@ -250,7 +250,7 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Next year's packet, from this one",
          "A fresh copy just below -- \u201cTaxes 2026\u201d becomes \u201cTaxes 2027\u201d: the same "
          "items with nothing in, the same nudge, a due date a year on, and \u201cLast time\u201d "
-         "linking back. The old one keeps its files and its Sent stamp. One Ctrl+Z."},
+         "linking back. The old one keeps its files and its Sent stamp. One Ctrl+Z. Its repeating feeders feed the new copy."},
 
         // ── Today ───────────────────────────────────────────────────────────
         {"Today", "", "Today tab", "What you can actually do now",
@@ -360,6 +360,13 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Import a whole folder of markdown", "Subfolders become notes holding their files."},
 
         // ── Views ───────────────────────────────────────────────────────────
+        // ── Graph (s071f) ───────────────────────────────────────────────────
+        {"Views", "win.graph", "", "The graph: every note a bubble, the lines between them",
+         "Links, the tree and (in Show) shared tags are the lines; todos wear their state's colour. "
+         "Click picks, double-click opens, drag a bubble to pin it; scroll or drag the space to move, "
+         "Ctrl+scroll, Ctrl+= / Ctrl+- or + / - to zoom, Ctrl+0 to see it all; the map in the corner shows where you are -- press or drag in it. Right-click a bubble: Center Here gathers what is within two lines of it; Show "
+         "Everything goes back. Group pulls tags, places or projects into clumps. Also the fifth "
+         "button beside Source / Live / Reading / Timeline."},
         {"Views", "", "Header, top right: </> · pen · book",
          "Source, Live Preview, Reading: the pressed one is the view you are in",
          "One click to any of the three. The keys below still work."},

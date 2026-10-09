@@ -1,5 +1,6 @@
 #include "Shell.hpp"
 #include "TimelinePane.hpp"   // s059
+#include "GraphPane.hpp"      // s071f
 #include "core/Enclosures.hpp"
 #include "DrawerPane.hpp"
 #include "EditorPane.hpp"
@@ -49,9 +50,10 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     add_action("preferences",   sigc::mem_fun(*this, &Shell::on_preferences));
     // s053b: the note's text size. The editor steps it and says so; the Shell
     // keeps it.
-    add_action("zoom-in",    [this]() { m_editor->zoom_in(); });
-    add_action("zoom-out",   [this]() { m_editor->zoom_out(); });
-    add_action("zoom-reset", [this]() { m_editor->zoom_reset(); });
+    // s071h: while the graph shows, the same keys zoom the graph.
+    add_action("zoom-in",    [this]() { if (m_graph_on) m_graph->zoom_in();    else m_editor->zoom_in(); });
+    add_action("zoom-out",   [this]() { if (m_graph_on) m_graph->zoom_out();   else m_editor->zoom_out(); });
+    add_action("zoom-reset", [this]() { if (m_graph_on) m_graph->zoom_reset(); else m_editor->zoom_reset(); });
     // NOT close(), and the difference only appeared in s012: under residency a
     // close HIDES the window, so a Quit that closed would leave the process
     // running and the menu item doing nothing visible. Quit means quit, which
@@ -82,6 +84,7 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     // s034. The header's three-way view control. Derived from the two bools
     // above by apply_layout_state(), so it is never a second source of truth.
     add_action("timeline", sigc::mem_fun(*this, &Shell::on_toggle_timeline));   // s059
+    add_action("graph", sigc::mem_fun(*this, &Shell::on_toggle_graph));         // s071f
     m_act_view_mode = add_action_radio_string(
         "view-mode", sigc::mem_fun(*this, &Shell::on_view_mode),
         m_prefs.reading ? "reading" : (m_prefs.live_preview ? "live" : "source"));
@@ -272,6 +275,20 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
         if (m_timeline_on) on_toggle_timeline();
     });
     m_timeline->signal_close().connect([this]() { if (m_timeline_on) on_toggle_timeline(); });
+    // s071f: the graph, the same way -- click picks, double-click opens, Esc back.
+    m_graph->signal_pick().connect(sigc::mem_fun(*this, &Shell::on_goto_note));
+    m_graph->signal_open().connect([this](const core::NodeId& id) {
+        on_goto_note(id);
+        if (m_graph_on) on_toggle_graph();
+    });
+    m_graph->signal_close().connect([this]() { if (m_graph_on) on_toggle_graph(); });
+    m_graph->set_view(m_prefs.gr_group, m_prefs.gr_show);
+    m_graph->signal_view().connect([this](std::string group, std::string show) {
+        if (group == m_prefs.gr_group && show == m_prefs.gr_show) return;
+        m_prefs.gr_group = std::move(group);
+        m_prefs.gr_show = std::move(show);
+        core::save_prefs(m_prefs_file, m_prefs);
+    });
     // s068: the timeline opens as it was left -- zoom, group, the Show set.
     m_timeline->set_view(m_prefs.tl_zoom, m_prefs.tl_group, m_prefs.tl_show);
     m_timeline->signal_view().connect([this](std::string zoom, std::string group, std::string show) {

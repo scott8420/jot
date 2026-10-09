@@ -1,4 +1,5 @@
 #include "core/Prefs.hpp"
+#include "core/Graph.hpp"   // s071f
 #include "core/Timeline.hpp"   // s068: the timeline view's words
 #include "core/Zoom.hpp"
 #include "core/RowLook.hpp"
@@ -70,6 +71,9 @@ Prefs load_prefs(const std::string& file) {
         p.tl_show       = get_or(j, "tl_show", p.tl_show);
         if (!p.tl_show.empty()) p.tl_show = tl_show_text(tl_show_parse(p.tl_show));
         p.help_page     = get_or(j, "help_page", p.help_page);
+        p.gr_group      = graph_group_word(graph_group_parse(get_or(j, "gr_group", p.gr_group)));   // s071f
+        p.gr_show       = get_or(j, "gr_show", p.gr_show);
+        if (!p.gr_show.empty()) p.gr_show = graph_show_words(graph_show_parse(p.gr_show));
         // s070: an object of string arrays; a wrong-typed entry drops.
         if (auto it = j.find("key_overrides"); it != j.end() && it->is_object()) {
             p.key_overrides.clear();
@@ -162,6 +166,8 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     j["tl_group"] = p.tl_group;
     if (!p.tl_show.empty())   j["tl_show"]   = p.tl_show;
     if (!p.help_page.empty()) j["help_page"] = p.help_page;
+    j["gr_group"] = p.gr_group;   // s071f
+    if (!p.gr_show.empty()) j["gr_show"] = p.gr_show;
     if (!p.key_overrides.empty()) j["key_overrides"] = p.key_overrides;   // s070
     j["announced"]     = p.announced;
     j["snoozed"]       = nlohmann::json::array();

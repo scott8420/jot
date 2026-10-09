@@ -1,6 +1,7 @@
 #pragma once
 #include "core/Nodes.hpp"
 #include "core/Routine.hpp"
+#include "core/Notify.hpp"   // s072: a slipped feeder speaks
 
 #include <cstdint>
 #include <string>
@@ -71,5 +72,19 @@ struct FeedTarget {
 };
 std::vector<FeedTarget> feed_targets(const NodeSource& src, const NodeId& feeder,
                                      const std::string& query);
+
+// ── s072 (sweep): a slipped feeder says so ──────────────────────────────────
+// The goal's Done when has shown a slipped feeder in red since s058, but only
+// to someone looking. Now it speaks: one notification per slip -- "“scan
+// receipts” has slipped", "It feeds Taxes 2027 · Slipped — 2 missed since Sun
+// 20 Sep" -- not before 9:00, once until it is caught up (the key carries the
+// occurrence's due, so ticking it ends this slip and a later one speaks
+// again). A feeder whose goal is done or gone says nothing.
+inline constexpr const char* kSlipPrefix = "slip:";
+std::string slip_key(const NodeId& id, std::int64_t due);
+bool        is_slip_key(const std::string& key);
+AnnounceResult feeder_slips(const NodeSource& src, std::int64_t now,
+                            const std::vector<std::string>& announced,
+                            const std::vector<Snoozed>& parked = {});
 
 }  // namespace jot::core

@@ -272,6 +272,29 @@ keys the note or the tree keep (Ctrl+B, Alt+Up ...) and plain letters.
 The menus, the cheat sheet and the guide show your keys. Changes live in
 prefs.json under `key_overrides`.
 
+## The graph
+
+**Ctrl+Shift+B** (or the fifth view button, joined to the timeline's)
+puts the graph in the note's place: every note a bubble, bigger the more
+lines meet it; lines for links between notes and for the tree (and, in
+Show, dashed lines between notes that share a tag). Todos wear their
+state's colour, projects a ring.
+
+- Click a bubble to pick it (Note details follows); double-click to open
+  the note. Hover lights it and its neighbours.
+- Drag a bubble to put it somewhere -- it stays (pinned; right-click ›
+  Unpin lets it go). Scroll (or drag the space) to move; Ctrl+scroll or
+  Ctrl+= / Ctrl+- to zoom (jot's zoom keys -- they zoom the graph while it
+  shows); Ctrl+0 or Home frames it all. When some of it is off screen, the map
+  in the corner shows it all -- press or drag in it to go there.
+- Right-click a bubble › **Center Here**: what is within two lines of it
+  gathers, the rest fades. **Show Everything** (or Esc) goes back.
+- **Group ▾** -- Tag, Place or Project -- pulls each into its own clump
+  with a halo and its name. The funnel chooses which lines and bubbles.
+- The find field lights the bubbles that match (words, #tag, is:, due:).
+
+Group and Show are kept across restarts.
+
 ## Glance at Today
 
 **Ctrl+Shift+G** -- or the card-and-sun button in the header, or the top

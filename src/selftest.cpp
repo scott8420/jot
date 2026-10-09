@@ -57,6 +57,7 @@
 #include "core/Timeline.hpp"
 #include "core/Glance.hpp"
 #include "core/Export.hpp"   // s071d
+#include "core/Graph.hpp"    // s071f
 #include "core/Repeat.hpp"
 
 #include <algorithm>
@@ -1649,6 +1650,33 @@ int main() {
                   o && o->body == body && o->sent != 0 && o->task.done && o->title == "Taxes 2026");
             j.undo(m);
             check("again: one Ctrl+Z takes the copy away", !m.find(n2) && m.children(home).size() == 2);
+        }
+        // s072: its repeating feeders move to the copy; a one-off stays.
+        {
+            const auto scan = m.create(home, "scan receipts");
+            m.make_task(scan, true);
+            core::Task t = m.find(scan)->task;
+            core::repeat_parse("every week", t.repeat);
+            t.feeds = taxes;
+            m.set_task(scan, t);
+            const auto call = m.create(home, "call the accountant");
+            m.make_task(call, true);
+            core::Task t2 = m.find(call)->task;
+            t2.feeds = taxes;
+            m.set_task(call, t2);
+            core::Journal j;
+            core::UndoSource u{j, [&] { return &m; }};
+            core::NodeId n3;
+            {
+                core::Gesture g(u, "Do it again");
+                n3 = core::packet_again(u, taxes);
+            }
+            check("again: a repeating feeder now feeds the copy; a one-off stays with the record",
+                  m.find(scan)->task.feeds == n3 && m.find(call)->task.feeds == taxes &&
+                      core::feeders_of(m, n3) == std::vector<core::NodeId>{scan});
+            j.undo(m);
+            check("again: Ctrl+Z puts the feeder back on the old one",
+                  m.find(scan)->task.feeds == taxes && !m.find(n3));
         }
         check("again: a plain note is refused", core::packet_again(m, after).empty());
     }
@@ -6262,6 +6290,137 @@ int main() {
                   m.find(existing) && m.find(existing)->title == "a note I am reading");
             check("capture: an empty capture creates nothing",
                   core::capture(m, "   ").empty() && m.count() == 2);
+        }
+
+        // s072: a slipped feeder speaks
+        {
+            core::MemoryNodes m;
+            const std::int64_t today = core::day_start(1'791'400'000);
+            const std::int64_t now = today + 10 * 3600;   // 10:00
+            const auto goal = m.create("", "Taxes 2027");
+            m.make_task(goal, true);
+            m.set_due(goal, today + 120 * 86400);
+            const auto scan = m.create("", "scan receipts");
+            m.make_task(scan, true);
+            core::Task t = m.find(scan)->task;
+            core::repeat_parse("every week", t.repeat);
+            t.due = today - 20 * 86400 + 17 * 3600;   // nearly three weeks gone
+            t.feeds = goal;
+            m.set_task(scan, t);
+            const auto r = core::feeder_slips(m, now, {});
+            check("slip: a slipped feeder speaks once -- its name, its goal, how far behind",
+                  r.to_show.size() == 1 && r.to_show[0].id == scan &&
+                      r.to_show[0].summary.find("scan receipts") != std::string::npos &&
+                      r.to_show[0].detail.rfind("It feeds Taxes 2027", 0) == 0 &&
+                      r.to_show[0].detail.find("missed") != std::string::npos &&
+                      core::is_slip_key(r.to_show[0].key), r.to_show.empty() ? "" : r.to_show[0].detail);
+            const auto r2 = core::feeder_slips(m, now, {r.to_show[0].key});
+            check("slip: said, it is kept and not said again", r2.to_show.empty() && r2.keep.size() == 1);
+            check("slip: not before 9:00", core::feeder_slips(m, today + 8 * 3600, {}).to_show.empty());
+            m.set_done(goal, true);
+            check("slip: the goal done -- nothing to say", core::feeder_slips(m, now, {}).live.empty());
+            m.set_done(goal, false);
+            core::Task t2 = m.find(scan)->task;
+            t2.due = today + 3 * 86400;   // caught up
+            m.set_task(scan, t2);
+            check("slip: caught up -- the slip leaves", core::feeder_slips(m, now, {r.to_show[0].key}).live.empty());
+        }
+
+        // s071f: the graph view
+        {
+            core::MemoryNodes m;
+            const std::int64_t now = core::day_start(1'791'400'000) + 10 * 3600;
+            const auto house = m.create("", "Move house");
+            const auto pack = m.create(house, "pack books");
+            m.make_task(pack, true);
+            m.set_tags(pack, {"home", "at/town"});
+            const auto keys = m.create(house, "hand back keys");
+            m.make_task(keys, true);
+            m.set_done(keys, true);
+            const auto ideas = m.create("", "Ideas");
+            m.set_body(ideas, "see [packing](jot:" + pack + ")\n");
+            const auto loose = m.create("", "loose note");
+            m.set_tags(loose, {"home"});
+            const auto lone = m.create("", "alone");
+
+            const auto g = core::graph_build(m, core::GraphShow{}, core::GraphGroup::None, now);
+            check("graph: every note a bubble", g.nodes.size() == 6);
+            auto has_edge = [&](const core::Graph& gr, const core::NodeId& x, const core::NodeId& y, core::GraphEdgeKind k) {
+                int a = gr.index_of(x), b = gr.index_of(y);
+                if (a > b) std::swap(a, b);
+                for (const auto& e : gr.edges) if (e.a == a && e.b == b && e.kind == k) return true;
+                return false;
+            };
+            check("graph: the tree's lines and a link's line",
+                  has_edge(g, house, pack, core::GraphEdgeKind::Tree) && has_edge(g, house, keys, core::GraphEdgeKind::Tree) &&
+                  has_edge(g, ideas, pack, core::GraphEdgeKind::Link) && g.edges.size() == 3);
+            check("graph: degree counts the lines; a todo wears its state",
+                  g.nodes[static_cast<std::size_t>(g.index_of(pack))].degree == 2 &&
+                  g.nodes[static_cast<std::size_t>(g.index_of(lone))].degree == 0 &&
+                  g.nodes[static_cast<std::size_t>(g.index_of(keys))].state == core::RowState::Done);
+            core::GraphShow tags_on;
+            tags_on.tags = true;
+            tags_on.tree = false;
+            tags_on.done = false;
+            const auto gt = core::graph_build(m, tags_on, core::GraphGroup::None, now);
+            check("graph: shared tags draw a line; done todos can be left out",
+                  has_edge(gt, pack, loose, core::GraphEdgeKind::Tag) && gt.index_of(keys) < 0 &&
+                  !has_edge(gt, house, pack, core::GraphEdgeKind::Tree));
+            const auto around = core::graph_around(g, g.index_of(ideas), 2);
+            check("graph: Center Here -- two lines out, not the lone note",
+                  around.count(g.index_of(ideas)) && around.count(g.index_of(pack)) && around.count(g.index_of(house)) &&
+                  !around.count(g.index_of(keys)) && !around.count(g.index_of(lone)));
+            check("graph: one line out",
+                  core::graph_around(g, g.index_of(ideas), 1).size() == 2 && core::graph_around(g, -1).empty());
+            const auto gp = core::graph_build(m, core::GraphShow{}, core::GraphGroup::Place, now);
+            const auto gg = core::graph_build(m, core::GraphShow{}, core::GraphGroup::Tag, now);
+            check("graph: groups -- a place, a tag that is not a place",
+                  gp.nodes[static_cast<std::size_t>(gp.index_of(pack))].group == "Town" &&
+                  gg.nodes[static_cast<std::size_t>(gg.index_of(pack))].group == "#home" &&
+                  gg.groups.size() == 1, gp.nodes[static_cast<std::size_t>(gp.index_of(pack))].group);
+            {
+                core::MemoryNodes q;
+                const auto big = q.create("", "Big");
+                const auto sub = q.create(big, "Sub");
+                const auto step = q.create(sub, "step");
+                q.make_task(step, true);
+                for (const auto& id : {big, sub}) {
+                    core::Task t = q.find(id)->task;
+                    t.mark = core::ProjectMark::On;
+                    q.set_task(id, t);
+                }
+                check("graph: Group by project -- the outermost one",
+                      core::graph_group_of(q, *q.find(step), core::GraphGroup::Project) == "Big" &&
+                      core::graph_group_of(q, *q.find(sub), core::GraphGroup::Project) == "Big");
+            }
+            check("graph: Show and Group words round trip, junk is the default",
+                  core::graph_show_words(core::graph_show_parse("links,tags")) == "links,tags" &&
+                  core::graph_show_words(core::graph_show_parse("")) == core::graph_show_words(core::GraphShow{}) &&
+                  core::graph_show_words(core::graph_show_parse("zz")) == core::graph_show_words(core::GraphShow{}) &&
+                  core::graph_group_parse("place") == core::GraphGroup::Place &&
+                  core::graph_group_parse("bogus") == core::GraphGroup::None);
+            auto p1 = core::graph_seed(g);
+            auto p2 = core::graph_seed(g);
+            check("graph: the same folder starts the same way",
+                  p1.size() == 6 && p1[0].x == p2[0].x && p1[3].y == p2[3].y);
+            double first = core::graph_step(g, p1), last = first;
+            for (int i = 0; i < 400; ++i) last = core::graph_step(g, p1);
+            bool apart = true;
+            for (std::size_t i = 0; i < p1.size(); ++i)
+                for (std::size_t j = i + 1; j < p1.size(); ++j)
+                    if (std::hypot(p1[i].x - p1[j].x, p1[i].y - p1[j].y) < 15) apart = false;
+            check("graph: the layout settles, bubbles apart", last < first && last < 2.0 && apart);
+            const int a = g.index_of(ideas), b = g.index_of(pack);
+            const double dl = std::hypot(p1[static_cast<std::size_t>(a)].x - p1[static_cast<std::size_t>(b)].x,
+                                         p1[static_cast<std::size_t>(a)].y - p1[static_cast<std::size_t>(b)].y);
+            check("graph: a linked pair sits close", dl < 140, std::to_string(dl));
+            p1[0].pinned = true;
+            const double px = p1[0].x;
+            for (int i = 0; i < 20; ++i) core::graph_step(g, p1);
+            check("graph: a pinned bubble stays", p1[0].x == px);
+            const auto g2 = core::graph_build(m, core::GraphShow{}, core::GraphGroup::None, now);
+            const auto kept = core::graph_seed(g2, &g, &p1);
+            check("graph: a rebuild keeps every bubble where it was", kept[3].x == p1[3].x && kept[0].pinned);
         }
 
         // s071d: Export -- one outline file per top-level note

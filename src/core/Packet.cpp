@@ -1,6 +1,8 @@
 #include "core/Packet.hpp"
 #include "core/Enclosures.hpp"
 #include "core/Markdown.hpp"
+#include "core/Feeders.hpp"   // s072: the routines feeding it move to the copy
+#include "core/Repeat.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -193,6 +195,16 @@ NodeId packet_again(NodeSource& src, const NodeId& id) {
         t.mark = was.task.mark;
         t.status = was.task.status;
         src.set_task(nid, t);
+    }
+    // s072 (sweep): the REPEATING feeders -- "scan receipts", every week --
+    // feed this year's copy now; last year's is sent. A one-off feeder was
+    // that round's work and stays with the record.
+    for (const auto& f : feeders_of(src, id)) {
+        const Node* fn = src.find(f);
+        if (!fn || repeat_text(fn->task.repeat).empty()) continue;
+        Task t = fn->task;
+        t.feeds = nid;
+        src.set_task(f, t);
     }
     return nid;
 }

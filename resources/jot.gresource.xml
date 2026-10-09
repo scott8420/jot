@@ -54,6 +54,7 @@
     <file preprocess="xml-stripblanks" alias="jot-view-errands-symbolic.svg">icons/scalable/apps/jot-view-errands-symbolic.svg</file>
     <!-- s071c: Glance at Today on the header (Scott: "a button on the main headerbar"). -->
     <file preprocess="xml-stripblanks" alias="jot-glance-symbolic.svg">icons/scalable/apps/jot-glance-symbolic.svg</file>
+    <file preprocess="xml-stripblanks" alias="jot-view-graph-symbolic.svg">icons/scalable/apps/jot-view-graph-symbolic.svg</file>
   </gresource>
   <!-- s071: the markdown tour, so jot Help's Writing page can make it a note
        with no file to find (examples/markdown-tour.md stays the one copy). -->

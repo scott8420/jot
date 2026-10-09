@@ -78,6 +78,8 @@ std::string fresh_body(const std::string& body);
 // nudge, and -- when it is a todo -- the same task record not done, its due
 // and defer one calendar year on. Returns the new id, or empty when `id` is
 // not a packet. Several writes: the caller makes them one step.
+// s072: the feeders of `id` that REPEAT now feed the copy; one-off feeders
+// stay with the old one (that round's work).
 NodeId packet_again(NodeSource& src, const NodeId& id);
 
 }  // namespace jot::core
