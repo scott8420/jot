@@ -65,6 +65,7 @@ PreferencesWindow::PreferencesWindow() {
     // what the footer's tooltips were quietly doing instead.
     r = build_running_section(r);
     r = build_enclosure_section(r);
+    r = build_backup_section(r);     // s075
     r = build_keyboard_section(r);   // s070
 
     m_btn_close.set_halign(Gtk::Align::END);
@@ -228,6 +229,65 @@ int PreferencesWindow::build_enclosure_section(int row) {
 // s070 (Scott's kids: keys "should be programmable"). The count, the way in
 // (the Keyboard Shortcuts window, editing) and the one way back for all of
 // them. One key's way back is the ↺ on its row in that window.
+// s075 (Scott: "a backup process that can be automatic"; "rsync is the linux
+// way"; "a pref for where the backups go"). One check box, where, and what
+// happened last -- with the two verbs beside it.
+int PreferencesWindow::build_backup_section(int row) {
+    row = add_heading("Backups", row);
+    m_backup_check.set_label("Back up the open jots folder automatically");
+    m_backup_check.signal_toggled().connect([this]() {
+        if (!m_setting) m_sig_backup_on.emit(m_backup_check.get_active());
+    });
+    m_grid.attach(m_backup_check, 1, row++, 1, 1);
+
+    auto* where = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 8);
+    m_backup_where.set_xalign(0.0f);
+    m_backup_where.set_hexpand(true);
+    m_backup_where.set_ellipsize(Pango::EllipsizeMode::MIDDLE);
+    m_backup_where.set_selectable(true);
+    where->append(m_backup_where);
+    m_backup_choose.set_tooltip_text("Keep the backups somewhere else -- another drive, a synced folder");
+    m_backup_choose.signal_clicked().connect([this]() { m_sig_backup_choose.emit(); });
+    where->append(m_backup_choose);
+    m_backup_reset.set_tooltip_text("Back to ~/.local/share/jot/backups");
+    m_backup_reset.signal_clicked().connect([this]() { m_sig_backup_reset.emit(); });
+    where->append(m_backup_reset);
+    row = add_row("Where", *where, row);
+
+    auto* now = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 8);
+    m_backup_says.set_xalign(0.0f);
+    m_backup_says.set_hexpand(true);
+    m_backup_says.set_wrap(true);
+    now->append(m_backup_says);
+    m_backup_now.signal_clicked().connect([this]() { m_sig_backup_now.emit(); });
+    now->append(m_backup_now);
+    m_backup_restore.set_tooltip_text("Bring back the folder as it was on a day -- as a new folder");
+    m_backup_restore.signal_clicked().connect([this]() { m_sig_backup_restore.emit(); });
+    now->append(m_backup_restore);
+    m_grid.attach(*now, 1, row++, 1, 1);
+
+    row = add_note("A copy of the whole folder for each day, made with rsync: today's is "
+                   "refreshed as you work (at most hourly) and when jot quits. Files that did "
+                   "not change are shared between days, so a day costs only what changed. "
+                   "Kept: the last 7 days, and one for each of the 4 weeks before. Each day is "
+                   "a plain folder you can open in Files.", row);
+    return row;
+}
+
+void PreferencesWindow::set_backup(bool on, const std::string& where, bool is_default,
+                                   const std::string& status, bool busy, bool has_folder) {
+    m_setting = true;
+    m_backup_check.set_active(on);
+    m_setting = false;
+    m_backup_where.set_text(where);
+    m_backup_where.set_tooltip_text(where);
+    m_backup_reset.set_sensitive(!is_default);
+    m_backup_says.set_text(status);
+    m_backup_now.set_sensitive(has_folder && !busy);
+    m_backup_now.set_label(busy ? "Backing Up\u2026" : "Back Up Now");
+    m_backup_restore.set_sensitive(has_folder);
+}
+
 int PreferencesWindow::build_keyboard_section(int row) {
     row = add_heading("Keyboard", row);
     auto* box = Gtk::make_managed<Gtk::Box>(Gtk::Orientation::HORIZONTAL, 8);

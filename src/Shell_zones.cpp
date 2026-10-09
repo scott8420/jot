@@ -587,6 +587,11 @@ Glib::RefPtr<Gio::Menu> Shell::build_menu() {  // zone: hamburger model
     save->append("Save", "win.save-all");
     save->append("Save as\u2026", "win.save-as");
     menu->append_section(save);
+    // s075: next to Save -- the other "is my work safe?" verbs.
+    auto backup = Gio::Menu::create();
+    backup->append("Back Up Now", "win.backup-now");
+    backup->append("Restore from Backup\u2026", "win.backup-restore");
+    menu->append_section(backup);
 
     // The two left-pane views as radio items on the one stateful action the tab
     // buttons use, and the two pane toggles as check items. F9 / F10 are the

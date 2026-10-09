@@ -123,6 +123,10 @@ const std::vector<ShortcutSpec>& shortcut_defaults() {
          "Write a second jots folder with everything in it, and switch to it"},
         {"General", "win.save-all",      {"<Ctrl>s"}, "",
          "Save everything now (structure already saves itself)"},
+        {"General", "win.backup-now",    {}, "",
+         "Back up the jots folder now (main menu)"},                       // s075
+        {"General", "win.backup-restore", {}, "",
+         "Bring back the folder as it was on a day, as a new folder"},     // s075
         {"General", "win.preferences",   {"<Ctrl>comma"}, "",
          "Preferences \u2014 including the global capture shortcut"},
         {"General", "win.shortcuts",     {"<Ctrl>question", "<Ctrl>slash"}, "",

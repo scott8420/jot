@@ -337,6 +337,16 @@ private:
     void apply_background_hold();                // category: helper: ONE writer for the application hold
     core::Lifecycle lifecycle_state() const;     // category: helper: what core::on_close/on_quit get to see
     void finish_quit();                          // category: helper: past the prompt -- flush, release, go
+    // s075: backups -- Shell_backup.cpp. core/Backup decides; these spawn rsync.
+    bool backup_run(const std::string& dir, bool force, bool detach);  // category: helper: one rsync for a jots folder, if it is due
+    void backup_auto();                          // category: helper: the clock / open / close / quit check
+    std::string backup_root_now() const;         // category: helper: the root in force (pref or default)
+    std::string backup_slot_for(const std::string& dir) const;  // category: helper: where this folder's days live ("" = unreachable)
+    void refresh_backup_prefs();                 // category: helper: the Preferences rows say what is true
+    void on_backup_now();                        // category: handler: Back Up Now
+    void on_backup_restore();                    // category: handler: Restore from Backup...
+    void on_backup_choose();                     // category: handler: Preferences > Backups > Choose...
+    void restore_day(const std::string& slot, const std::string& day);  // category: helper: copy a day out as a new folder
     void show_desktop_status(const std::string& s);  // category: helper: the footer's second line
 
     // Titlebar: brand logo + new-note (start), hamburger (end).
@@ -625,6 +635,10 @@ private:
     // first home the three desktop toggles have had that is not the Today
     // footer. Built lazily: most sessions never open it.
     std::unique_ptr<PreferencesWindow> m_preferences;
+    // s075: the rsync in flight (0 = none) and the last thing that went wrong.
+    int         m_backup_pid = 0;
+    std::string m_backup_problem;
+    std::unique_ptr<Gtk::Window> m_restore_win;
 
     // The naming dialog. One instance, rebuilt per occasion because its mode
     // is fixed at construction and there are only three of them.

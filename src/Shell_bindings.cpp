@@ -32,6 +32,8 @@ void Shell::bind_actions() {  // bindings: actions + recents group + model callb
     m_act_close_jots = add_action("close-jots", sigc::mem_fun(*this, &Shell::on_close_jots));   // s062b
     add_action("save-all",      sigc::mem_fun(*this, &Shell::on_save_all));
     add_action("save-as",       sigc::mem_fun(*this, &Shell::on_save_as));
+    add_action("backup-now",    sigc::mem_fun(*this, &Shell::on_backup_now));       // s075
+    add_action("backup-restore", sigc::mem_fun(*this, &Shell::on_backup_restore)); // s075
     add_action("dump-registry", sigc::mem_fun(*this, &Shell::on_dump_registry));
     add_action("test-notify",   sigc::mem_fun(*this, &Shell::on_test_notify));
     add_action("about",         sigc::mem_fun(*this, &Shell::on_about));

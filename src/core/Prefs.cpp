@@ -66,6 +66,8 @@ Prefs load_prefs(const std::string& file) {
         p.open_from     = get_or(j, "open_from", p.open_from);           // s057b
         p.glance_to     = get_or(j, "glance_to", p.glance_to);           // s066
         p.glance_dir    = get_or(j, "glance_dir", p.glance_dir);         // s066
+        p.backups_on    = get_or(j, "backups_on", p.backups_on);         // s075
+        p.backup_dir    = get_or(j, "backup_dir", p.backup_dir);         // s075
         p.tl_zoom       = tl_zoom_clean(get_or(j, "tl_zoom", p.tl_zoom));  // s068
         p.tl_group      = tl_group_word(tl_group_parse(get_or(j, "tl_group", p.tl_group)));
         p.tl_show       = get_or(j, "tl_show", p.tl_show);
@@ -162,6 +164,8 @@ bool save_prefs(const std::string& file, const Prefs& p) {
     if (!p.open_from.empty()) j["open_from"] = p.open_from;   // s057b
     if (!p.glance_to.empty())  j["glance_to"]  = p.glance_to;   // s066
     if (!p.glance_dir.empty()) j["glance_dir"] = p.glance_dir;  // s066
+    j["backups_on"] = p.backups_on;                                // s075
+    if (!p.backup_dir.empty()) j["backup_dir"] = p.backup_dir;  // s075
     j["tl_zoom"]  = p.tl_zoom;    // s068
     j["tl_group"] = p.tl_group;
     if (!p.tl_show.empty())   j["tl_show"]   = p.tl_show;

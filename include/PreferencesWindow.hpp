@@ -66,12 +66,22 @@ public:
     sigc::signal<void()>& signal_edit_keys()  { return m_sig_edit_keys; }
     sigc::signal<void()>& signal_reset_keys() { return m_sig_reset_keys; }
 
+    // s075: Backups. The Shell owns the state and the work; the rows ask.
+    void set_backup(bool on, const std::string& where, bool is_default,
+                    const std::string& status, bool busy, bool has_folder);
+    sigc::signal<void(bool)>& signal_backup_toggled() { return m_sig_backup_on; }
+    sigc::signal<void()>& signal_backup_choose()  { return m_sig_backup_choose; }
+    sigc::signal<void()>& signal_backup_reset()   { return m_sig_backup_reset; }
+    sigc::signal<void()>& signal_backup_now()     { return m_sig_backup_now; }
+    sigc::signal<void()>& signal_backup_restore() { return m_sig_backup_restore; }
+
 private:
     int  build_hotkey_section(int row);
     int  build_running_section(int row);
     int  build_enclosure_section(int row);
     int  build_look_section(int row);          // s050b
     int  build_keyboard_section(int row);      // s070
+    int  build_backup_section(int row);        // s075
     void choose_accent(const std::string& hex);   // a swatch or the picker -> the Shell
     void show_accent();                           // swatches + the line, from m_accent
 
@@ -129,6 +139,18 @@ private:
     widgets::Button m_keys_reset{"prefs.keys.reset", "Reset All to Defaults"};
     int             m_keys_changed = 0;
     sigc::signal<void()> m_sig_edit_keys, m_sig_reset_keys;
+
+    // ── s075: Backups ──────────────────────────────────────────────────────
+    widgets::CheckButton m_backup_check{"prefs.backup.check"};
+    widgets::Label  m_backup_where{"prefs.backup.where"};
+    widgets::Button m_backup_choose{"prefs.backup.choose", "Choose\u2026"};
+    widgets::Button m_backup_reset{"prefs.backup.reset", "Default"};
+    widgets::Label  m_backup_says{"prefs.backup.says"};
+    widgets::Button m_backup_now{"prefs.backup.now", "Back Up Now"};
+    widgets::Button m_backup_restore{"prefs.backup.restore", "Restore\u2026"};
+    sigc::signal<void(bool)> m_sig_backup_on;
+    sigc::signal<void()> m_sig_backup_choose, m_sig_backup_reset, m_sig_backup_now,
+                         m_sig_backup_restore;
 
     Glib::RefPtr<Gtk::EventControllerKey> m_keys;
     bool m_grabbing  = false;   // the window is swallowing keys, waiting for a chord

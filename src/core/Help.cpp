@@ -528,9 +528,16 @@ const std::vector<HelpTopic>& help_topics() {
              "jot's own files are for jot — named by number, the tree kept in `jot.json`. "
              "Export is the copy for everything else.",
              "jot saves as you go; Ctrl+S only makes it this instant.",
+             "- **Backups** happen by themselves: a copy of the whole folder for each "
+             "day, refreshed as you work and when jot quits. Days where a file did not "
+             "change share it, so a day costs only what changed. The last 7 days are "
+             "kept, and one for each of the 4 weeks before. **Restore from Backup…** in "
+             "the main menu brings a day back as a new folder beside this one — what you "
+             "have now is never touched. Where they go, and when the last one was: "
+             "Preferences › Backups. (They need rsync.)",
          },
          {{"Open a jots folder", "win.open-jots"}, {"Import markdown", "win.import-md"},
-          {"Export all", "win.export-all"}},
+          {"Export all", "win.export-all"}, {"Back up now", "win.backup-now"}},
          "jots folder",
          {"notes", "undo"}},
 

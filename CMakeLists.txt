@@ -129,6 +129,7 @@ add_library(jot_core STATIC
     src/core/Feeders.cpp     # s058 (J4): the small repeating steps that feed a goal
     src/core/Glance.cpp      # s066: the day on one card -- text, html, ics, mailto
     src/core/Export.cpp      # s071d: notes out as markdown -- one outline file per top-level note
+    src/core/Backup.cpp      # s075: daily rsync snapshots -- naming, pruning, when
     src/core/Graph.cpp       # s071f: the graph view -- bubbles, lines, groups, a force layout
     src/core/Timeline.cpp    # s059 (J5): the running calendar -- what lands on which day, stacked down
     src/core/Gather.cpp
@@ -243,6 +244,7 @@ add_executable(jot
     src/PerspectiveDialog.cpp
     src/Shell_zones.cpp
     src/Shell_bindings.cpp
+    src/Shell_backup.cpp     # s075: backups -- rsync snapshots, restore
     src/Shell_handlers.cpp
     src/Shell_helpers.cpp
     src/AboutWindow.cpp

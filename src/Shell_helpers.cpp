@@ -546,6 +546,8 @@ void Shell::repoint_surfaces() {  // helper
 // there is only one way a jots folder gets opened.
 void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces at a jots folder
     if (m_project) m_project->flush();
+    // s075: the folder being left gets its backup, if it changed.
+    if (m_project && m_prefs.backups_on && m_project->dir() != dir) backup_run(m_project->dir(), false, false);
     auto jots = std::make_unique<core::Project>();
     if (!jots->open(dir)) {
         if (auto lg = log::get(log::Area::Io)) lg->error("jots folder '{}': cannot open", dir);
@@ -571,6 +573,11 @@ void Shell::open_jots(const std::string& dir) {  // helper: point the surfaces a
     // s052: a folder just opened may hold packets waiting on something (and
     // dates already due) -- say so now, not at the next minute tick.
     if (m_prefs.notify_due) Glib::signal_idle().connect_once([this]() { check_due_notifications(); });
+    // s075: a backup shortly after a folder opens -- the first launch of the
+    // day starts the day's snapshot. Delayed so it never competes with the
+    // window coming up.
+    Glib::signal_timeout().connect_seconds_once([this]() { backup_auto(); }, 5);
+    refresh_backup_prefs();
 }
 
 // An action that can't do anything should not look like an offer. Greying is
@@ -1996,6 +2003,9 @@ void Shell::finish_quit() {  // helper: past the prompt -- flush, release, go
     if (get_visible()) remember_window_geometry();   // a hidden window reports nothing useful
     if (m_editor) lift_typed_tags(m_editor->current());   // s062
     if (m_project) m_project->flush();
+    // s075: a last backup if anything changed -- spawned and left to finish on
+    // its own; jot does not wait for it.
+    if (m_project && m_prefs.backups_on) backup_run(m_project->dir(), false, true);
     apply_background_hold();                         // m_quitting makes this a release
     if (auto lg = log::get(log::Area::Shell)) lg->info("quitting");
     // s041: a window that was NEVER SHOWN -- jot started by GNOME just to
@@ -2204,6 +2214,7 @@ void Shell::on_close_jots() {  // handler: Close Jots Folder
     const std::string was = m_project->dir();
     lift_typed_tags(m_editor->current());   // s062: as leaving the note does
     m_project->flush();
+    if (m_prefs.backups_on) backup_run(was, false, false);   // s075
     m_project = nullptr;
     m_store = std::make_unique<core::MemoryNodes>();
     m_journal.clear();
@@ -2218,6 +2229,7 @@ void Shell::on_close_jots() {  // handler: Close Jots Folder
     m_drawer->show_node("");
     update_note_actions();
     if (auto lg = log::get(log::Area::Io)) lg->info("jots folder '{}' closed -- no folder open", was);
+    refresh_backup_prefs();
 }
 
 }  // namespace jot

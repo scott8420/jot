@@ -1218,6 +1218,24 @@ void Shell::on_preferences() {  // handler: open the preferences window
             if (auto lg = log::get(log::Area::App))
                 lg->info("highlight colour: {}", hex.empty() ? "the desktop's" : hex);
         });
+        // s075: Backups. The box is the only writer of backups_on.
+        m_preferences->signal_backup_toggled().connect([this](bool on) {
+            m_prefs.backups_on = on;
+            core::save_prefs(m_prefs_file, m_prefs);
+            if (auto lg = log::get(log::Area::Io)) lg->info("automatic backups {}", on ? "on" : "off");
+            refresh_backup_prefs();
+            if (on) backup_auto();
+        });
+        m_preferences->signal_backup_choose().connect([this]() { on_backup_choose(); });
+        m_preferences->signal_backup_reset().connect([this]() {
+            m_prefs.backup_dir.clear();
+            core::save_prefs(m_prefs_file, m_prefs);
+            m_backup_problem.clear();
+            refresh_backup_prefs();
+            backup_auto();
+        });
+        m_preferences->signal_backup_now().connect([this]() { on_backup_now(); });
+        m_preferences->signal_backup_restore().connect([this]() { on_backup_restore(); });
         m_preferences->signal_drop_links_toggled().connect([this](bool on) {
             m_prefs.drop_links = on;
             core::save_prefs(m_prefs_file, m_prefs);
@@ -1231,6 +1249,7 @@ void Shell::on_preferences() {  // handler: open the preferences window
     m_preferences->set_background_on(m_prefs.background);
     m_preferences->set_drop_links_on(m_prefs.drop_links);
     m_preferences->set_accent(m_prefs.accent, appearance::desktop_accent());   // s050b
+    refresh_backup_prefs();                                                    // s075
     m_preferences->show(*this);
 }
 

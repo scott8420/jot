@@ -471,6 +471,35 @@ waiting -- are kept unless you say yes (`--purge` without asking).
 The older `install-desktop.sh` / `install-extension.sh` still work, for
 running straight out of a build tree.
 
+## Backups
+
+On by default, and they need `rsync`. A copy of the open jots folder for each
+day, made with `rsync --link-dest`:
+
+```
+~/.local/share/jot/backups/
+  home.jots/
+    2026-10-08/      a whole folder, as it was that day
+    2026-10-09/      unchanged files are hard links to the 8th's -- a day
+                     costs only what changed
+```
+
+Today's is made a few seconds after jot starts (or a folder opens), refreshed
+at most hourly while you work, and once more when jot quits or the folder
+closes -- each time only if something changed. Kept: the last 7 days, plus
+one for each of the 4 weeks before. No day depends on another, so pruning is
+deleting folders, and any day opens in Files as it is.
+
+**Preferences › Backups**: on / off, **Where** (Choose… another drive or a
+synced folder; Default puts it back), "Last backup: today 09:02 · 9 days
+kept", **Back Up Now**, **Restore…**. A chosen place that is not there (a
+drive not plugged in) is skipped, said in that line, and tried again later --
+jot never makes the folder on the wrong disk.
+
+**Main menu › Restore from Backup…** lists the days; the one you pick comes
+back as a new folder beside the open one -- `home (restored 8 Oct 2026).jots`
+-- and nothing you have now is touched. Open It, or copy a note back by hand.
+
 ## Build
 
 ```

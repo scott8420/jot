@@ -247,6 +247,17 @@ void Shell::build_ui() {
     // cannot express a deadline finer than that, so nothing on this pane can
     // change sooner. Independent of the notify timer on purpose -- the report
     // must stay honest whether or not you have asked to be interrupted.
+    // s075: backups. Every ten minutes ask core whether today's snapshot is
+    // due (changed, and an hour since the last -- or a new day). Cheap when it
+    // is not: one walk of the folder's mtimes.
+    Glib::signal_timeout().connect_seconds([this]() {
+        backup_auto();
+        return true;
+    }, 600);
+    // ... and once shortly after start: the first launch of the day starts
+    // the day's snapshot (open_jots does the same for a folder opened later).
+    Glib::signal_timeout().connect_seconds_once([this]() { backup_auto(); }, 5);
+
     Glib::signal_timeout().connect_seconds([this]() {
         if (m_today) m_today->refresh();
         if (m_glance) m_glance->refresh();   // s066: late at 17:01, without a click

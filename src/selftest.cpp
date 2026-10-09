@@ -58,6 +58,7 @@
 #include "core/Glance.hpp"
 #include "core/Export.hpp"   // s071d
 #include "core/Graph.hpp"    // s071f
+#include "core/Backup.hpp"   // s075
 #include "core/Repeat.hpp"
 
 #include <algorithm>
@@ -66,6 +67,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
@@ -8349,6 +8351,114 @@ int main() {
             { std::ofstream f(file); f << "{\"accent\": \"chartreuse\"}"; }
             check("accent pref: junk in the file -> follow the desktop", core::load_prefs(file).accent.empty());
             std::filesystem::remove_all(dir);
+        }
+    }
+
+    // -- s075: backups -- daily rsync snapshots ------------------------------
+    {
+        check("backup: default root is <data>/jot/backups",
+              core::backup_root("/home/s/.local/share", "") == "/home/s/.local/share/jot/backups");
+        check("backup: a chosen root is used as is (trailing slash dropped)",
+              core::backup_root("/x", "/run/media/s/USB/") == "/run/media/s/USB");
+        check("backup: slot is the folder's name",
+              core::backup_slot_name("/home/s/home.jots/", "") == "home.jots" &&
+                  core::backup_slot_name("/home/s/home.jots", "/home/s/home.jots") == "home.jots");
+        const std::string other = core::backup_slot_name("/mnt/old/home.jots", "/home/s/home.jots");
+        check("backup: a second folder of the same name gets its own slot",
+              other.rfind("home.jots-", 0) == 0 && other.size() == 16, other);
+        check("backup: day names", core::is_backup_day("2026-10-09") && !core::is_backup_day("2026-13-01") &&
+                                       !core::is_backup_day("last-ok") && !core::is_backup_day(".source"));
+
+        // 30 straight days: 7 newest + the newest of 4 earlier weeks stay.
+        std::vector<std::string> days;
+        for (int d = 1; d <= 30; ++d) {
+            char b[16]; std::snprintf(b, sizeof b, "2026-09-%02d", d); days.push_back(b);
+        }
+        const auto drop = core::backup_prune(days);
+        std::set<std::string> kept(days.begin(), days.end());
+        for (const auto& d : drop) kept.erase(d);
+        check("backup: prune keeps 11 of 30 (7 days + 4 weeks)", kept.size() == 11,
+              std::to_string(kept.size()));
+        check("backup: prune keeps the 7 newest", kept.count("2026-09-30") && kept.count("2026-09-24"));
+        // Sep 2026: Mon 21 .. Sun 27 is ISO week 39; the dailies are 24-30, so
+        // week 39's newest left is 23, then 20 (wk 38), 13 (wk 37), 6 (wk 36).
+        check("backup: prune keeps each older week's newest",
+              kept.count("2026-09-23") && kept.count("2026-09-20") && kept.count("2026-09-13") &&
+                  kept.count("2026-09-06") && !kept.count("2026-09-05") && !kept.count("2026-09-22"));
+        check("backup: prune of a few days drops nothing", core::backup_prune({"2026-10-01", "2026-10-02"}).empty());
+        check("backup: link day is the newest before today",
+              core::backup_link_day({"2026-10-01", "2026-10-07", "2026-10-09"}, "2026-10-09") == "2026-10-07" &&
+                  core::backup_link_day({"2026-10-09"}, "2026-10-09").empty());
+
+        check("backup: a root inside the jots folder is caught",
+              core::path_inside("/home/s/home.jots/bk", "/home/s/home.jots") &&
+                  core::path_inside("/home/s/home.jots", "/home/s/home.jots/") &&
+                  !core::path_inside("/home/s/home.jots2", "/home/s/home.jots") &&
+                  !core::path_inside("/home/s", "/home/s/home.jots"));
+
+        const std::time_t now = 1791547200;
+        check("backup: never backed up -> run", core::backup_need(0, 100, now, 3600, false) == core::BackupNeed::Run);
+        check("backup: nothing changed -> none",
+              core::backup_need(now - 90000, now - 95000, now, 3600, false) == core::BackupNeed::None);
+        check("backup: changed, a new day -> run",
+              core::backup_need(now - 90000, now - 10, now, 3600, false) == core::BackupNeed::Run);
+        check("backup: changed within the hour, same day -> wait",
+              core::backup_need(now - 60, now - 10, now, 3600, false) == core::BackupNeed::None);
+        check("backup: Back up now always runs",
+              core::backup_need(now - 60, now - 3600, now, 3600, true) == core::BackupNeed::Run);
+        check("backup: when text",
+              core::backup_when_text(0, now) == "No backup yet" &&
+                  core::backup_when_text(now - 60, now).rfind("Last backup: today ", 0) == 0 &&
+                  core::backup_when_text(now - 86400, now).rfind("Last backup: yesterday ", 0) == 0);
+        check("backup: restore name", core::backup_restore_name("/home/s/home.jots", "2026-10-08") ==
+                                          "home (restored 8 Oct 2026).jots",
+              core::backup_restore_name("/home/s/home.jots", "2026-10-08"));
+        const auto cmd = core::backup_command("/usr/bin/rsync", "/a/home.jots/", "/b/2026-10-09", "", "/b/last-ok");
+        check("backup: command is sh with the paths as arguments, never in the script",
+              cmd.size() == 9 && cmd[0] == "/bin/sh" && cmd[5] == "/a/home.jots" && cmd[7].empty() &&
+                  cmd[2].find("/a/") == std::string::npos);
+
+        // The real thing, where rsync is installed: two days, a hard link for
+        // the unchanged file, a fresh copy for the changed one.
+        if (::access("/usr/bin/rsync", X_OK) == 0) {
+            namespace fs = std::filesystem;
+            const fs::path base = fs::temp_directory_path() / "jot_selftest_backup";
+            std::error_code ec;
+            fs::remove_all(base, ec);
+            const fs::path src = base / "home.jots", slot = base / "bk" / "home.jots";
+            fs::create_directories(src / "notes");
+            fs::create_directories(slot);
+            { std::ofstream(src / "jot.json") << "{}"; }
+            { std::ofstream(src / "notes" / "a.md") << "alpha"; }
+            auto run = [](const std::vector<std::string>& v) {
+                std::string line;
+                for (const auto& a : v) {
+                    std::string q = "'";
+                    for (char c : a) { if (c == '\'') q += "'\\''"; else q += c; }
+                    line += q + "' ";
+                }
+                return std::system(line.c_str()) == 0;
+            };
+            const bool r1 = run(core::backup_command("/usr/bin/rsync", src.string(), (slot / "2026-10-08").string(),
+                                                     "", (slot / "last-ok").string()));
+            { std::ofstream(src / "jot.json") << "{\"changed\":1}"; }
+            const bool r2 = run(core::backup_command("/usr/bin/rsync", src.string(), (slot / "2026-10-09").string(),
+                                                     (slot / "2026-10-08").string(), (slot / "last-ok").string()));
+            struct stat a1{}, a2{}, j1{}, j2{};
+            ::stat((slot / "2026-10-08" / "notes" / "a.md").c_str(), &a1);
+            ::stat((slot / "2026-10-09" / "notes" / "a.md").c_str(), &a2);
+            ::stat((slot / "2026-10-08" / "jot.json").c_str(), &j1);
+            ::stat((slot / "2026-10-09" / "jot.json").c_str(), &j2);
+            check("backup: rsync runs twice and stamps last-ok", r1 && r2 && core::read_last_ok(slot.string()) > 0);
+            check("backup: an unchanged file is a hard link to yesterday's", a1.st_ino == a2.st_ino && a1.st_ino != 0);
+            check("backup: a changed file is its own copy; yesterday's stays as it was",
+                  j1.st_ino != j2.st_ino && j1.st_size == 2);
+            check("backup: days listed oldest first",
+                  core::backup_days(slot.string()) == std::vector<std::string>{"2026-10-08", "2026-10-09"});
+            check("backup: newest_change sees the folder", core::newest_change(src.string()) > 0);
+            fs::remove_all(base, ec);
+        } else {
+            std::cout << "  (backup: rsync not installed -- the live run was skipped)\n";
         }
     }
 

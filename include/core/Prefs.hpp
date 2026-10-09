@@ -111,6 +111,10 @@ struct Prefs {
     // app asks) and where Save .ics last put the file ("" = Downloads).
     std::string glance_to;
     std::string glance_dir;
+    // s075: backups. On by default -- a backup you have to remember to turn
+    // on is the one you do not have. backup_dir "" = ~/.local/share/jot/backups.
+    bool backups_on = true;
+    std::string backup_dir;
     // s068: the timeline's view, as it was left (Scott's sweep: "zoom and
     // grouping not kept"). Words, read through core/Timeline's parsers, so a
     // hand-edited file cannot put the timeline in a state it has no button for.

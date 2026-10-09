@@ -409,6 +409,12 @@ const std::vector<CheatLine>& cheat_sheet() {
          "Quiet (warnings only) without it."},
 
         // ── Jots folders ────────────────────────────────────────────────────
+        {"Jots folders", "win.backup-now", "Main menu \u203a Back Up Now", "Back up the jots folder now",
+         "Backups are automatic too: a copy for each day, refreshed as you "
+         "work and when jot quits (rsync). Preferences \u203a Backups says when and where."},
+        {"Jots folders", "win.backup-restore", "Main menu \u203a Restore from Backup\u2026", "Bring back the folder as it was on a day",
+         "Pick the day; it comes back as a new folder beside "
+         "this one (\"home (restored 8 Oct 2026).jots\"), and nothing you have now changes."},
         {"Jots folders", "", "Note menu \u203a Export\u2026", "Export the selected notes as markdown, each one file",
          "One note: name the file (its title to start). Several: pick a folder, each named for its note. "
          "Each top-level note is one file: its facts in front matter, the notes under it "
