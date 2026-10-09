@@ -277,8 +277,9 @@ const std::vector<CheatLine>& cheat_sheet() {
          "and Show are kept."},
         {"Today", "", "Drag a line to a day", "On the timeline: re-date a todo or project by dragging it",
          "Its due moves (the time of day kept), or its start if it only starts there; a Someday "
-         "one gets a due. The day lights up in the strip. Esc puts it back; Ctrl+Z undoes. "
-         "Notes and done work stay on their day."},
+         "one gets a due. The day lights up in the strip. Grouped by Place or Purpose, drop it in "
+         "another lane to change its place or what it feeds; drop it in Someday to take its date "
+         "away. Esc puts it back; Ctrl+Z undoes. Notes and done work stay on their day."},
         // ── Glance at Today (s066) ──────────────────────────────────────────
         {"Today", "win.glance", "", "The Glance at Today: the day on one card, to take away",
          "Late, due today, running short, starting today, flagged, then errands by place -- each "

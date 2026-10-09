@@ -139,6 +139,12 @@ TlMove timeline_move(const NodeSource& src, const NodeId& id, TlWhy why, bool ri
 // Writes it: set_defer or set_due. false when there was nothing to write.
 bool apply_timeline_move(NodeSource& src, const NodeId& id, const TlMove& m);
 
+// s073 (sweep): dropped in the Someday region -- its date taken away. A thing on
+// its DUE loses the due, one that STARTS there loses the defer; Someday things,
+// riding steps (no date of their own), done work and notes: ok == false.
+// when == 0; apply_timeline_move writes it.
+TlMove timeline_unschedule(const NodeSource& src, const NodeId& id, TlWhy why, bool riding);
+
 enum class TlGroup { Day, Place, Purpose };
 
 struct TlLane {
@@ -151,6 +157,23 @@ struct TlLane {
 
 std::vector<TlLane> timeline_lanes(const NodeSource& src, const Timeline& t, TlGroup g,
                                    std::int64_t now);
+
+// s073 (sweep): a line dropped in ANOTHER LANE. By Place: the place it was
+// picked up under (`from`, a place key -- "at/town", which #at/town/bank also
+// rolls into) is taken off, the lane's place put on ("" -- No place -- adds
+// none). By Purpose (todos only): it FEEDS the lane's goal or project; Loose
+// ends clears a feed (a purpose that comes from the tree -- the project it is
+// in -- cannot be dropped there: ok == false). Same lane, Day, protected: no.
+struct TlLaneMove {
+    bool                     ok = false;
+    bool                     tags = false;   // write `new_tags`
+    std::vector<std::string> new_tags;
+    bool                     feeds = false;  // write `new_feeds`
+    NodeId                   new_feeds;
+};
+TlLaneMove timeline_lane_move(const NodeSource& src, const NodeId& id, TlGroup g,
+                              const std::string& from, const std::string& to);
+bool apply_lane_move(NodeSource& src, const NodeId& id, const TlLaneMove& m);
 const char* tl_group_word(TlGroup g);   // "day" "place" "purpose"
 // s068: the timeline's view kept across restarts (prefs). Parse is forgiving:
 // an unknown word reads as the default (Day / Month / the usual Show set).

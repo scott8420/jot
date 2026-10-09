@@ -53,6 +53,7 @@ public:
     void set_zoom(Zoom z);
     void set_group(core::TlGroup g);           // s060: Day | Place | Purpose
     core::TlGroup group() const { return m_group; }
+    void set_someday_shown(bool on) { m_someday_on = on; }   // s073
     Zoom zoom() const { return m_zoom; }
     void set_matches(std::vector<core::NodeId> ids);   // find: these stay bright
     int  step_match(int dir);                          // Enter / Shift+Enter: the index now current, -1 none
@@ -70,7 +71,12 @@ public:
     sigc::signal<void(Zoom)>&          signal_zoomed() { return m_sig_zoomed; }
     // s063: a line dragged to another day -- (id, why it was where it was,
     // riding in a project's card, the day it was dropped on).
-    sigc::signal<void(core::NodeId, core::TlWhy, bool, std::int64_t)>& signal_move() { return m_sig_move; }
+    // s063 + s073: a line let go -- its id, why it was there, riding, the day
+    // under it (0 = none), whether it landed in Someday, and the lane it was
+    // picked up in and the lane it landed in (lane keys; equal = no lane move).
+    using MoveSignal = sigc::signal<void(core::NodeId, core::TlWhy, bool, std::int64_t, bool,
+                                         std::string, std::string)>;
+    MoveSignal& signal_move() { return m_sig_move; }
 
     // For the log and the selftest-by-eye: what is laid out.
     std::size_t clump_count() const { return m_clumps.size(); }
@@ -157,6 +163,8 @@ private:
     double m_cw = 0, m_ch = 0;                // content size
     double m_ox = 0, m_oy = 0;                // the view's offset into it
     double m_someday_x = 0;                   // where the Someday region starts (0 = none)
+    bool   m_someday_on = false;              // s073: Someday shown -- its region stands even empty (a drop target)
+
     bool   m_homed = false;                   // the first size puts today in view
 
     std::vector<core::NodeId> m_matches;
@@ -177,6 +185,10 @@ private:
     std::string  m_move_title;
     double       m_px = 0, m_py = 0;       // the pointer, widget coordinates
     std::int64_t m_drop_day = 0;           // the day under it (0 = none)
+    int          m_move_lane = -1;         // s073: the lane it was picked up in
+    int          m_drop_lane = -1;         // s073: the lane under it now
+    bool         m_drop_someday = false;   // s073: over the Someday region
+    int          lane_at(double y) const;  // s073: -1 when not grouped or off the lanes
     std::int64_t day_at_x(double x) const; // widget x -> a day of the span, or 0
     void draw_move(const Cairo::RefPtr<Cairo::Context>& cr, int w, int h);
     void draw_links(const Cairo::RefPtr<Cairo::Context>& cr, int w, int h);   // s064
@@ -187,7 +199,7 @@ private:
     sigc::signal<void(core::NodeId)> m_sig_pick, m_sig_open;
     sigc::signal<void()>              m_sig_close;
     sigc::signal<void(Zoom)>          m_sig_zoomed;
-    sigc::signal<void(core::NodeId, core::TlWhy, bool, std::int64_t)> m_sig_move;   // s063
+    MoveSignal m_sig_move;   // s063, s073
 };
 
 class TimelinePane : public widgets::Box {
@@ -219,7 +231,8 @@ private:
     void step(int dir);
     void say_count();
     void sync_zoom_buttons();
-    void on_move(const core::NodeId& id, core::TlWhy why, bool riding, std::int64_t day);   // s063
+    void on_move(const core::NodeId& id, core::TlWhy why, bool riding, std::int64_t day,
+                 bool someday, const std::string& from, const std::string& to);   // s063, s073
 
     core::NodeSource* m_src = nullptr;
     core::TlShow      m_show;

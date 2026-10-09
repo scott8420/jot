@@ -1,4 +1,5 @@
 #include "TimelinePane.hpp"
+#include "core/Errands.hpp"   // s073: place_title for a lane drop
 #include "Appearance.hpp"
 #include "Log.hpp"
 #include "core/Tasks.hpp"
@@ -334,9 +335,9 @@ void TimelineCanvas::layout() {
     }
     const double cw = clump_width();
     double width = days_w;
-    if (cols > 0) {
+    if (cols > 0 || m_someday_on) {   // s073: shown, it stands even empty -- somewhere to drop a date off
         m_someday_x = days_w + 40;
-        width = m_someday_x + cols * (cw + 16) + 28;
+        width = m_someday_x + std::max(cols, 1) * (cw + 16) + 28;
     }
 
     m_lanes.clear();
@@ -573,7 +574,8 @@ void TimelineCanvas::on_drag_begin(double x, double y) {
     }
     // s063: pressed on a line that can move -- a drag takes IT, not the canvas.
     // Notes (on the day made) and done work (on the day ticked) are history.
-    if (const Row* r = row_at(x, y); r && !r->more && !r->id.empty() &&
+    const Clump* in = nullptr;
+    if (const Row* r = row_at(x, y, &in); r && !r->more && !r->id.empty() &&
         (r->step || r->why == core::TlWhy::Due || r->why == core::TlWhy::Starts ||
          r->why == core::TlWhy::Someday)) {
         grab_focus();   // so Esc mid-drag reaches the canvas, not the find field
@@ -581,7 +583,20 @@ void TimelineCanvas::on_drag_begin(double x, double y) {
         m_move_why = r->why;
         m_move_step = r->step;
         m_move_title = r->title;
+        m_move_lane = in ? in->lane : -1;   // s073
+        m_drop_lane = m_move_lane;
+        m_drop_someday = false;
     }
+}
+
+// s073: which lane a y is in (window coordinates). Only when grouped: Day is
+// one nameless lane, and nothing changes by moving within it.
+int TimelineCanvas::lane_at(double y) const {
+    if (m_lanes.size() < 2) return -1;
+    const double cy = y - strip_h() + m_oy;
+    for (std::size_t i = 0; i < m_lanes.size(); ++i)
+        if (cy >= m_lanes[i].y && cy < m_lanes[i].y + m_lanes[i].h) return static_cast<int>(i);
+    return cy < 0 ? 0 : static_cast<int>(m_lanes.size()) - 1;
 }
 
 std::int64_t TimelineCanvas::day_at_x(double x) const {
@@ -599,14 +614,26 @@ void TimelineCanvas::end_move(bool drop) {
     const core::TlWhy why = m_move_why;
     const bool step = m_move_step;
     const std::int64_t day = m_drop_day;
+    const bool someday = m_drop_someday;
+    auto key_of = [&](int i) {
+        return i >= 0 && i < static_cast<int>(m_lanes.size()) ? m_lanes[static_cast<std::size_t>(i)].key : std::string{};
+    };
+    const std::string from = key_of(m_move_lane);
+    const std::string to = m_drop_lane >= 0 ? key_of(m_drop_lane) : from;
+    const bool lane_moved = m_move_lane >= 0 && m_drop_lane >= 0 && m_drop_lane != m_move_lane;
     m_drag = Drag::Cancelled;
     m_move_id.clear();
     m_drop_day = 0;
+    m_drop_someday = false;
+    m_move_lane = m_drop_lane = -1;
     set_cursor("");
     queue_draw();
+    const bool any = day || someday || lane_moved;
     if (auto lg = log::get(log::Area::Shell))
-        lg->info("timeline: drag {} -- {}", drop && day ? "dropped" : "let go", drop && day ? fmt(day, "%a %e %b") : "no day");
-    if (drop && day && !id.empty()) m_sig_move.emit(id, why, step, day);
+        lg->info("timeline: drag {} -- {}{}", drop && any ? "dropped" : "let go",
+                 someday ? std::string("Someday") : day ? fmt(day, "%a %e %b") : std::string("no day"),
+                 lane_moved ? " -- lane '" + from + "' -> '" + to + "'" : std::string{});
+    if (drop && any && !id.empty()) m_sig_move.emit(id, why, step, day, someday, from, lane_moved ? to : from);
 }
 
 void TimelineCanvas::on_drag_update(double dx, double dy) {
@@ -631,6 +658,9 @@ void TimelineCanvas::on_drag_update(double dx, double dy) {
         else if (m_px > w - 40) m_ox += 16;
         clamp_offsets();
         m_drop_day = day_at_x(m_px);
+        m_drop_someday = m_someday_x > 0 && m_px + m_ox >= m_someday_x - 20;   // s073
+        if (m_drop_someday) m_drop_day = 0;
+        m_drop_lane = m_move_lane >= 0 ? lane_at(m_py) : -1;
         queue_draw();
         return;
     }
@@ -786,8 +816,33 @@ void TimelineCanvas::draw_move(const Cairo::RefPtr<Cairo::Context>& cr, int w, i
         cr->stroke();
         cr->unset_dash();
     }
+    // s073: the lane it would go to, and Someday, lit.
+    const bool lane_moved = m_move_lane >= 0 && m_drop_lane >= 0 && m_drop_lane != m_move_lane;
+    if (lane_moved) {
+        const Lane& L = m_lanes[static_cast<std::size_t>(m_drop_lane)];
+        const double top = strip_h();
+        source(cr, accent, 0.10);
+        cr->rectangle(0, L.y - m_oy + top, w, L.h);
+        cr->fill();
+        source(cr, accent, 0.6);
+        cr->rectangle(0, std::round(L.y - m_oy + top), w, 1.5);
+        cr->rectangle(0, std::round(L.y + L.h - m_oy + top) - 1.5, w, 1.5);
+        cr->fill();
+    }
+    if (m_drop_someday) {
+        const double x = m_someday_x - 20 - m_ox, top = strip_h();
+        source(cr, accent, 0.12);
+        cr->rectangle(x, top, w - x, h - top);
+        cr->fill();
+    }
     // the line itself, and where it would go
-    const std::string where = m_drop_day ? fmt(m_drop_day, "%a %e %b") : std::string("not a day");
+    std::string where = m_drop_someday ? std::string("Someday -- no date")
+                      : m_drop_day ? fmt(m_drop_day, "%a %e %b") : std::string(lane_moved ? "" : "not a day");
+    if (lane_moved) {
+        const Lane& L = m_lanes[static_cast<std::size_t>(m_drop_lane)];
+        where += (where.empty() ? "" : "  \u00b7  ") + L.title;
+    }
+    const bool lands = m_drop_day || m_drop_someday || lane_moved;
     auto lay = create_pango_layout(m_move_title + "  \u2192  " + where);
     int lw = 0, lh = 0;
     lay->get_pixel_size(lw, lh);
@@ -797,7 +852,7 @@ void TimelineCanvas::draw_move(const Cairo::RefPtr<Cairo::Context>& cr, int w, i
     source(cr, fg, 0.10);
     rounded(cr, bx + 1, by + 2, lw + 20, lh + 12, 9);
     cr->fill();
-    source(cr, m_drop_day ? accent : fg, m_drop_day ? 0.95 : 0.55);
+    source(cr, lands ? accent : fg, lands ? 0.95 : 0.55);
     rounded(cr, bx, by, lw + 20, lh + 12, 9);
     cr->fill();
     cr->set_source_rgba(1, 1, 1, 1);
@@ -1709,6 +1764,7 @@ void TimelinePane::set_source(core::NodeSource* src) {
 void TimelinePane::refresh() {
     if (!m_src) return;
     const std::int64_t now = now_s();
+    m_canvas.set_someday_shown(m_show.someday);   // s073
     auto tl = core::build_timeline(*m_src, m_show, now);
     m_summary.set_text(core::timeline_summary(tl, now));
     const std::size_t days = tl.days.size(), threads = tl.threads.size(), someday = tl.someday.size();
@@ -1733,19 +1789,39 @@ void TimelinePane::sync_group_and_show() {
 
 // s063: a line dropped on a day. core decides what moves (due, defer, a new
 // due); one Ctrl+Z, labelled with the day.
-void TimelinePane::on_move(const core::NodeId& id, core::TlWhy why, bool riding, std::int64_t day) {
+void TimelinePane::on_move(const core::NodeId& id, core::TlWhy why, bool riding, std::int64_t day,
+                           bool someday, const std::string& from, const std::string& to) {
     if (!m_src) return;
-    const core::TlMove mv = core::timeline_move(*m_src, id, why, riding, day);
+    // s063: a day; s073: or Someday (the date taken away) -- and/or another lane.
+    core::TlMove mv;
+    if (someday) mv = core::timeline_unschedule(*m_src, id, why, riding);
+    else if (day) mv = core::timeline_move(*m_src, id, why, riding, day);
+    const core::TlGroup g = m_canvas.group();
+    const core::TlLaneMove lm = core::timeline_lane_move(*m_src, id, g, from, to);
     const core::Node* n = m_src->find(id);
+    std::string lane_title;
+    if (lm.ok) {
+        if (to.empty()) lane_title = g == core::TlGroup::Place ? "No place" : "Loose ends";
+        else if (g == core::TlGroup::Place) lane_title = core::place_title(to);
+        else if (const core::Node* t = m_src->find(to)) lane_title = t->title;
+    }
     if (auto lg = log::get(log::Area::Shell))
-        lg->info("timeline: move '{}' to {} -- {}", n ? n->title : id, fmt(day, "%a %e %b"),
-                 !mv.ok ? "nothing to change" : mv.defer ? "its start" : "its due");
-    if (!mv.ok) return;
-    const std::string label = "Move to " + fmt(day, "%a %e %b");
+        lg->info("timeline: move '{}' -- {}{}", n ? n->title : id,
+                 !mv.ok ? std::string("the date stays") : someday ? std::string("to Someday")
+                        : std::string(mv.defer ? "its start to " : "its due to ") + fmt(day, "%a %e %b"),
+                 lm.ok ? " -- lane to " + lane_title : (from != to ? std::string(" -- the lane cannot change") : std::string{}));
+    if (!mv.ok && !lm.ok) return;
+    std::string label = someday && mv.ok ? std::string("Move to Someday")
+                      : mv.ok ? "Move to " + fmt(day, "%a %e %b") : std::string("Move");
+    if (lm.ok) label += (mv.ok ? " \u00b7 " : " to ") + lane_title;
+    auto write = [&](core::NodeSource& s) {
+        if (mv.ok) core::apply_timeline_move(s, id, mv);
+        if (lm.ok) core::apply_lane_move(s, id, lm);
+    };
     if (auto* u = dynamic_cast<core::UndoSource*>(m_src))
-        core::as_step(*u, label, {id}, false, [&] { core::apply_timeline_move(*u, id, mv); });
+        core::as_step(*u, label, {id}, false, [&] { write(*u); });
     else
-        core::apply_timeline_move(*m_src, id, mv);
+        write(*m_src);
     refresh();
     m_canvas.set_current(id);
     m_canvas.signal_pick().emit(id);   // Note details follows it, as a click would

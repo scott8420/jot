@@ -406,7 +406,9 @@ const std::vector<HelpTopic>& help_topics() {
              "stretches stack downward. Late work is red, today's orange, done green.",
              "- **Right-click** a card to open it: a project's steps come out.",
              "- **Drag a line to another day** to re-date it. Esc puts it back; Ctrl+Z "
-             "undoes.",
+             "undoes. Grouped by **Place**, drop it in another lane and its place changes; "
+             "by **Purpose**, it feeds that lane's goal. Drop it in **Someday** (turn it on "
+             "in Show) and its date goes.",
              "- **Week, Month, Season** — the three icons — zoom out to see "
              "further.",
              "- **Group** lays the cards in lanes: by **place** (one lane per #at/ "

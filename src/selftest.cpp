@@ -6292,6 +6292,64 @@ int main() {
                   core::capture(m, "   ").empty() && m.count() == 2);
         }
 
+        // s073: the timeline drag -- another lane, or Someday
+        {
+            core::MemoryNodes m;
+            const std::int64_t today = core::day_start(1'791'400'000);
+            const auto stamps = m.create("", "buy stamps");
+            m.make_task(stamps, true);
+            m.set_tags(stamps, {"errands", "at/town/post-office"});
+            m.set_due(stamps, today + 17 * 3600);
+            auto lm = core::timeline_lane_move(m, stamps, core::TlGroup::Place, "at/town", "at/hardware-store");
+            check("lanes: Town -> Hardware store -- the old place (and under it) off, the new one on",
+                  lm.ok && lm.tags && lm.new_tags == std::vector<std::string>{"errands", "at/hardware-store"});
+            auto ln = core::timeline_lane_move(m, stamps, core::TlGroup::Place, "at/town", "");
+            check("lanes: to No place -- the place comes off, nothing goes on",
+                  ln.ok && ln.new_tags == std::vector<std::string>{"errands"});
+            auto lf = core::timeline_lane_move(m, stamps, core::TlGroup::Place, "", "at/town");
+            check("lanes: from No place -- the place goes on (already under it: no change)",
+                  !lf.ok && core::timeline_lane_move(m, stamps, core::TlGroup::Place, "", "at/home").ok);
+            check("lanes: the same lane, or Day, is no move",
+                  !core::timeline_lane_move(m, stamps, core::TlGroup::Place, "at/town", "at/town").ok &&
+                  !core::timeline_lane_move(m, stamps, core::TlGroup::Day, "", "x").ok);
+            core::Journal j;
+            core::UndoSource u{j, [&] { return &m; }};
+            core::as_step(u, "Move", {stamps}, false, [&] { core::apply_lane_move(u, stamps, lm); });
+            check("lanes: written as one step", core::node_places(*m.find(stamps)) ==
+                  std::vector<std::string>{"at/hardware-store"} && j.size() == 1);
+            j.undo(m);
+            check("lanes: Ctrl+Z puts the place back", core::node_places(*m.find(stamps)) ==
+                  std::vector<std::string>{"at/town"});
+
+            const auto goal = m.create("", "Taxes 2027");
+            m.make_task(goal, true);
+            const auto proj = m.create("", "Move house");
+            const auto step = m.create(proj, "hand back keys");
+            m.make_task(step, true);
+            auto pg = core::timeline_lane_move(m, step, core::TlGroup::Purpose, proj, goal);
+            check("lanes: Purpose -- it feeds the lane's goal", pg.ok && pg.feeds && pg.new_feeds == goal);
+            check("lanes: Loose ends from the tree's project cannot be -- no feed to clear",
+                  !core::timeline_lane_move(m, step, core::TlGroup::Purpose, proj, "").ok);
+            core::apply_lane_move(m, step, pg);
+            auto pl = core::timeline_lane_move(m, step, core::TlGroup::Purpose, goal, "");
+            check("lanes: Loose ends clears a feed", pl.ok && pl.feeds && pl.new_feeds.empty());
+            const auto note = m.create("", "a note");
+            check("lanes: a note has no purpose to move",
+                  !core::timeline_lane_move(m, note, core::TlGroup::Purpose, "", goal).ok);
+
+            auto us = core::timeline_unschedule(m, stamps, core::TlWhy::Due, false);
+            check("someday: on its due -- the due goes", us.ok && !us.defer && us.when == 0);
+            core::apply_timeline_move(m, stamps, us);
+            check("someday: written", m.find(stamps)->task.due == 0);
+            m.set_defer(step, today + 86400);
+            auto ud = core::timeline_unschedule(m, step, core::TlWhy::Starts, false);
+            check("someday: a start -- the defer goes", ud.ok && ud.defer);
+            check("someday: riding steps, Someday things, done work stay",
+                  !core::timeline_unschedule(m, step, core::TlWhy::Due, true).ok &&
+                  !core::timeline_unschedule(m, stamps, core::TlWhy::Someday, false).ok &&
+                  !core::timeline_unschedule(m, note, core::TlWhy::Made, false).ok);
+        }
+
         // s072: a slipped feeder speaks
         {
             core::MemoryNodes m;

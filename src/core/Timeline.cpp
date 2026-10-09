@@ -535,6 +535,59 @@ bool apply_timeline_move(NodeSource& src, const NodeId& id, const TlMove& m) {
     return m.defer ? src.set_defer(id, m.when) : src.set_due(id, m.when);
 }
 
+TlMove timeline_unschedule(const NodeSource& src, const NodeId& id, TlWhy why, bool riding) {
+    TlMove m;
+    const Node* n = src.find(id);
+    if (!n || n->protect || riding) return m;
+    if (why == TlWhy::Due && n->task.due) { m.ok = true; return m; }
+    if (why == TlWhy::Starts && n->task.defer) { m.ok = true; m.defer = true; return m; }
+    return m;   // Someday already, done, made
+}
+
+TlLaneMove timeline_lane_move(const NodeSource& src, const NodeId& id, TlGroup g,
+                              const std::string& from, const std::string& to) {
+    TlLaneMove m;
+    const Node* n = src.find(id);
+    if (!n || n->protect || g == TlGroup::Day || from == to) return m;
+    if (g == TlGroup::Place) {
+        std::vector<std::string> out;
+        bool had_to = false;
+        for (const auto& t : node_tags(*n)) {
+            // The place it was under, and anything under that place, comes off.
+            std::string key = t;
+            for (auto& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            const bool under_from = !from.empty() && (key == from || key.rfind(from + "/", 0) == 0);
+            if (under_from) continue;
+            if (!to.empty() && (key == to || key.rfind(to + "/", 0) == 0)) had_to = true;
+            out.push_back(t);
+        }
+        if (!to.empty() && !had_to) out.push_back(to);
+        if (out == node_tags(*n)) return m;
+        m.ok = m.tags = true;
+        m.new_tags = std::move(out);
+        return m;
+    }
+    // Purpose
+    if (!n->task.is_task) return m;
+    if (to.empty()) {
+        if (n->task.feeds.empty()) return m;   // its purpose is the tree's
+        m.ok = m.feeds = true;
+        return m;
+    }
+    if (to == id || !src.find(to) || n->task.feeds == to) return m;
+    m.ok = m.feeds = true;
+    m.new_feeds = to;
+    return m;
+}
+
+bool apply_lane_move(NodeSource& src, const NodeId& id, const TlLaneMove& m) {
+    if (!m.ok) return false;
+    bool any = false;
+    if (m.tags) any = src.set_tags(id, m.new_tags) || any;
+    if (m.feeds) any = src.set_feeds(id, m.new_feeds) || any;
+    return any;
+}
+
 }  // namespace jot::core
 
 // ── s064: lines = links ─────────────────────────────────────────────────────
