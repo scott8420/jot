@@ -25,4 +25,4 @@ fi
 echo ""
 echo "Built: ./build/jot  and  ./build/jot_selftest"
 echo "Smoke: ./build/jot_selftest"
-echo "Notifications: ./build.sh --install-desktop   (once; see install-desktop.sh)"
+echo "Install for your login: ./install.sh   (./uninstall.sh takes it out)"

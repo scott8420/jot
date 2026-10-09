@@ -98,7 +98,7 @@ const std::vector<HelpTopic>& help_topics() {
              "- **Your own key**, anywhere on the desktop, jot open or not. Set it in "
              "Preferences › Capture.",
              "- **The Jot tile** in GNOME's quick settings: its › opens a capture "
-             "line. Install it once with `./install-extension.sh`.",
+             "line. `./install.sh` puts it in with the rest of jot.",
              "- **The command line**: `jot --capture \"ring the vet\"`. With jot closed, "
              "the thought is kept and filed the next time jot opens.",
              "Words with a # become tags as they arrive: \"ring the vet #pets\" files "

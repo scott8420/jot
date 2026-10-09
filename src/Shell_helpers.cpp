@@ -1855,7 +1855,7 @@ void Shell::show_notify_status() {  // helper: the footer's fourth line
     if (!m_notify_ok) {
         m_today->set_notify_status(
             "Not installed \u2014 GNOME drops notifications from an app it cannot "
-            "look up. Run  ./build.sh --install-desktop  once, then restart jot.");
+            "look up. Run  ./install.sh  once, then restart jot.");
         return;
     }
     // ── receipts, with a clock on them (s015) ─────────────────────────────
@@ -2051,7 +2051,7 @@ void Shell::show_background_status() {  // helper: the footer's sixth line
     if (!m_notify_ok) {
         m_today->set_background_status(
             "On \u2014 but jot has no installed .desktop entry, so its notifications "
-            "go nowhere. Run  ./build.sh --install-desktop  once.");
+            "go nowhere. Run  ./install.sh  once.");
         return;
     }
     std::string s = "On. Closing the window hides it; the clock keeps running. "

@@ -75,7 +75,7 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Capture", "", "Jot tile", "Capture from GNOME's quick settings panel",
          "The › on the Jot tile opens a line: a thought, or Groceries -l milk eggs, or "
          "Groceries -a words -- as on the command line; #words become tags. What can I type? folds out under it. "
-         "Install once with ./install-extension.sh."},
+         "./install.sh puts it in (or ./install-extension.sh on its own)."},
 
         // ── Inbox ───────────────────────────────────────────────────────────
         {"Inbox", "", "Inbox tab", "Everything captured and not dealt with yet",
@@ -399,6 +399,12 @@ const std::vector<CheatLine>& cheat_sheet() {
         {"Command line", "", "jot --glance", "Print the Glance at Today and exit",
          "jot --glance ics prints the day as a calendar file. Works with jot closed -- a cron job "
          "at 7:00 can mail it to you."},
+        {"Command line", "", "jot --background", "Start jot with no window, running in the background",
+         "What Start at login runs (./install.sh asks). With jot already running it does nothing."},
+        {"Command line", "", "./install.sh  /  ./uninstall.sh", "Install jot for your login, or take it all out",
+         "In the source folder. install.sh: a release build into ~/.local/bin, the launcher, the icon, the "
+         "Jot tile, Start at login if you say yes; run it again to update. uninstall.sh never touches a "
+         "jots folder, and asks before taking your settings."},
         {"Command line", "", "JOT_DEBUG=info:all jot", "A talkative console, for chasing a problem",
          "Quiet (warnings only) without it."},
 

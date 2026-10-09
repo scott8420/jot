@@ -250,7 +250,7 @@ class JotCaptureToggle extends QuickSettings.QuickMenuToggle {
 
         const exe = jotExecutable();
         if (!exe) {
-            this._say('jot not found -- run install-desktop.sh', true);
+            this._say('jot not found -- run ./install.sh', true);
             return;
         }
 

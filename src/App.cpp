@@ -83,6 +83,12 @@ App::App()
                           "Print the Glance at Today -- late, due, flagged, errands -- and "
                           "exit; jot --glance ics prints it as a calendar file. Works with "
                           "jot closed, from cron too.");
+    // s074: what the login autostart entry runs (install.sh). Starts jot
+    // resident with no window -- the due clock and the capture door open from
+    // login, nothing on the screen.
+    add_main_option_entry(Gtk::Application::OptionType::BOOL, "background", '\0',
+                          "Start jot with no window, running in the background (what "
+                          "\"Start at login\" runs). With jot already running, does nothing.");
     // s061e: written by core::cli_join_append_list (main.cpp), not typed --
     // hidden from --help, which shows -al instead.
     add_main_option_entry(Gtk::Application::OptionType::BOOL, "both", '\0',
@@ -157,7 +163,30 @@ int App::on_command_line(const Glib::RefPtr<Gio::ApplicationCommandLine>& cmd) {
         if (g_variant_dict_lookup(opts, "both", "b", &on)) both_flag = on;
     }
 
+    bool background_flag = false;
+    if (GVariantDict* opts = g_application_command_line_get_options_dict(cmd->gobj())) {
+        gboolean on = FALSE;
+        if (g_variant_dict_lookup(opts, "background", "b", &on)) background_flag = on;
+    }
+
     const Request r = parse(argv, capture_flag, list_flag, append_flag, both_flag);
+
+    // ── jot --background (s074) ─────────────────────────────────────────────
+    // The login autostart. A cold start builds the Shell and does NOT present
+    // it: a window constructed and not shown is the resident state jot already
+    // has (s012), so the due clock runs and captures land. Reaching a jot that
+    // is already running it does nothing at all -- a second login entry, or a
+    // stray run from a terminal, must not throw the window up or restart it.
+    if (background_flag && !r.capture && !r.list && !r.append && !r.both) {
+        if (cmd->is_remote()) {
+            cmd->print("jot is already running.\n");
+            return 0;
+        }
+        ensure_shell(/*present=*/false);
+        if (auto lg = log::get(log::Area::App))
+            lg->info("started in the background -- no window");
+        return 0;
+    }
 
     // ── jot NAME -al "line" item... (s061e) ────────────────────────────────
     // Arrives as --both NAME "line" items (core/Cli rewrote it). The line goes

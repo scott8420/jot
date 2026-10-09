@@ -64,9 +64,8 @@ answers in the terminal -- `Made "Groceries" with 3 items.`, `Added a
 line to "Groceries".` -- so a mistyped name shows as "Made". With jot
 closed it is filed the next time jot opens.
 
-`jot` is not put on your PATH by the build. To run it by name:
-`ln -s "$PWD/build/jot" ~/.local/bin/jot` (a link, so every rebuild is
-picked up).
+`./install.sh` puts `jot` in `~/.local/bin`, on your PATH (see Install).
+The build alone does not.
 
 jot is a **single instance**: with jot running, the second command
 forwards its arguments to the running one over the session bus and
@@ -84,7 +83,8 @@ only once its note is written into a jots folder. jot with no folder
 open leaves the spool alone and drains it the moment one appears. A
 crash in the middle costs a duplicate, never a thought.
 
-**There is no daemon** — no autostart, nothing started on your behalf.
+**There is no daemon** unless you ask for one: `./install.sh` offers
+Start at login (`jot --background`, no window).
 
 With text, the window is deliberately *not* raised: filing a thought
 from a script or a keybinding should not throw a window in front of
@@ -94,7 +94,7 @@ only sensible reading is "let me type", and that does raise it.
 ### A tile in quick settings
 
 ```sh
-./install-extension.sh      # once; then log out and back in
+./install.sh                # puts it in with the rest; log out and back in once
 ```
 
 puts a **Jot** tile in GNOME's quick settings panel (top-right). Its ›
@@ -149,8 +149,8 @@ A folder with tags still in its notes' text (from before, or from another
 app) is offered a one-time move when it opens -- one Ctrl+Z undoes it all.
 
 The tile files nothing itself: every Enter is a `jot` command line,
-run with the binary the desktop entry names (`install-desktop.sh`, which
-the script runs first if it has to). `--uninstall` takes it out.
+run with the binary the desktop entry names. `./uninstall.sh` takes it out
+(`./install-extension.sh` alone still works from a build tree).
 
 ### A global key for it
 
@@ -445,6 +445,31 @@ pump with its encode/decode adjacent, forward/inverse text mapping with
 a round-trip test, the compiled-in resource pipeline, hide-on-close
 dialog lifetime, desktop light/dark following, and a shortcut registry
 with one source and two consumers.
+
+## Install
+
+```sh
+./install.sh        # build, check, install for your login -- no sudo
+./uninstall.sh      # all of it back out; never a jots folder
+```
+
+`install.sh` makes a release build in `build-release/` (your `build/` is
+left alone), runs the selftest, and installs only if it passes:
+`~/.local/bin/jot`, the launcher (so notifications reach you), the D-Bus
+service (a notification click starts jot), the pixie icon, and the Jot tile.
+It asks whether to **start jot at login**, in the background with no window
+(`--autostart` / `--no-autostart` answer it up front; `-y` asks nothing). A
+running jot is asked to quit first, and a global capture key set in
+Preferences is pointed at the installed program. It ends with a list of what
+went where. **Run it again to update.**
+
+`uninstall.sh` quits jot, then removes every one of those, the capture key,
+and the "jot" calendar in the clock drop-down (a copy jot made). Your
+settings in `~/.local/share/jot` -- preferences, Recent jots, captures still
+waiting -- are kept unless you say yes (`--purge` without asking).
+
+The older `install-desktop.sh` / `install-extension.sh` still work, for
+running straight out of a build tree.
 
 ## Build
 
