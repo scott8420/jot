@@ -64,8 +64,9 @@ answers in the terminal -- `Made "Groceries" with 3 items.`, `Added a
 line to "Groceries".` -- so a mistyped name shows as "Made". With jot
 closed it is filed the next time jot opens.
 
-`./install.sh` puts `jot` in `~/.local/bin`, on your PATH (see Install).
-The build alone does not.
+`jot` is not put on your PATH by the build. To run it by name:
+`ln -s "$PWD/build/jot" ~/.local/bin/jot` (a link, so every rebuild is
+picked up).
 
 jot is a **single instance**: with jot running, the second command
 forwards its arguments to the running one over the session bus and
@@ -83,8 +84,7 @@ only once its note is written into a jots folder. jot with no folder
 open leaves the spool alone and drains it the moment one appears. A
 crash in the middle costs a duplicate, never a thought.
 
-**There is no daemon** unless you ask for one: `./install.sh` offers
-Start at login (`jot --background`, no window).
+**There is no daemon** — no autostart, nothing started on your behalf.
 
 With text, the window is deliberately *not* raised: filing a thought
 from a script or a keybinding should not throw a window in front of
@@ -94,7 +94,7 @@ only sensible reading is "let me type", and that does raise it.
 ### A tile in quick settings
 
 ```sh
-./install.sh                # puts it in with the rest; log out and back in once
+./install-extension.sh      # once; then log out and back in
 ```
 
 puts a **Jot** tile in GNOME's quick settings panel (top-right). Its ›
@@ -124,6 +124,24 @@ text and join the note's tags -- `ring the vet #pets` is a note "ring the
 vet" tagged pets; `Groceries -l milk rye #organic #errands` adds milk and rye,
 and tags Groceries organic and errands.
 
+**Tile missing after login?** GNOME says nothing when it skips one. Ask it:
+
+```sh
+gnome-extensions info jot-capture@scott8420.github.io
+```
+
+- `Enabled: No` -- it is in GNOME's disabled list, which overrides the
+  enabled one (switching it off in the Extensions app puts it there, and
+  re-installing does not take it out). Fix, no log out needed:
+  `gnome-extensions enable jot-capture@scott8420.github.io`
+- `State: OUT OF DATE` -- your GNOME is newer than the tile's
+  `shell-version` in `metadata.json`.
+- `State: ERROR` -- it threw while loading; see
+  `journalctl --user -b -o cat | grep -A8 jot-capture`
+- Not found at all -- run `./install-extension.sh`, then log out and in.
+- Extensions off altogether? `gsettings get org.gnome.shell
+  disable-user-extensions` should say `false`.
+
 ## Tags
 
 A note's tags sit over its text as chips -- **#errands ×** -- not in the
@@ -149,8 +167,8 @@ A folder with tags still in its notes' text (from before, or from another
 app) is offered a one-time move when it opens -- one Ctrl+Z undoes it all.
 
 The tile files nothing itself: every Enter is a `jot` command line,
-run with the binary the desktop entry names. `./uninstall.sh` takes it out
-(`./install-extension.sh` alone still works from a build tree).
+run with the binary the desktop entry names (`install-desktop.sh`, which
+the script runs first if it has to). `--uninstall` takes it out.
 
 ### A global key for it
 
@@ -445,60 +463,6 @@ pump with its encode/decode adjacent, forward/inverse text mapping with
 a round-trip test, the compiled-in resource pipeline, hide-on-close
 dialog lifetime, desktop light/dark following, and a shortcut registry
 with one source and two consumers.
-
-## Install
-
-```sh
-./install.sh        # build, check, install for your login -- no sudo
-./uninstall.sh      # all of it back out; never a jots folder
-```
-
-`install.sh` makes a release build in `build-release/` (your `build/` is
-left alone), runs the selftest, and installs only if it passes:
-`~/.local/bin/jot`, the launcher (so notifications reach you), the D-Bus
-service (a notification click starts jot), the pixie icon, and the Jot tile.
-It asks whether to **start jot at login**, in the background with no window
-(`--autostart` / `--no-autostart` answer it up front; `-y` asks nothing). A
-running jot is asked to quit first, and a global capture key set in
-Preferences is pointed at the installed program. It ends with a list of what
-went where. **Run it again to update.**
-
-`uninstall.sh` quits jot, then removes every one of those, the capture key,
-and the "jot" calendar in the clock drop-down (a copy jot made). Your
-settings in `~/.local/share/jot` -- preferences, Recent jots, captures still
-waiting -- are kept unless you say yes (`--purge` without asking).
-
-The older `install-desktop.sh` / `install-extension.sh` still work, for
-running straight out of a build tree.
-
-## Backups
-
-On by default, and they need `rsync`. A copy of the open jots folder for each
-day, made with `rsync --link-dest`:
-
-```
-~/.local/share/jot/backups/
-  home.jots/
-    2026-10-08/      a whole folder, as it was that day
-    2026-10-09/      unchanged files are hard links to the 8th's -- a day
-                     costs only what changed
-```
-
-Today's is made a few seconds after jot starts (or a folder opens), refreshed
-at most hourly while you work, and once more when jot quits or the folder
-closes -- each time only if something changed. Kept: the last 7 days, plus
-one for each of the 4 weeks before. No day depends on another, so pruning is
-deleting folders, and any day opens in Files as it is.
-
-**Preferences › Backups**: on / off, **Where** (Choose… another drive or a
-synced folder; Default puts it back), "Last backup: today 09:02 · 9 days
-kept", **Back Up Now**, **Restore…**. A chosen place that is not there (a
-drive not plugged in) is skipped, said in that line, and tried again later --
-jot never makes the folder on the wrong disk.
-
-**Main menu › Restore from Backup…** lists the days; the one you pick comes
-back as a new folder beside the open one -- `home (restored 8 Oct 2026).jots`
--- and nothing you have now is touched. Open It, or copy a note back by hand.
 
 ## Build
 
